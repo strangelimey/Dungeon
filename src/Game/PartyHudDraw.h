@@ -93,10 +93,26 @@ void DrawPortrait(gfx::SpriteBatch& batch, const gfx::Rect& rect,
 
 struct ItemIconBank; // PartyHudTypes.h
 
+// --- status effects ----------------------------------------------------------
+// The share of an effect's time still to run, 0..1 - its icon's sliver. An
+// effect with no duration (it lasts until something lifts it) reads full.
+float EffectTimeLeft(const fx::Inst& effect);
+// One effect's ICON in `rect`, the HUD strip's and the sheet's Effects tab's
+// alike (code-review C263: two copies had drifted apart): an item socket
+// (ui::DrawSlotFace), the kind's art in its well - a rune as its glyph alone,
+// never the tablet - or a `tint` square without it, the time-left sliver
+// (`frac`, EffectTimeLeft) draining along the picture's foot, and a border in
+// `tint` (the effect's school). The picture's inset and the sliver's thickness
+// are shares of the icon, so a small strip icon and a large tab icon draw alike.
+void DrawEffectIcon(const ui::UIContext& ctx, gfx::SpriteBatch& batch, const gfx::Rect& rect,
+					const fx::EffectKind* kind, const Vec4& tint, float frac,
+					const ItemIconBank* icons);
+
 // One rune face: the rune-item icon when loaded, else an element-tinted
-// fallback square; element-coloured border. The spellbook's grid and sequence
-// and a hand box armed with a spell all draw runes through this, so a rune
-// reads the same everywhere. `disabled` washes it out under a dark overlay.
+// fallback square; element-coloured border. DrawRuneGlow's FALLBACK, for when
+// the glow masks are not installed - the spellbook, the hand boxes and every
+// other rune control draw through DrawRuneGlow, so a rune reads the same
+// everywhere either way. `disabled` washes it out under a dark overlay.
 // `background` = false skips the face's own black fill, so whatever is under
 // it shows through (a set hand's accent tint).
 void DrawRuneFace(gfx::SpriteBatch& batch, const gfx::Rect& r, SpellSymbol s,

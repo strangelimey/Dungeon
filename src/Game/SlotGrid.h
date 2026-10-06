@@ -2,9 +2,10 @@
 // Game/SlotGrid.h — monster size classes and sub-cell slot geometry.
 //
 // A monster has a SIZE CLASS that decides how much of a cell it occupies and
-// how many fit. The 2.4 m cell is subdivided into a square sub-grid; a monster
-// stands at the centre of one slot rather than the cell centre, so several
-// like-sized monsters share a cell (a "group" — see docs/movement.md):
+// how many fit. The cell (kCellSize, one square) is subdivided into a square
+// sub-grid; a monster stands at the centre of one slot rather than the cell
+// centre, so several like-sized monsters share a cell (a "group" - see
+// docs/movement.md):
 //
 //   Huge   2x2 CELLS, one occupant   (1-wide corridors exclude it)
 //   Large  1 cell,  1x1 slot grid    (slot 0 == CellCenter; today's default)

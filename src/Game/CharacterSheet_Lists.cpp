@@ -35,27 +35,11 @@ int CountLines(const ui::Font& font, std::string_view text, float maxW) {
 // school, weapons steel, defence bronze, each reserve the pool it feeds.
 constexpr Vec4 kWeaponSteel{0.70f, 0.76f, 0.84f, 1.0f};
 constexpr Vec4 kDefenceBronze{0.85f, 0.62f, 0.30f, 1.0f};
-// The reserves wear the pool each one feeds (bar.hlsl's bright stops).
+// The reserves wear the pool each one feeds: picked by eye to read as that
+// pool's colour - close to bar.hlsl's bright stops, not copies of them.
 constexpr Vec4 kHealthRed{0.95f, 0.18f, 0.14f, 1.0f};
 constexpr Vec4 kStaminaGreen{0.35f, 0.95f, 0.45f, 1.0f};
 constexpr Vec4 kManaBlue{0.30f, 0.60f, 1.00f, 1.0f};
-
-Vec4 SkillBarColor(std::string_view id) {
-	if (SpellSymbol sym; ParseSymbol(id, sym)) {
-		const Vec4 c = ElementColor(sym);
-		return {c.x, c.y, c.z, 1.0f};
-	}
-	if (id == resource::SkillId(resource::Kind::Health)) return kHealthRed;
-	if (id == resource::SkillId(resource::Kind::Stamina)) return kStaminaGreen;
-	if (id == resource::SkillId(resource::Kind::Mana)) return kManaBlue;
-	if (id == kAvoidSkill) return kDefenceBronze;
-	for (int c = 0; c < static_cast<int>(ArmorClass::Count); ++c)
-		if (const char* skill = ArmorSkillId(static_cast<ArmorClass>(c)); *skill && id == skill)
-			return kDefenceBronze;
-	// Everything else is a way of hitting things: unarmed, throwing, and every
-	// weapon class a catalog names.
-	return kWeaponSteel;
-}
 
 // A skill bar's glass, as a share of the text height beside it (Michael, A1:
 // the rows open up so the bar stays about as tall as its text).
@@ -75,6 +59,24 @@ float SkillBand(const ui::Font& font, const ResourceBarStyle& style) {
 }
 
 } // namespace
+
+// Declared in CharacterSheet.h: the status bar names a skill in it too.
+Vec4 SkillBarColor(std::string_view id) {
+	if (SpellSymbol sym; ParseSymbol(id, sym)) {
+		const Vec4 c = ElementColor(sym);
+		return {c.x, c.y, c.z, 1.0f};
+	}
+	if (id == resource::SkillId(resource::Kind::Health)) return kHealthRed;
+	if (id == resource::SkillId(resource::Kind::Stamina)) return kStaminaGreen;
+	if (id == resource::SkillId(resource::Kind::Mana)) return kManaBlue;
+	if (id == kAvoidSkill) return kDefenceBronze;
+	for (int c = 0; c < static_cast<int>(ArmorClass::Count); ++c)
+		if (const char* skill = ArmorSkillId(static_cast<ArmorClass>(c)); *skill && id == skill)
+			return kDefenceBronze;
+	// Everything else is a way of hitting things: unarmed, throwing, and every
+	// weapon class a catalog names.
+	return kWeaponSteel;
+}
 
 // --- SheetList -------------------------------------------------------------
 
@@ -111,6 +113,15 @@ SheetList::SheetList(const gfx::Rect& rect, std::string heading,
 
 void SheetList::ScrollToTop() {
 	if (m_scroll) m_scroll->ScrollToTop();
+}
+
+gfx::Rect SheetList::RowRect(size_t i) const {
+	if (!m_rows || i >= m_rowTop.size() || m_placeH <= 0.0f) return {};
+	// The placer's own fractions of m_placeH, against the repeater as laid out
+	// (its scroll offset included).
+	const gfx::Rect& box = m_rows->Pixel();
+	const float k = box.h / m_placeH;
+	return {box.x, box.y + m_rowTop[i] * k, box.w, m_rowH[i] * k};
 }
 
 void SheetList::Warm(size_t n) {
@@ -184,11 +195,11 @@ void CharacterSheet::BakeSkills() {
 	m_skillRows.Reset();
 	if (!m_character) return;
 	const Character& character = *m_character;
-	// Skills-tab rows (docs/skills.md): the school skills first (symbol order,
-	// bar tinted by school), then every other trained skill in the map's
-	// alphabetical order (weapon classes — accent bar). Only trained skills
-	// (xp > 0) list; none at all keeps the "No skills yet." line.
-	auto addRow = [&](std::string_view id, float xp, const Vec4& tint) {
+	// Skills-tab rows (docs/skills.md): the school skills first (symbol order),
+	// then every other trained skill in the map's alphabetical order. Only
+	// trained skills (xp > 0) list; none at all keeps the "No skills yet." line.
+	// A row's colour is its id's (SkillBarColor), asked where it is drawn.
+	auto addRow = [&](std::string_view id, float xp) {
 		const int level = Character::LevelForXp(xp);
 		const float base = static_cast<float>(level * level);
 		const float next = static_cast<float>((level + 1) * (level + 1));
@@ -199,7 +210,6 @@ void CharacterSheet::BakeSkills() {
 		const auto end = std::format_to_n(buf, sizeof(buf), "{}", level).out;
 		row.level.assign(buf, end);
 		row.frac = std::clamp((xp - base) / (next - base), 0.0f, 1.0f);
-		row.tint = tint;
 		row.header = false;
 	};
 	// A heading, added only when its group turns out to have rows — so a member
@@ -211,7 +221,6 @@ void CharacterSheet::BakeSkills() {
 		row.label.assign(loc::View(key));
 		row.level.clear();
 		row.frac = 0.0f;
-		row.tint = {0, 0, 0, 0};
 		row.header = true;
 	};
 	// The RESOURCE practices are told apart from the rest by id, not by any flag
@@ -223,23 +232,21 @@ void CharacterSheet::BakeSkills() {
 		return false;
 	};
 
-	// --- what you chose to practise: schools first (symbol order, tinted by
-	// school), then everything else in the map's alphabetical order.
+	// --- what you chose to practise: schools first (symbol order), then
+	// everything else in the map's alphabetical order.
 	const size_t trainedStart = m_skillRows.size();
 	addHeader("sheet.skills.training");
 	const size_t afterHeader = m_skillRows.size();
 	for (u32 s = 0; s < kSymbolCount; ++s) {
 		const SpellSymbol sym = static_cast<SpellSymbol>(s);
 		if (!IsSchoolSymbol(sym)) continue;
-		if (const float xp = character.SkillXpOf(SymbolId(sym)); xp > 0.0f) {
-			const Vec4 c = ElementColor(sym);
-			addRow(SymbolId(sym), xp, {c.x, c.y, c.z, 1.0f});
-		}
+		if (const float xp = character.SkillXpOf(SymbolId(sym)); xp > 0.0f)
+			addRow(SymbolId(sym), xp);
 	}
 	for (const auto& [id, xp] : character.skillXp) {
 		SpellSymbol sym;
 		if (ParseSymbol(id, sym)) continue; // schools already listed above
-		if (xp > 0.0f && !isPractice(id)) addRow(id, xp, {0, 0, 0, 0});
+		if (xp > 0.0f && !isPractice(id)) addRow(id, xp);
 	}
 	if (m_skillRows.size() == afterHeader) m_skillRows.Truncate(trainedStart);
 
@@ -248,7 +255,7 @@ void CharacterSheet::BakeSkills() {
 	addHeader("sheet.skills.reserves");
 	const size_t afterBody = m_skillRows.size();
 	for (const auto& [id, xp] : character.skillXp)
-		if (xp > 0.0f && isPractice(id)) addRow(id, xp, {0, 0, 0, 0});
+		if (xp > 0.0f && isPractice(id)) addRow(id, xp);
 	if (m_skillRows.size() == afterBody) m_skillRows.Truncate(bodyStart);
 }
 
@@ -261,8 +268,7 @@ void CharacterSheet::BakeEffects() {
 		EffectRow& row = m_effectRows.Next();
 		row.kind = e.kind;
 		row.tint = {c.x, c.y, c.z, 1.0f};
-		row.frac = e.duration > 0.0f ? std::clamp(e.timeLeft / e.duration, 0.0f, 1.0f)
-									 : 1.0f;
+		row.frac = EffectTimeLeft(e);
 		row.name.assign(loc::View(e.NameKey()));
 		// The description's key is <nameKey>.desc, assembled on the stack.
 		constexpr std::string_view kDesc = ".desc";
@@ -470,19 +476,10 @@ void CharacterSheet::DrawEffectRow(size_t i, ui::UIContext& ctx,
 	const gfx::Rect px = Body();
 
 	// Square, spanning the name line: top on the name's top, bottom where the
-	// description starts.
+	// description starts. Drawn exactly as the HUD strip draws it.
 	const float iconSize = EffectIconSize(font);
-	const gfx::Rect icon{Ax(px, kEffectIconX), r.y, iconSize, iconSize};
-	const gfx::Rect well = ui::DrawSlotFace(ctx, batch, icon, kSlotBg);
-	const gfx::Rect pic{well.x + 2, well.y + 2, well.w - 4, well.h - 4};
-	// Symbolic: a rune icon is the glyph alone, never its carved tablet.
-	if (!row.kind || !DrawItemIcon(batch, pic, row.kind->IconItem(), m_icons, 0.0f,
-								   /*symbolic=*/true))
-		batch.DrawRect(pic,
-					   {row.tint.x, row.tint.y, row.tint.z, 0.5f});
-	batch.DrawRect({icon.x + 2, icon.y + icon.h - 5, (icon.w - 4) * row.frac, 3},
-				   row.tint);
-	ui::DrawBorder(batch, icon, row.tint);
+	DrawEffectIcon(ctx, batch, {Ax(px, kEffectIconX), r.y, iconSize, iconSize}, row.kind,
+				   row.tint, row.frac, m_icons);
 
 	const float textX = px.x + EffectTextInset(font);
 	const float maxW = Ax(px, kTextRight) - textX;

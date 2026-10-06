@@ -341,6 +341,11 @@ public:
 		return m_sheet ? m_sheet->StatusText() : std::string_view{};
 	}
 	unsigned SheetPackEquips() const { return m_sheet ? m_sheet->PackEquips() : 0u; }
+	// The sheet itself (null before BuildStaticUi), for the rest of the
+	// `sheet` readout and its `tab` verb, which goes through the tab stones'
+	// own SelectMode.
+	CharacterSheet* Sheet() { return m_sheet; }
+	const CharacterSheet* Sheet() const { return m_sheet; }
 
 	// --- spellbook (the Magic area) ------------------------------------------------
 	// Opens member `i`'s book exactly as its selector button does, or refuses

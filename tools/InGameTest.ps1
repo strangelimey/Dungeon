@@ -40,6 +40,20 @@
 #               picker under a heap line FORCED just above what is live
 #               (`thumbcap heap`): it stops loading at the line and makes room
 #               from what is off screen. Run-wide checks, before the screens.
+#   the sheet   (code-review batch 54) three readouts, run-wide, before the
+#               screens: the ARMOR TOOLTIP's rows (`sheet armor`) for Brand,
+#               unarmored with `avoid` trained, alone and beside the plate
+#               cuirass - on each side the Roll's terms (base, DEX, stance,
+#               avoidance, armor) add up to the Roll (C372: the avoidance row
+#               was gone, and an unarmored member's terms came out short by
+#               it) and each CELL shows its value, the avoidance as
+#               "+N (lvl 3)" unarmored and "-" armored (the sum alone holds by
+#               construction); a SKILL'S NAME on the status bar in its BAR's
+#               colour (C477) - the pointer parked on the blade row, `sheet bar
+#               colour` must be the row's; and the HUD EFFECT STRIP
+#               photographed with three wards up (C263, one DrawEffectIcon)
+#               into build\<cfg>\bin\shots for a look, the verdict only that it
+#               was taken.
 #
 #   backdrop    (code-review C365) what Render drew behind the pause menu and
 #               the sheet opened from the world map: the world map, with no 3D
@@ -864,6 +878,82 @@ try {
 	Run-Cmd 'editor off'
 	Run-Cmd 'mappage close'
 
+	# THE SHEET'S READOUTS (code-review batch 54), judged below. The ARMOR
+	# TOOLTIP's rows for Brand, unarmored with `avoid` trained - so the avoidance
+	# is worth points and a row left out shows in the sum - alone and beside the
+	# plate cuirass in his pack.
+	Run-Cmd 'setskill 0 avoid 3'
+	Run-Cmd 'sheet armor 0'
+	Run-Cmd 'sheet armor 0 plate_cuirass'
+	# A SKILL'S NAME IN ITS BAR'S COLOUR: blade trained (a weapon: its bar is
+	# steel, where the name used to take the accent), the Skills tab shown and
+	# laid out - the console shut a moment, since an open console's frames
+	# update no UI - then the pointer parked on the blade row, where `sheet
+	# status` says it is, and the bar read again behind a marker.
+	Run-Cmd 'setskill 0 blade 1.5'
+	Run-Cmd 'sheet 0'
+	Run-Cmd 'sheet tab skills'
+	Send-Key $VK_CONSOLE; Start-Sleep -Milliseconds 1000
+	Open-Console
+	$bladePattern = 'console: sheet skill blade at (\d+),(\d+) colour (\S+)'
+	$listed = Get-LogMatchCount $bladePattern
+	Run-Quick 'sheet status'
+	$bladeRow = @(Wait-NewLogLines $bladePattern $listed 1 10)
+	if ($bladeRow.Count -gt 0) {
+		$g = $bladeRow[-1].Matches[0].Groups
+		$at = [int64](([int]$g[2].Value -shl 16) -bor ([int]$g[1].Value -band 0xFFFF))
+		Send-Key $VK_CONSOLE; Start-Sleep -Milliseconds 400
+		Send-Message 0x200 0 $at   # WM_MOUSEMOVE: onto the row
+		Start-Sleep -Milliseconds 1000
+		Open-Console
+		Run-Quick 'echo sheet-hover blade'
+		Run-Quick 'sheet status'
+		# And away, to the middle of the window - the 3D view once the sheet
+		# shuts, where no panel lights up under it in the strip's picture below.
+		$size = Get-ClientSize
+		Send-Message 0x200 0 ([int64]((([int]($size[1] / 2)) -shl 16) -bor ([int]($size[0] / 2))))
+	}
+	Run-Cmd 'sheet off'
+	# THE HUD EFFECT STRIP (one DrawEffectIcon, the sheet's too): three wards on
+	# Brand, laid out with the console shut, the strip found in the HUD tree
+	# (member 0's EffectsArea, the first) and photographed, the console shut
+	# again - Michael's look; the verdict is only that the icons were up and
+	# the picture was taken.
+	Run-Cmd 'effect stoneskin 0'
+	Run-Cmd 'effect fireshield 0'
+	Run-Cmd 'effect windward 0'
+	Send-Key $VK_CONSOLE; Start-Sleep -Milliseconds 1000
+	Open-Console
+	$dumped = Get-LogMatchCount 'console: --- hud ---'
+	Run-Cmd 'uitree dump hud'
+	Wait-NewLogLines 'console: --- hud ---' $dumped 1 10 | Out-Null
+	$strip = $null; $stripIcons = 0; $stripSpread = -1; $stripShot = Join-Path $shotDir 'ingametest-effectstrip.png'
+	$dump = @(Get-Content $log)
+	$top = -1
+	for ($i = $dump.Count - 1; $i -ge 0; $i--) { if ($dump[$i] -match '^\[info \] console: --- hud ---\s*$') { $top = $i; break } }
+	$stripIndent = -1
+	for ($i = $top + 1; $top -ge 0 -and $i -lt $dump.Count; $i++) {
+		if ($dump[$i] -notmatch '^\[info \] console: ( *)(\S.*)$') { continue }
+		$indent = $Matches[1].Length; $rest = $Matches[2]
+		if (-not $strip) {
+			if ($rest -match '^EffectsArea  px (-?\d+),(-?\d+) (\d+)x(\d+)') {
+				$strip = @([int]$Matches[1], [int]$Matches[2], [int]$Matches[3], [int]$Matches[4])
+				$stripIndent = $indent
+			}
+		} elseif ($indent -le $stripIndent) {
+			break
+		} elseif ($rest -match '^EffectIcon  px ') {
+			$stripIcons++   # shown (a hidden one reads "EffectIcon (hidden)")
+		}
+	}
+	if ($strip -and $strip[2] -gt 0 -and $strip[3] -gt 0) {
+		Send-Key $VK_CONSOLE; Start-Sleep -Milliseconds 1500
+		$m = 6   # a margin, so the icons' borders show whole
+		$stripSpread = Save-PadShot (Join-Path $shotDir 'ingametest-hud-effects.png') @(
+			($strip[0] - $m), ($strip[1] - $m), ($strip[2] + 2 * $m), ($strip[3] + 2 * $m)) $stripShot
+		Open-Console
+	}
+
 	foreach ($s in $screens) { Sweep-Screen $s }
 
 	# Where the sweep ENDED: still in the game, or every screen after the one
@@ -1268,6 +1358,139 @@ function Judge-Heap($line, [int]$forced) {
 	return 1
 }
 $global += Judge-Heap $pickerHeapLine $heapForced
+
+# THE ARMOR TOOLTIP ADDS UP (code-review C372). Each `sheet armor` readout is
+# the tooltip's own rows (CharacterSheet::BuildArmorTipRows), each with the TEXT
+# its cell shows and the value that text was formatted from; on every side the
+# Roll's terms - base, DEX, stance, avoidance, armor - must sum to the Roll.
+# The sum alone holds BY CONSTRUCTION once the rows exist (stance is the live
+# roll's remainder, DefenseFor's total - base - stat - avoidance + armor), so
+# the CELLS are read too: every term and the Roll must SHOW its value (the
+# signed whole number the cell leads with, within rounding of it), and the
+# avoidance cell must read "+N (<lvl> 3)" on an unarmored side - the level the
+# script trained - and "-" on an armored one, worth 0. A cell built from the
+# wrong side, or the avoidance shown as "-" where it counts, fails here and
+# nowhere else. Not vacuous: Brand's avoidance must be worth points (a 0 would
+# hide a missing row), and beside the plate cuirass that side must be armored
+# (its terms take the armor's cost and no avoidance).
+$armorProblems = @()
+$armorTerms = @('sheet.def.base', 'sheet.def.dex', 'sheet.def.stance', 'sheet.def.avoid', 'sheet.def.armorpen')
+$avoidLevel = 3   # `setskill 0 avoid 3` above
+foreach ($case in @(@{ name = 'alone'; head = 'sheet armor: member 0 \(\S+\) - (\d+) rows'; sides = 1 },
+					@{ name = 'beside the plate cuirass'; head = 'sheet armor: member 0 \(\S+\) with plate_cuirass - (\d+) rows'; sides = 2 })) {
+	$hi = -1; $want = 0
+	for ($i = $lines.Count - 1; $i -ge 0; $i--) {
+		if ($lines[$i] -match "^\[info \] console: $($case.head)\s*$") { $hi = $i; $want = [int]$Matches[1]; break }
+	}
+	if ($hi -lt 0) { $armorProblems += "no ``sheet armor`` readout $($case.name)"; continue }
+	$vals = @{}; $cells = @{}; $got = 0
+	for ($i = $hi + 1; $i -lt [Math]::Min($lines.Count, $hi + 40) -and $got -lt $want; $i++) {
+		if ($lines[$i] -match '^\[info \] console: sheet armor row (\S+) "[^"]*": (.*?) = (-?[\d.]+)(?: \| (.*?) = (-?[\d.]+))?\s*$') {
+			$right = if ($Matches[5]) { [double]$Matches[5] } else { $null }
+			$vals[$Matches[1]] = @([double]$Matches[3], $right)
+			$cells[$Matches[1]] = @($Matches[2], $Matches[4])
+			$got++
+		}
+	}
+	if ($got -ne $want -or -not $vals.ContainsKey('sheet.def.roll')) {
+		$armorProblems += "$($case.name): read $got of $want rows, Roll among them: $($vals.ContainsKey('sheet.def.roll'))"
+		continue
+	}
+	if (-not $vals.ContainsKey('sheet.def.avoid')) { $armorProblems += "$($case.name): no avoidance row for an unarmored side" }
+	elseif ($vals['sheet.def.avoid'][0] -lt 0.5) {
+		$armorProblems += "$($case.name): the avoidance is worth $($vals['sheet.def.avoid'][0]) - the sum check proves nothing"
+	}
+	for ($side = 0; $side -lt $case.sides; $side++) {
+		$sum = 0.0
+		foreach ($t in $armorTerms) { if ($vals.ContainsKey($t)) { $sum += $vals[$t][$side] } }
+		$roll = $vals['sheet.def.roll'][$side]
+		if ([Math]::Abs($sum - $roll) -gt 0.05) {
+			$armorProblems += "$($case.name), $(if ($side) { 'with it' } else { 'as worn' }): the terms sum to $([Math]::Round($sum, 2)), the Roll is $roll"
+		}
+	}
+	if ($case.sides -eq 2 -and $vals.ContainsKey('sheet.def.armorpen') -and $vals['sheet.def.armorpen'][1] -gt -0.5) {
+		$armorProblems += "$($case.name): the cuirass costs nothing - that side is not armored, and its sum proves nothing"
+	}
+	# What the cells SAY. Side 0 is Brand as worn (unarmored), side 1 with the
+	# cuirass on (armored, checked just above).
+	for ($side = 0; $side -lt $case.sides; $side++) {
+		$sideName = "$($case.name), $(if ($side) { 'with it' } else { 'as worn' })"
+		foreach ($t in @('sheet.def.roll') + $armorTerms) {
+			if (-not $cells.ContainsKey($t)) { continue }
+			$text = $cells[$t][$side]; $v = $vals[$t][$side]
+			if ($t -eq 'sheet.def.avoid' -and $side -eq 1) {
+				if ($text -ne '-' -or [Math]::Abs($v) -gt 0.005) {
+					$armorProblems += "${sideName}: the avoidance under armor reads '$text' worth $v - want '-' worth 0"
+				}
+				continue
+			}
+			if ($text -notmatch '^([+-]?\d+)(?: \((.+) (\d+)\))?$') {
+				$armorProblems += "${sideName}: $t reads '$text' - not the number it is worth ($v)"
+				continue
+			}
+			# (Every value is taken out of $Matches before the next -match resets it.)
+			$number = $Matches[1]; $level = $Matches[3]
+			$shown = [int]$number; $signed = $number.StartsWith('+') -or $number.StartsWith('-')
+			if ([Math]::Abs($shown - $v) -gt 0.51) {
+				$armorProblems += "${sideName}: $t shows $shown but is worth $v"
+			}
+			if ($t -eq 'sheet.def.avoid') {
+				if (-not $signed -or $shown -lt 0 -or -not $level -or [int]$level -ne $avoidLevel) {
+					$armorProblems += "${sideName}: the unarmored avoidance reads '$text' - want '+$([Math]::Round($v)) (lvl $avoidLevel)', its points and level"
+				}
+			} elseif ($level) {
+				$armorProblems += "${sideName}: $t reads '$text' - a level where none belongs"
+			}
+		}
+	}
+}
+if ($armorProblems.Count -eq 0) {
+	Write-Host '  [ok  ] the armor tooltip''s terms add up to the Roll and each cell shows its value - unarmored (avoidance "+N (lvl 3)") and beside the plate cuirass ("-")'
+} else {
+	Write-Host '  [FAIL] the armor tooltip''s rows do not add up, or do not show what they are worth:' -ForegroundColor Red
+	$armorProblems | ForEach-Object { Write-Host "     $_" }
+	$global++
+}
+
+# A SKILL READS IN ONE COLOUR (code-review C477): with the pointer parked on the
+# blade row, the status bar names a skill and draws the name in the colour that
+# row's bar wears (`sheet skill blade ... colour`, SkillBarColor). The name used
+# to take the accent for every weapon, defence and reserve skill.
+$hoverMark = -1
+for ($i = $lines.Count - 1; $i -ge 0; $i--) { if ($lines[$i] -match '^\[info \] console: sheet-hover blade\s*$') { $hoverMark = $i; break } }
+$bladeLine = if ($hoverMark -ge 0) {
+	@($lines[0..$hoverMark] -match '^\[info \] console: sheet skill blade at \d+,\d+ colour (\S+)\s*$') | Select-Object -Last 1
+}
+$after = if ($hoverMark -ge 0) { Lines-Between $hoverMark ([Math]::Min($lines.Count, $hoverMark + 40)) } else { @() }
+$barName = @($after -match '^\[info \] console: sheet bar: (?!\(empty\))') | Select-Object -First 1
+$barColour = @($after -match '^\[info \] console: sheet bar colour: (\S+)\s*$') | Select-Object -First 1
+if (-not $bladeLine) {
+	Write-Host '  [FAIL] the blade row was never placed (`sheet status` on the Skills tab listed no `sheet skill blade`)' -ForegroundColor Red
+	$global++
+} elseif (-not $barName -or -not $barColour) {
+	Write-Host '  [FAIL] the pointer on the blade row named nothing on the status bar - the hover missed the row' -ForegroundColor Red
+	$global++
+} else {
+	$rowColour = ([regex]::Match($bladeLine, 'colour (\S+)')).Groups[1].Value
+	$nameColour = ([regex]::Match($barColour, 'colour: (\S+)')).Groups[1].Value
+	if ($rowColour -eq $nameColour) {
+		Write-Host "  [ok  ] a skill's name takes its bar's colour ($($barName -replace '^\[info \] console: sheet bar: ', '' -replace ' \|.*$', ''): $nameColour)"
+	} else {
+		Write-Host "  [FAIL] the blade row's bar is $rowColour but the status bar names it in $nameColour" -ForegroundColor Red
+		$global++
+	}
+}
+
+# ...and the HUD effect strip was photographed: three icons up in member 0's
+# strip, the picture not flat (a failed PrintWindow comes back blank).
+if ($strip -and $stripIcons -ge 3 -and $stripSpread -gt 4) {
+	Write-Host "  [ok  ] the HUD effect strip photographed with $stripIcons icons (spread $([Math]::Round($stripSpread, 1))): $stripShot"
+} else {
+	$why = if (-not $strip) { 'no EffectsArea in the HUD tree' } elseif ($stripIcons -lt 3) { "$stripIcons icons shown, not 3" }
+		   else { "the picture is blank (spread $([Math]::Round($stripSpread, 1)))" }
+	Write-Host "  [FAIL] no picture of the HUD effect strip: $why" -ForegroundColor Red
+	$global++
+}
 
 Write-Host ''
 $problems = $failed.Count + $global

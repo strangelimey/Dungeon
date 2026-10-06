@@ -276,11 +276,15 @@
 # up; a middle-click opens the use menu. None of it ran in any window before.
 # This opens the sheet, warms the dialog up once through `itemdetails` (a first
 # open bakes its fonts, which is a first time for the process, not a steady
-# cost), then during the window hovers two slots, pages through all five tabs,
+# cost), then during the window hovers two slots and an armor piece in the pack
+# (the comparing ARMOR TOOLTIP, built every frame it is up - its avoidance row
+# formats a level in, code-review C372), pages through all five tabs,
 # right-clicks an item, lets the model turn, Escs, middle-clicks a rune and Escs
 # again - three times. It refuses a PASS unless `itemdetails status` counts
-# opens made during the window, since a missed click reports exactly like a
-# clean run.
+# opens made during the window, and `sheet status` counts frames that drew the
+# comparing tooltip (`sheet armortip: compared=`, counted where it is drawn - a
+# point that missed the armor still names something on the status bar), since
+# a missed click or hover reports exactly like a clean run.
 #
 # -Panels IS THE FLOATING HUD'S TURN (docs/ui-panels-plan.md P3a). Every HUD
 # panel moves and resizes under the mouse now, inside armed frames: a drag
@@ -718,6 +722,16 @@ function Get-DetailOpens {
 		Start-Sleep -Milliseconds 200
 	}
 	throw 'the console never answered `itemdetails status`'
+}
+
+# How many frames have drawn the sheet's COMPARING armor tooltip (a pack piece
+# beside what is worn) - a count kept where the tooltip is drawn, so it moves
+# only when the tooltip really was drawn, never for a mere name on the status
+# bar. Needs the console open and logecho on.
+function Get-ArmorTips {
+	$line = Get-ConsoleAnswer 'sheet status' 'console: sheet armortip: '
+	if ($line -notmatch 'compared=(\d+)') { throw "unreadable: $line" }
+	return [int]$Matches[1]
 }
 
 # Wait-ForLog and Wait-NewLogLines are tools\HarnessGame.ps1's. POLL FOR A
@@ -2190,6 +2204,8 @@ try {
 		Send-Text 'setskill 0 blade 1.5'; Send-Key 0x0D
 		Send-Text 'setskill 0 fire 2.3'; Send-Key 0x0D
 		Send-Text 'setskill 0 conditioning 0.6'; Send-Key 0x0D
+		# Avoidance worth points, so the armor tooltip's avoidance row has some.
+		Send-Text 'setskill 0 avoid 2'; Send-Key 0x0D
 		Send-Text 'sheet 0'; Send-Key 0x0D
 		# WARM-UP: one open of the dialog, and a moment for it to draw, bakes its
 		# fonts and glyphs - a first time for the process, outside the window.
@@ -2198,6 +2214,7 @@ try {
 		Send-Text 'itemdetails off'; Send-Key 0x0D
 		$script:opensBefore = Get-DetailOpens
 		if ($script:opensBefore -le 0) { throw 'the warm-up never opened the item details dialog' }
+		$tipsAtOpen = Get-ArmorTips
 		Send-Text 'logecho off'; Send-Key 0x0D
 		Send-Key 0xC0 # close the console again; alloctest reopens it below
 		Start-Sleep -Milliseconds 400
@@ -2210,6 +2227,37 @@ try {
 		[HarnessWin]::GetClientRect($hwnd, [ref]$rc) | Out-Null
 		$script:runeX = [int]($rc.Right * 0.6675); $script:bladeX = [int]($rc.Right * 0.72)
 		$script:slotY = [int]($rc.Bottom * 0.5033)
+		# ...and slot 0, the padded jack: armor in the pack, so the tooltip compares.
+		$script:armorX = [int]($rc.Right * 0.51)
+		# Its WARM-UP, and a check the point is on it: hovered with the console
+		# shut, the COMPARING TOOLTIP must have been drawn there. Not merely a
+		# name on the status bar - a point that slid onto the rune, the next bag
+		# cell or the doll's dagger names that, and the window would then never
+		# draw the tooltip at all; the count moves only where it is drawn.
+		Send-Mouse $script:armorX $script:slotY
+		Start-Sleep -Milliseconds 800
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 500
+		Send-Text 'logecho on'; Send-Key 0x0D
+		$bar = Get-ConsoleAnswer 'sheet status' 'console: sheet bar: '
+		$tipsHovered = Get-ArmorTips
+		if ($tipsHovered -le $tipsAtOpen) {
+			throw "the armor tooltip's point ($($script:armorX),$($script:slotY)) drew no comparing tooltip ($tipsAtOpen -> $tipsHovered frames); the status bar there: $bar"
+		}
+		Write-Host "  armor hover: $bar ($($tipsHovered - $tipsAtOpen) tooltip frames)"
+		# Then OFF the armor before the window - an open console freezes the
+		# sheet's hover, so shut it a moment for the move to land - and the count
+		# taken there, so what the window adds is the window's own hovers.
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 300
+		Send-Mouse ([int]($rc.Right * 0.02)) ([int]($rc.Bottom * 0.5))
+		Start-Sleep -Milliseconds 500
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 500
+		$script:armorTipsBefore = Get-ArmorTips
+		Send-Text 'logecho off'; Send-Key 0x0D
+		Send-Key 0xC0 # shut again
+		Start-Sleep -Milliseconds 400
 	}
 
 	if ($All) {
@@ -2679,6 +2727,8 @@ try {
 			if (Select-String -Path $log -Pattern 'alloctest RESULT=' -Quiet) { break }
 			Send-Mouse $script:runeX $script:slotY  # hover: the status bar names it
 			Send-Mouse $script:bladeX $script:slotY
+			Send-Mouse $script:armorX $script:slotY # the armor tooltip
+			Start-Sleep -Milliseconds 300
 			for ($t = 0; $t -lt 5; $t++) { Send-Key 0x09 } # all five tabs, round to Inventory
 			Send-Mouse $script:bladeX $script:slotY 0x204 0x205 2 # right: details
 			Start-Sleep -Seconds 2                                 # the model turns
@@ -3156,17 +3206,25 @@ try {
 	}
 
 	# And for -Sheet: no new open of the dialog means the right-click missed (or
-	# landed outside the window), and the open path was not measured.
+	# landed outside the window), and the open path was not measured; no frame
+	# that drew the comparing armor tooltip means the hover missed the armor (the
+	# pointer left it before the window, so these are the window's hovers).
 	if ($Sheet) {
 		Send-Key 0xC0
 		Start-Sleep -Milliseconds 500
 		Send-Text 'logecho on'; Send-Key 0x0D
 		$opens = (Get-DetailOpens) - $script:opensBefore
+		$tips = (Get-ArmorTips) - $script:armorTipsBefore
 		Send-Text 'logecho off'; Send-Key 0x0D
 		Send-Key 0xC0
 		Write-Host "  item details opened by a right-click: $opens"
+		Write-Host "  frames that drew the comparing armor tooltip: $tips"
 		if ($opens -le 0 -and $result -eq 'PASS') {
 			Write-Host 'no right-click opened the dialog - the open path was not measured' -ForegroundColor Yellow
+			$result = 'UNMEASURED'
+		}
+		if ($tips -le 0 -and $result -eq 'PASS') {
+			Write-Host 'no frame drew the comparing armor tooltip - its hover was not measured' -ForegroundColor Yellow
 			$result = 'UNMEASURED'
 		}
 	}

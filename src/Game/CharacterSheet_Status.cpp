@@ -176,8 +176,8 @@ void CharacterSheet::UpdateStatus(ui::UIContext& ctx, bool pointerFree) {
 		if (i < 0 || static_cast<size_t>(i) >= m_skillRows.size()) break;
 		const SkillRow& row = m_skillRows[static_cast<size_t>(i)];
 		if (row.header) break; // a group heading has nothing to explain
-		SetStatus(row.label, HintFor("skill.", row.id),
-				  row.tint.w > 0.0f ? row.tint : m_accent);
+		// Named in its BAR's colour, so a skill reads in one colour (C477).
+		SetStatus(row.label, HintFor("skill.", row.id), SkillBarColor(row.id));
 		break;
 	}
 	case Mode::Spells: {

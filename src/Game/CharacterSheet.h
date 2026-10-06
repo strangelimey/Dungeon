@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <array>
+#include <format>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -22,6 +23,12 @@
 #include <vector>
 
 namespace dungeon::game {
+
+// A skill's colour, by its FAMILY: magic by school, weapons steel, defence
+// bronze, each reserve the pool it feeds. Its progress bar on the Skills tab
+// AND its name on the status bar wear it, so one skill reads in one colour.
+// CharacterSheet_Lists.cpp.
+Vec4 SkillBarColor(std::string_view id);
 
 // The member's bust in the sheet's header band. Its own rect, no input.
 class SheetPortrait : public ui::Widget {
@@ -134,6 +141,10 @@ public:
 	int HoveredRow() const { return m_hoverRow; }
 	// That row's on-screen rect (meaningful only while HoveredRow() >= 0).
 	const gfx::Rect& HoveredRowRect() const { return m_hoverRect; }
+	// Row `i`'s on-screen rect as of the last layout, scrolled as it is (empty
+	// past the end) - where the repeater's placer put it. For the dev readout a
+	// harness aims its pointer by.
+	gfx::Rect RowRect(size_t i) const;
 	// Room for `n` rows before the list first shows - the row widgets and the
 	// offset tables - so a tab opened mid-play builds nothing (the sheet's
 	// frames are steady-state frames; see Game::SteadyStateFrame).
@@ -253,8 +264,64 @@ public:
 	// Where pack slot `i` of the shown member's selected bag is, in pixels, as
 	// of the last layout (Inventory tab). For the dev readout a harness aims by.
 	gfx::Rect PackSlotRect(int i) const { return PackRect(Body(), i); }
+	// The Skills tab's skill rows (headings skipped) as of the last layout:
+	// each one's skill id and on-screen rect, in list order. For the same
+	// readout - a harness parks the pointer on a row and reads the status bar.
+	template <class Fn> void ForEachSkillRow(Fn&& fn) const {
+		for (size_t i = 0; i < m_skillRows.size(); ++i)
+			if (!m_skillRows[i].header)
+				fn(std::string_view(m_skillRows[i].id),
+				   m_lists[0] ? m_lists[0]->RowRect(i) : gfx::Rect{});
+	}
+
+	// --- the armor tooltip's rows (DrawArmorTip) ------------------------------
+	// One row: its label (a loc view, and the KEY it came from, which a readout
+	// names it by), what each column shows - `left` what is worn, `right` the
+	// member with the hovered piece put on (the single-column form shows only
+	// `left`) - and the values those were formatted from, which the comparison
+	// colours by and a readout sums. Fixed cells, no heap: the tooltip builds
+	// its rows every frame the pointer rests on a piece.
+	struct ArmorTipRow {
+		// One value, formatted in place. Callers use whole-number arithmetic
+		// only: MSVC's float-precision path ("{:.1f}") allocates in debug.
+		struct Cell {
+			char text[48] = {};
+			size_t len = 0;
+			std::string_view View() const { return {text, len}; }
+			void Set(std::string_view s) {
+				len = std::min(s.size(), sizeof(text));
+				std::copy_n(s.data(), len, text);
+			}
+			template <class... Args>
+			void Format(std::format_string<Args...> fmt, Args&&... args) {
+				len = static_cast<size_t>(
+					std::format_to_n(text, sizeof(text), fmt, std::forward<Args>(args)...).out -
+					text);
+			}
+		};
+		std::string_view key, label;
+		Cell left, right;
+		float lv = 0.0f, rv = 0.0f;
+		bool higherBetter = true;
+		bool compare = true; // false = a fact, not a score
+	};
+	// The most rows a tooltip has: the piece, soak, roll, the roll's five terms
+	// (base, DEX, stance, avoidance, armor) and the strength row.
+	static constexpr size_t kArmorTipRowCount = 9;
+	using ArmorTipRows = std::array<ArmorTipRow, kArmorTipRowCount>;
+	// Fills `rows` with what the tooltip says, comparing `now` (what is worn)
+	// with `with` (the hovered piece put on - `now` again for the single-column
+	// form), and returns how many rows there are. The ONE statement of what the
+	// tooltip says: DrawArmorTip draws these, and the dev `sheet armor` readout
+	// prints them. The terms add up to the Roll on both sides - the avoidance
+	// row shows wherever a side is unarmored (code-review C372: dropped, an
+	// unarmored member's terms came out short of the Roll by exactly it).
+	static size_t BuildArmorTipRows(const DefenseReadout& now, const DefenseReadout& with,
+									ArmorTipRows& rows);
 	// Containers equipped into the pack row so far (see m_packEquips).
 	unsigned PackEquips() const { return m_packEquips; }
+	// Frames that drew the COMPARING armor tooltip so far (see m_armorTipsCompared).
+	unsigned ArmorTipsCompared() const { return m_armorTipsCompared; }
 
 	// Which body the sheet shows; the mode buttons under the portrait switch it.
 	// (Order == the mode-button strip order — Spells sits before Effects.)
@@ -410,6 +477,11 @@ private:
 	// tools\AllocTest.ps1 -Packs shows its clicks actually equipped something
 	// (`sheet status`).
 	unsigned m_packEquips = 0;
+	// Frames that drew the armor tooltip comparing a pack piece with what is
+	// worn - how tools\AllocTest.ps1 -Sheet shows its hover drew THE TOOLTIP
+	// inside the window, not merely put a name on the status bar (`sheet
+	// status`). Counted where it is drawn, a const pass, hence mutable.
+	mutable unsigned m_armorTipsCompared = 0;
 	int m_hoverPackRow = -1; // the bag row above the grid (status bar only)
 	// The status bar's two halves, held inline (no heap: this is set every
 	// frame the sheet is up) plus the colour the name draws in.
@@ -454,16 +526,17 @@ private:
 		size_t size() const { return count; }
 		const Row& operator[](size_t i) const { return rows[i]; }
 	};
-	// Skills-tab rows, baked by SetCharacter: the
-	// localized skill name, the level number, the progress fraction toward
-	// the next level, and the bar tint (school colour; weapon classes use
-	// the theme accent via alpha 0 as the "no tint" flag).
+	// Skills-tab rows, baked by SetCharacter: the localized skill name, the
+	// level number and the progress fraction toward the next level. A row
+	// carries no colour: its bar and its status-bar name both ask
+	// SkillBarColor(id), so the two cannot disagree (code-review C477 - the name
+	// used to take a tint of its own, the accent for every weapon, defence and
+	// reserve skill whose bar was steel, bronze or its pool's).
 	struct SkillRow {
-		std::string id; // the skill id, for its status-bar hint (skill.<id>.hint)
+		std::string id; // the skill id: its hint (skill.<id>.hint) and its colour
 		std::string label;
 		std::string level;
 		float frac = 0.0f;
-		Vec4 tint{0, 0, 0, 0};
 		// A GROUP HEADING rather than a skill: label only, no number, no bar.
 		// The resource practices are shown in their own group
 		// (docs/health-and-healing.md) because the trained skills are things you
@@ -495,16 +568,16 @@ private:
 	RowPool<SpellRow> m_spellRows;
 	std::vector<const Spell*> m_spellOrder; // BakeSpells' sort scratch
 	// Effects-tab rows, likewise baked by SetCharacter and then again every
-	// frame in UpdateSelf (the world runs under the sheet): the HUD
-	// indicator's icon look (kind art + school tint + time sliver) plus the
-	// long form — name, a magnitude-formatted description (loc key =
-	// <nameKey>.desc), and the time left.
+	// frame in UpdateSelf (the world runs under the sheet): what the icon
+	// needs - drawn by DrawEffectIcon, the HUD strip's own (kind art + school
+	// tint + time sliver) - plus the long form: name, a magnitude-formatted
+	// description (loc key = <nameKey>.desc), and the time left.
 	struct EffectRow {
 		// The effect's kind, for the icon art it borrows. Safe to hold: the
 		// kinds live in the EffectBook for the app's lifetime (Effect.h).
 		const fx::EffectKind* kind = nullptr;
 		Vec4 tint{1, 1, 1, 1};
-		float frac = 0.0f; // timeLeft / duration, the icon's sliver
+		float frac = 0.0f; // EffectTimeLeft: the icon's sliver
 		std::string name, desc, time;
 		void Reserve() {
 			name.reserve(63);

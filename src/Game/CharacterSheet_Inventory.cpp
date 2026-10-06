@@ -5,6 +5,7 @@
 #include "Game/CharacterSheetLayout.h"
 #include "Game/PartyHudDraw.h"
 
+#include "Core/Assert.h"
 #include "Core/Loc.h"
 
 #include <algorithm>
@@ -16,9 +17,6 @@
 
 namespace dungeon::game {
 
-// The one warning colour this tab uses: an armor penalty, or a strength it
-// cannot carry.
-constexpr Vec4 kDefBad{0.85f, 0.25f, 0.20f, 1.0f};
 // The comparison colours: better than what is worn, and worse than it.
 constexpr Vec4 kTipGood{0.45f, 0.80f, 0.40f, 1.0f};
 constexpr Vec4 kTipBad{0.85f, 0.30f, 0.25f, 1.0f};
@@ -27,25 +25,6 @@ using namespace sheet;
 namespace {
 // What the armor tooltip names when nothing is worn in the compared slot.
 const std::string kNoItem;
-
-// One armor-tooltip value, formatted in place (the tooltip draws every frame
-// it is up). Callers use whole-number arithmetic only: MSVC's float-precision
-// path ("{:.1f}") allocates in the debug build.
-struct Cell {
-	char text[48] = {};
-	size_t len = 0;
-	std::string_view View() const { return {text, len}; }
-	void Set(std::string_view s) {
-		len = std::min(s.size(), sizeof(text));
-		std::copy_n(s.data(), len, text);
-	}
-	template <class... Args>
-	void Format(std::format_string<Args...> fmt, Args&&... args) {
-		len = static_cast<size_t>(
-			std::format_to_n(text, sizeof(text), fmt, std::forward<Args>(args)...).out -
-			text);
-	}
-};
 } // namespace
 
 gfx::Rect CharacterSheet::EquipRect(const gfx::Rect& px, int i) const {
@@ -342,6 +321,114 @@ void CharacterSheet::DrawInventory(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 // green, worse is red, the same is ordinary text. Which direction is "better"
 // is per ROW and not global — more soak is good, more armor penalty is not.
 // ============================================================================
+
+// What the tooltip says, row by row. The Roll's TERMS - base, DEX, stance,
+// avoidance, armor - add up to it on each side: stance is DefenseFor's
+// remainder, so a term the tooltip leaves out comes out of nothing but the sum.
+size_t CharacterSheet::BuildArmorTipRows(const DefenseReadout& now, const DefenseReadout& with,
+										 ArmorTipRows& rows) {
+	using Cell = ArmorTipRow::Cell;
+	// Rounds toward zero BEFORE formatting, or a term of -0.4 prints "-0" -
+	// the same trap the sheet column had, reintroduced here because this is a
+	// second formatter and it did not inherit the fix.
+	const auto pts = [](Cell& c, float v) {
+		const int n = static_cast<int>(v < 0.0f ? v - 0.5f : v + 0.5f);
+		c.Format("{}{}", n >= 0 ? "+" : "", n);
+	};
+	const auto tenths = [](Cell& c, float v) {
+		const long t = std::lround(v * 10.0f);
+		c.Format("{}{}.{}", t < 0 ? "-" : "", std::labs(t) / 10, std::labs(t) % 10);
+	};
+	const auto whole = [](Cell& c, float v) { c.Format("{}", std::lround(v)); };
+	const auto nameOf = [](Cell& c, const DefenseReadout& d) {
+		c.Set(d.armorClass == ArmorClass::None
+				  ? loc::View("sheet.def.unarmored")
+				  : (d.armorName.empty() ? std::string_view(ArmorClassId(d.armorClass))
+										 : d.armorName));
+	};
+	size_t rowCount = 0;
+	const auto add = [&](const char* labelKey, float lv, float rv, bool compare = true)
+		-> ArmorTipRow& {
+		DN_ASSERT(rowCount < rows.size(), "the armor tooltip has more rows than kArmorTipRowCount");
+		ArmorTipRow& r = rows[rowCount++];
+		r = ArmorTipRow{};
+		r.key = labelKey;
+		r.label = loc::View(labelKey);
+		r.lv = lv;
+		r.rv = rv;
+		r.compare = compare;
+		return r;
+	};
+	{
+		ArmorTipRow& r = add("sheet.def.armor", 0, 0, false);
+		nameOf(r.left, now);
+		nameOf(r.right, with);
+	}
+	{
+		ArmorTipRow& r = add("sheet.def.soak", now.soak, with.soak);
+		tenths(r.left, now.soak);
+		tenths(r.right, with.soak);
+	}
+	{
+		ArmorTipRow& r = add("sheet.def.roll", now.total, with.total);
+		whole(r.left, now.total);
+		whole(r.right, with.total);
+	}
+	{
+		ArmorTipRow& r = add("sheet.def.base", now.base, with.base);
+		pts(r.left, now.base);
+		pts(r.right, with.base);
+	}
+	{
+		ArmorTipRow& r = add("sheet.def.dex", now.stat, with.stat);
+		pts(r.left, now.stat);
+		pts(r.right, with.stat);
+	}
+	{
+		ArmorTipRow& r = add("sheet.def.stance", now.stance, with.stance);
+		pts(r.left, now.stance);
+		pts(r.right, with.stance);
+	}
+	if (now.armorClass == ArmorClass::None || with.armorClass == ArmorClass::None) {
+		// The AVOIDANCE skill, where a side is unarmored - there it replaces the
+		// armor term, and its worth is part of the Roll. One cell carries what it
+		// is worth AND the level it is worth that at: "+35 (lvl 10)". An armored
+		// side shows "-": the skill does not apply under armor, which is what its
+		// value of 0 says (and why it colours red against an unarmored +35).
+		const auto avoidOf = [&pts](Cell& c, const DefenseReadout& d) {
+			if (d.armorClass != ArmorClass::None) {
+				c.Set("-");
+				return;
+			}
+			Cell points;
+			pts(points, d.skillBonus);
+			c.Set(loc::FormatLine("sheet.def.withlevel", points.View(), d.skillLevel).View());
+		};
+		ArmorTipRow& r = add("sheet.def.avoid", now.skillBonus, with.skillBonus);
+		avoidOf(r.left, now);
+		avoidOf(r.right, with);
+	}
+	{
+		// The armor term is a COST: less of it is better, so its polarity flips.
+		ArmorTipRow& r = add("sheet.def.armorpen", -now.armorPenalty, -with.armorPenalty);
+		pts(r.left, -now.armorPenalty);
+		pts(r.right, -with.armorPenalty);
+	}
+	if (now.strengthNeeded > 0 || with.strengthNeeded > 0) {
+		// Unarmored asks for no strength at all, and "16 / 0" reads as a
+		// requirement of zero rather than as no requirement.
+		const auto strOf = [](Cell& c, const DefenseReadout& d) {
+			if (d.strengthNeeded > 0) c.Format("{} / {}", d.strength, d.strengthNeeded);
+			else c.Set("-");
+		};
+		ArmorTipRow& r = add("sheet.def.str", static_cast<float>(-now.strengthNeeded),
+							 static_cast<float>(-with.strengthNeeded));
+		strOf(r.left, now);
+		strOf(r.right, with);
+	}
+	return rowCount;
+}
+
 void CharacterSheet::DrawArmorTip(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 								  const gfx::Rect& px) const {
 	if (!m_character || !defenseFor) return;
@@ -371,7 +458,7 @@ void CharacterSheet::DrawArmorTip(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 	if (hoveredId.empty()) return;
 	if (!m_categories || m_categories->WornAt(hoveredId) == WearSlot::None) return;
 
-	// The piece currently in the SAME slot the hovered one would go to — that
+	// The piece currently in the SAME slot the hovered one would go to - that
 	// is what it is really being compared against, and its icon heads the left
 	// column.
 	const std::string* worn = &kNoItem;
@@ -397,93 +484,21 @@ void CharacterSheet::DrawArmorTip(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 	const float rem = Em(); // the sheet's em: on the sheet, its rem; a card's is smaller
 	const float pad = kTipPadRem * rem, row = kTipRowRem * rem;
 
-	struct Row {
-		std::string_view label;
-		Cell left, right;
-		float lv = 0.0f, rv = 0.0f;
-		bool higherBetter = true;
-		bool compare = true; // false = a fact, not a score
-	};
-	// Rounds toward zero BEFORE formatting, or a term of -0.4 prints "-0" —
-	// the same trap the sheet column had, reintroduced here because this is a
-	// second formatter and it did not inherit the fix.
-	const auto pts = [](Cell& c, float v) {
-		const int n = static_cast<int>(v < 0.0f ? v - 0.5f : v + 0.5f);
-		c.Format("{}{}", n >= 0 ? "+" : "", n);
-	};
-	const auto tenths = [](Cell& c, float v) {
-		const long t = std::lround(v * 10.0f);
-		c.Format("{}{}.{}", t < 0 ? "-" : "", std::labs(t) / 10, std::labs(t) % 10);
-	};
-	const auto whole = [](Cell& c, float v) { c.Format("{}", std::lround(v)); };
-	const auto nameOf = [](Cell& c, const DefenseReadout& d) {
-		c.Set(d.armorClass == ArmorClass::None
-				  ? loc::View("sheet.def.unarmored")
-				  : (d.armorName.empty() ? std::string_view(ArmorClassId(d.armorClass))
-										 : d.armorName));
-	};
-	std::array<Row, 8> rows{};
-	size_t rowCount = 0;
-	const auto add = [&](const char* labelKey, float lv, float rv, bool compare = true)
-		-> Row& {
-		Row& r = rows[rowCount++];
-		r.label = loc::View(labelKey);
-		r.lv = lv;
-		r.rv = rv;
-		r.compare = compare;
-		return r;
-	};
-	{
-		Row& r = add("sheet.def.armor", 0, 0, false);
-		nameOf(r.left, now);
-		nameOf(r.right, with);
-	}
-	{
-		Row& r = add("sheet.def.soak", now.soak, with.soak);
-		tenths(r.left, now.soak);
-		tenths(r.right, with.soak);
-	}
-	{
-		Row& r = add("sheet.def.roll", now.total, with.total);
-		whole(r.left, now.total);
-		whole(r.right, with.total);
-	}
-	{
-		Row& r = add("sheet.def.base", now.base, with.base);
-		pts(r.left, now.base);
-		pts(r.right, with.base);
-	}
-	{
-		Row& r = add("sheet.def.dex", now.stat, with.stat);
-		pts(r.left, now.stat);
-		pts(r.right, with.stat);
-	}
-	{
-		Row& r = add("sheet.def.stance", now.stance, with.stance);
-		pts(r.left, now.stance);
-		pts(r.right, with.stance);
-	}
-	{
-		// The armor term is a COST: less of it is better, so its polarity flips.
-		Row& r = add("sheet.def.armorpen", -now.armorPenalty, -with.armorPenalty);
-		pts(r.left, -now.armorPenalty);
-		pts(r.right, -with.armorPenalty);
-	}
-	if (now.strengthNeeded > 0 || with.strengthNeeded > 0) {
-		// Unarmored asks for no strength at all, and "16 / 0" reads as a
-		// requirement of zero rather than as no requirement.
-		const auto strOf = [](Cell& c, const DefenseReadout& d) {
-			if (d.strengthNeeded > 0) c.Format("{} / {}", d.strength, d.strengthNeeded);
-			else c.Set("-");
-		};
-		Row& r = add("sheet.def.str", static_cast<float>(-now.strengthNeeded),
-					 static_cast<float>(-with.strengthNeeded));
-		strOf(r.left, now);
-		strOf(r.right, with);
-	}
+	ArmorTipRows rows;
+	const size_t rowCount = BuildArmorTipRows(now, with, rows);
+	if (comparing) ++m_armorTipsCompared;
 
-	// Size from the content, then place. WIDTH: label + one or two values.
-	const float labelW = kTipLabelRem * rem, valueW = kTipValueRem * rem;
+	// Size from the content, then place. WIDTH: label + one or two values, a
+	// value column kTipValueRem wide or as wide as its widest cell - the
+	// avoidance cell carries its level ("+35 (lvl 10)"), and a piece's name can
+	// be as long - so the left column never runs into the right.
+	const float labelW = kTipLabelRem * rem;
+	float valueW = kTipValueRem * rem;
+	for (size_t k = 0; k < rowCount; ++k) {
+		valueW = std::max(valueW, font.MeasureWidth(rows[k].left.View()) + rem * 0.4f);
+		if (comparing)
+			valueW = std::max(valueW, font.MeasureWidth(rows[k].right.View()) + rem * 0.4f);
+	}
 	const float w = pad * 2.0f + labelW +
 					(comparing ? valueW * 2.0f + kTipGapRem * rem : valueW);
 	// The heading row carries ICONS rather than the words "worn" and "this" —
@@ -531,7 +546,7 @@ void CharacterSheet::DrawArmorTip(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 	y += headH;
 
 	for (size_t k = 0; k < rowCount; ++k) {
-		const Row& r = rows[k];
+		const ArmorTipRow& r = rows[k];
 		font.Draw(batch, r.label, lx, y, theme.textDim);
 		font.Draw(batch, r.left.View(), v1, y, theme.text);
 		if (comparing) {

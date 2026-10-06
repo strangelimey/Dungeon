@@ -1102,14 +1102,82 @@ void Game::RegisterPartyCommands() {
 						.group = CmdGroup::Characters,
 						.params = "[member]\n"
 								  "off\n"
-								  "status",
+								  "status\n"
+								  "tab inventory|stats|skills|spells|effects\n"
+								  "armor <member> [item]",
 						.summary = "open, close or report the character sheet"},
 					   [this](const std::vector<std::string>& args) {
+						   static constexpr const char* kModes[] = {
+							   "inventory", "stats", "skills", "spells", "effects"};
+						   // The tab the sheet shows, through the tab stones' own
+						   // SelectMode - so a script can reach a tab's rows without
+						   // counting Tab presses from wherever it was left.
+						   if (!args.empty() && args[0] == "tab") {
+							   CharacterSheet* sheet = m_ui.Sheet();
+							   int tab = -1;
+							   for (size_t i = 0; i < std::size(kModes); ++i)
+								   if (args.size() > 1 && args[1] == kModes[i]) tab = static_cast<int>(i);
+							   if (tab < 0 || !sheet) {
+								   m_console.RefuseUsage();
+								   return;
+							   }
+							   sheet->SelectMode(tab);
+							   m_console.Print(std::format("sheet tab: {}", kModes[tab]));
+							   return;
+						   }
+						   // The ARMOR TOOLTIP's rows, as the tooltip builds them
+						   // (CharacterSheet::BuildArmorTipRows): member <member> as
+						   // worn, and - given an armor piece - beside it the member
+						   // with that piece put on. Each row names its loc key, its
+						   // label, what each column shows and the value it shows,
+						   // so a script can sum the Roll's terms.
+						   if (!args.empty() && args[0] == "armor") {
+							   const bool digits =
+								   args.size() > 1 && !args[1].empty() &&
+								   std::ranges::all_of(args[1], [](char ch) {
+									   return std::isdigit(static_cast<unsigned char>(ch)) != 0;
+								   });
+							   if (!digits) {
+								   m_console.RefuseUsage();
+								   return;
+							   }
+							   const size_t m = static_cast<size_t>(std::atoi(args[1].c_str()));
+							   if (!m_world || m >= m_characters.size() || !m_ui.defenseFor) {
+								   m_console.Refuse(m_world ? "no such member" : "no game");
+								   return;
+							   }
+							   const Character& c = m_characters[m];
+							   const bool comparing = args.size() > 2;
+							   const DefenseReadout now = m_ui.defenseFor(c);
+							   DefenseReadout with = now;
+							   if (comparing) {
+								   if (m_itemCategories.WornAt(args[2]) == WearSlot::None ||
+									   !m_ui.defenseWith) {
+									   m_console.Refuse(std::format("{} is not armor", args[2]));
+									   return;
+								   }
+								   with = m_ui.defenseWith(c, args[2]);
+							   }
+							   CharacterSheet::ArmorTipRows rows;
+							   const size_t n = CharacterSheet::BuildArmorTipRows(now, with, rows);
+							   m_console.Print(std::format("sheet armor: member {} ({}){}{} - {} rows", m,
+														   c.name, comparing ? " with " : "",
+														   comparing ? args[2] : std::string(), n));
+							   // (The armor term of an unarmored side is -0: printed as 0.)
+							   const auto value = [](float v) { return v == 0.0f ? 0.0f : v; };
+							   for (size_t k = 0; k < n; ++k) {
+								   const CharacterSheet::ArmorTipRow& r = rows[k];
+								   std::string line = std::format("sheet armor row {} \"{}\": {} = {:.2f}",
+																  r.key, r.label, r.left.View(), value(r.lv));
+								   if (comparing)
+									   line += std::format(" | {} = {:.2f}", r.right.View(), value(r.rv));
+								   m_console.Print(line);
+							   }
+							   return;
+						   }
 						   // What the sheet shows - for a harness driving it with
 						   // keys (the strafe keys page members, Tab the tabs).
 						   if (!args.empty() && args[0] == "status") {
-							   static constexpr const char* kModes[] = {
-								   "inventory", "stats", "skills", "spells", "effects"};
 							   const size_t m = m_ui.SheetIndex();
 							   m_console.Print(std::format(
 								   "sheet: {} member {} ({}) tab {}",
@@ -1124,6 +1192,24 @@ void Game::RegisterPartyCommands() {
 									   ? std::string("sheet bar: (empty)")
 									   : std::format("sheet bar: {} | {}", name,
 													 m_ui.SheetStatusText()));
+							   // ...the colour its name is drawn in, and on the Skills
+							   // tab where each skill row is and the colour its BAR
+							   // wears, so a script that parks the pointer on a row can
+							   // see the name take that same colour (code-review C477).
+							   const CharacterSheet* sheet = m_ui.Sheet();
+							   if (sheet && !name.empty()) {
+								   const Vec4& c = sheet->StatusColor();
+								   m_console.Print(std::format("sheet bar colour: {:.2f},{:.2f},{:.2f}",
+															   c.x, c.y, c.z));
+							   }
+							   if (sheet && m_ui.SheetMode() == CharacterSheet::Mode::Skills)
+								   sheet->ForEachSkillRow([&](std::string_view id, const gfx::Rect& r) {
+									   const Vec4 c = SkillBarColor(id);
+									   m_console.Print(std::format(
+										   "sheet skill {} at {},{} colour {:.2f},{:.2f},{:.2f}", id,
+										   static_cast<int>(r.x + r.w * 0.5f),
+										   static_cast<int>(r.y + r.h * 0.5f), c.x, c.y, c.z));
+								   });
 							   // The shown member's pack row ('-' = no bag), which
 							   // one is selected, how many slots it has, and the
 							   // equips counted so far.
@@ -1137,6 +1223,12 @@ void Game::RegisterPartyCommands() {
 									   inv.selectedPack, inv.SelectedContents().size(),
 									   m_ui.SheetPackEquips()));
 							   }
+							   // Frames that drew the comparing armor tooltip so far:
+							   // AllocTest -Sheet's proof its hover drew the tooltip,
+							   // not just a name on the bar.
+							   if (sheet)
+								   m_console.Print(std::format("sheet armortip: compared={}",
+															   sheet->ArmorTipsCompared()));
 							   // Where the "All" button is (AllocTest -All clicks it).
 							   const gfx::Rect all = m_ui.SheetAllRect();
 							   m_console.Print(std::format("sheet all: {},{}",

@@ -3124,7 +3124,20 @@ Michael's notes and answers: docs/ui-updates-notes.md; the plan: -plan.md.
   it: `CharacterSheet::kBodyH / kStatusH` are the split, and every layout
   fraction resolves against `Body()`, which is also the sheet's ContentRect, so
   the tabs kept their exact pixels. A body helper that reaches for `Pixel()` is
-  a bug now. `sheet status` prints the bar.
+  a bug now. A SKILL is named in its BAR's colour (`SkillBarColor`; it took the
+  accent for every weapon, defence and reserve skill once - code-review C477).
+  `sheet status` prints the bar and its name's colour, and on the Skills tab each
+  skill row's point and bar colour; `sheet tab <name>` shows a tab.
+- THE ARMOR TOOLTIP (hovering a worn piece, or one in the pack beside what is
+  worn) shows what `CharacterSheet::BuildArmorTipRows` builds - the piece, soak,
+  the Roll and its terms (base, DEX, stance, AVOIDANCE where a side is
+  unarmored, armor; they add up to the Roll - code-review C372 put back the
+  avoidance row, whose loss left an unarmored member's terms short of it) and
+  the strength row. `sheet armor <member> [item]` prints those rows with their
+  cell text and values; InGameTest sums them AND reads each term's cell (it
+  must show its value, rounded; the avoidance cell "+N (lvl L)" on an unarmored
+  side, "-" on an armored one), since stance is the Roll's remainder and the
+  sum alone holds by construction once the rows exist.
 - DETAILS DIALOG (ItemDetailsDialog.*): the item turning slowly in 3D (a turn per
   20 s) beside only the lines it has, plus its `item.<id>.desc`. BUILT ONCE (a
   right-click lands in a guarded frame); Open fills reserved strings and hides
@@ -3141,8 +3154,10 @@ Michael's notes and answers: docs/ui-updates-notes.md; the plan: -plan.md.
   `MemorizeSlot` refuses a known rune rather than spend the tablet. Dev:
   `itemdetails <item [kg]|pack <member> <slot>|memorize|off|status>` (status
   prints `memorize=`); judged by SpellTest's MEMORIZE checks.
-- CHECKED: `AllocTest.ps1 -Sheet` (hover, all tabs, a right-click open, the
-  spin, the menu - inside the window; refuses a PASS with no open counted). It
+- CHECKED: `AllocTest.ps1 -Sheet` (hover, the comparing armor tooltip, all
+  tabs, a right-click open, the spin, the menu - inside the window; refuses a
+  PASS with no open counted, or with no comparing tooltip drawn - `sheet
+  status`'s `sheet armortip: compared=`, a draw-time count). It
   found `ModelPreview::Render` building its light rig every frame, which was
   harmless while only the editor drew a preview. `uioverlap` covers the dialog
   (mutation-checked: the old column split's resist line was flagged).
@@ -3212,9 +3227,10 @@ too) are an iron FRAME around a PROCEDURAL, ANIMATED, EMISSIVE fill.
   with their own fill, `BarKind::Progress` (`DrawProgressBar`): the caller's
   colour as a glow brightening toward the leading edge, NOT dimmed as it empties
   (empty = just levelled). Coloured by skill FAMILY (`SkillBarColor`,
-  CharacterSheet_Lists.cpp): magic by school, weapons steel, defence bronze,
-  each reserve its pool's colour - Michael picked it over a grade-by-fraction,
-  which was deleted. The Skills rows are SkillBand tall so the whole frame fits
+  CharacterSheet.h): magic by school, weapons steel, defence bronze, each
+  reserve its pool's colour - Michael picked it over a grade-by-fraction, which
+  was deleted - and the status bar names a skill in the same colour. The
+  Skills rows are SkillBand tall so the whole frame fits
   round a glass 0.8 of the text height; any framed bar in a row goes through
   `FitFramedTube` (the Stats tab does). `setskill <m> <skill> 2.5` sets a
   fractional level for showing one part-full.
@@ -3240,8 +3256,10 @@ docs/ui-panels-notes.md / -plan.md. What exists, and the rules it rests on:
   slot), plus a stretched sheen on panels. ONE entry point: `ui::DrawFace(batch,
   rect, skin, Face::Panel|Button|ButtonDown|Slot, tint)` and `ui::FaceInset`
   for where content starts; `ui::DrawSlotFace` is THE item socket (HUD hands,
-  sheet doll / pack row / backpack / effect icons, party inventory, empty rune
-  cells, the loading bar's track). A NEW socket or button goes through these -
+  sheet doll / pack row / backpack, the effect icons - the HUD strip's and the
+  sheet's Effects tab's, ONE `DrawEffectIcon` in PartyHudDraw since code-review
+  C263 - party inventory, empty rune cells, the loading bar's track). A NEW
+  socket or button goes through these -
   never a flat kSlotBg rect or a raw DrawNineSlice. The flat look stays whole as
   the debug mode (uiskin=0); editor dialogs never receive the skin.
   Assets are script-made and committed: `tools/BuildUiStones.py` ->

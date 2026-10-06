@@ -385,6 +385,33 @@ bool DrawItemIcon(gfx::SpriteBatch& batch, const gfx::Rect& r, std::string_view 
 	return true;
 }
 
+float EffectTimeLeft(const fx::Inst& effect) {
+	return effect.duration > 0.0f ? std::clamp(effect.timeLeft / effect.duration, 0.0f, 1.0f)
+								  : 1.0f;
+}
+
+void DrawEffectIcon(const ui::UIContext& ctx, gfx::SpriteBatch& batch, const gfx::Rect& rect,
+					const fx::EffectKind* kind, const Vec4& tint, float frac,
+					const ItemIconBank* icons) {
+	const gfx::Rect well = ui::DrawSlotFace(ctx, batch, rect, kSlotBg);
+	// The picture's inset and the sliver's thickness, as shares of the icon: 1
+	// and 2 px on the HUD strip's ~20 px icon, 2 and 3 px on the sheet's ~30 px
+	// one - the sizes the two copies had, now one rule.
+	const float side = std::min(rect.w, rect.h);
+	const float pad = std::max(1.0f, std::round(side * 0.06f));
+	const float bar = std::max(2.0f, std::round(side * 0.1f));
+	const gfx::Rect pic{well.x + pad, well.y + pad, std::max(0.0f, well.w - 2.0f * pad),
+						std::max(0.0f, well.h - 2.0f * pad)};
+	if (!kind || !DrawItemIcon(batch, pic, kind->IconItem(), icons, 0.0f, /*symbolic=*/true))
+		batch.DrawRect(pic, {tint.x, tint.y, tint.z, 0.5f});
+	// OPAQUE whatever `tint` carries: a school colour (ElementColor) has an
+	// alpha of 0 - it is additive light - and the HUD's copy drew its sliver
+	// and border in it as given, so on the strip both were invisible.
+	const Vec4 ink{tint.x, tint.y, tint.z, 1.0f};
+	batch.DrawRect({pic.x, pic.y + pic.h - bar, pic.w * std::clamp(frac, 0.0f, 1.0f), bar}, ink);
+	ui::DrawBorder(batch, rect, ink);
+}
+
 void DrawRuneFace(gfx::SpriteBatch& batch, const gfx::Rect& r, SpellSymbol s,
 				  const ItemIconBank* icons, bool hot, bool disabled,
 				  bool background) {

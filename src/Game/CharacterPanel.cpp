@@ -109,25 +109,13 @@ void EffectIcon::UpdateSelf(ui::UIContext& ctx) {
 	}
 }
 
-void EffectIcon::DrawSelf(ui::UIContext&, gfx::SpriteBatch& batch) {
+// The one effect icon (PartyHudDraw's DrawEffectIcon), which the sheet's
+// Effects tab draws too: socket, art, time-left sliver, school border.
+void EffectIcon::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	const fx::Inst* effect = Effect();
 	if (!effect) return;
-	const gfx::Rect& r = Pixel();
-	const Vec4 tint = ElementColor(effect->school);
-	batch.DrawRect(r, kSlotBg);
-	// Symbolic: an effect is a control readout, so a rune icon is the glyph
-	// alone, never its carved tablet.
-	const gfx::Rect pic{r.x + 1, r.y + 1, r.w - 2, r.h - 2};
-	if (!DrawItemIcon(batch, pic, effect->kind->IconItem(), m_icons, 0.0f,
-					  /*symbolic=*/true))
-		batch.DrawRect(pic, {tint.x, tint.y, tint.z, 0.5f});
-	// Remaining-time sliver draining along the icon's bottom edge.
-	const float frac =
-		effect->duration > 0.0f
-			? std::clamp(effect->timeLeft / effect->duration, 0.0f, 1.0f)
-			: 1.0f;
-	batch.DrawRect({r.x + 1, r.y + r.h - 3, (r.w - 2) * frac, 2}, tint);
-	ui::DrawBorder(batch, r, tint);
+	DrawEffectIcon(ctx, batch, Pixel(), effect->kind, ElementColor(effect->school),
+				   EffectTimeLeft(*effect), m_icons);
 }
 
 // Name + time left on a small plaque under the slot — the strip icons are far

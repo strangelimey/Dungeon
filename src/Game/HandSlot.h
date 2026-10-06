@@ -102,24 +102,4 @@ private:
 	bool m_runesOverItem = false;
 };
 
-// The HUD Magic-area SPELLBOOK. A row of four member-colored SELECTOR buttons
-// tops the magic box — one per party slot, disabled while that member is
-// absent (short roster), down, or has NO memorized symbols; the selected one
-// draws pressed (Michael, 2026-07-10; the old Magic » Spellbook menu entry is
-// gone, and no name line — the pressed button says whose book).
-// Selecting a member fills the box with THEIR KNOWN SYMBOLS
-// as rune buttons, the sequence "spelled out" so far, the name of the spell
-// that sequence resolves to (when a known recipe matches), and Cast / Clear.
-// This is where the player BUILDS a spell: click symbols to append (an
-// unavailable symbol draws a disabled overlay and stops responding — spent
-// symbols never repeat, and the SCHOOL rule holds: the four element runes are
-// mutually exclusive, one leads every spell, so the other three go dark once
-// one is down and non-school symbols wait until one is), click a sequence
-// slot to remove that symbol AND everything spelled after it, Cast fires
-// onCast (the world gates vocabulary/mana) and clears the slate. The sequence
-// row sits at the bottom, just above Cast / Clear. With no member selected
-// the selector row tops the dim placeholder line. One persistent widget — no
-// HUD rebuild on select; it re-resolves its member by roster index every
-// frame (RosterMember), deselects one who went down, and drops sequence
-// symbols the member no longer knows, so a roster reset can't dangle it.
 } // namespace dungeon::game

@@ -49,6 +49,25 @@ public:
 			  std::function<void(size_t)> onSelect);
 };
 
+// The HUD Magic-area SPELLBOOK. A row of member-coloured SELECTOR buttons tops
+// the box - one per party slot, disabled while that member is down or has NO
+// memorized symbols, and no button at all for a slot a short party leaves
+// empty; the selected one draws pressed (Michael, 2026-07-10; no name line -
+// the pressed button says whose book). Selecting a member fills the box with
+// THEIR KNOWN SYMBOLS as rune buttons, one row per tier (the schools always,
+// then the forms and the modifiers they know), the sequence "spelled out" so
+// far with, beside it, the spell it resolves to once this member has learned
+// it, and Cast / Clear. This is where the player BUILDS a spell: click symbols
+// to append - one that cannot follow the sequence (spent, or out of the
+// school - form - modifier order, Spells.h SymbolMayFollow) draws dark and
+// stops responding - click a sequence slot to remove that symbol AND
+// everything spelled after it, and Cast fires onCast (the world gates
+// vocabulary and mana), which empties the slate unless it asks to keep the
+// spell. With no member selected the selector row tops the dim placeholder
+// line. One persistent widget - no HUD rebuild on select; it re-resolves its
+// member by roster index every frame (RosterMember), deselects one who went
+// down, and drops sequence symbols the member no longer knows, so a roster
+// reset cannot dangle it.
 class SpellbookPanel : public ui::Widget {
 public:
 	SpellbookPanel(const gfx::Rect& rect, const std::vector<Character>* roster,
@@ -142,8 +161,8 @@ private:
 	static float RefH(const gfx::Rect& px);
 	// The spell the sequence spells out, if any.
 	const Spell* Match() const;
-	// (Rune faces draw through PartyHudDraw's DrawRuneFace, shared with the
-	// hand boxes.)
+	// (Runes draw through PartyHudDraw's DrawRuneGlow, shared with the hand
+	// boxes and every other rune control.)
 
 	const std::vector<Character>* m_roster;
 	const ItemIconBank* m_icons;
@@ -165,12 +184,4 @@ private:
 	std::string m_placeholder, m_castLabel, m_clearLabel; // localized once
 };
 
-// The COMBINED party inventory: a centered panel with one backpack column per
-// member, for swapping items between characters at a glance. Opened by the
-// sheet's "All" button or by right-clicking the world while carrying a tablet;
-// non-modal (the world keeps running) but claims the mouse like the map overlay.
-// Click a slot to drop the held tablet in (swapping any occupant onto the
-// cursor) or, empty-handed, to pick the slot's item up; click off the panel —
-// or Esc (handled by Game) — closes it. Overlay-drawn so it floats above the
-// HUD; the held-cursor icon (drawn last) stays on top.
 } // namespace dungeon::game
