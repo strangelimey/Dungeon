@@ -69,8 +69,9 @@ $root = Split-Path -Parent $PSScriptRoot
 $bin = Join-Path $root "build\$Config\bin"
 
 # Muted for the whole run, restored however it ends (tools\HarnessAudio.ps1).
+# Not for -List, which runs nothing (tools\CheckDocs.ps1 reads it).
 . (Join-Path $PSScriptRoot 'HarnessAudio.ps1')
-if (-not (Test-HarnessMuted $bin)) { exit (Invoke-Muted $bin $PSCommandPath $PSBoundParameters) }
+if (-not $List -and -not (Test-HarnessMuted $bin)) { exit (Invoke-Muted $bin $PSCommandPath $PSBoundParameters) }
 
 $scripts = Join-Path $root 'tools\EvalScripts'
 $exe = Join-Path $bin 'Dungeon.exe'
@@ -82,8 +83,10 @@ $log = Join-Path $bin 'dungeon.log'
 # And never a stale exe: a measurement of yesterday's binary reads as one of
 # today's change (C426).
 . (Join-Path $PSScriptRoot 'HarnessGame.ps1')
-Assert-ExeCurrent $exe
-Assert-NotRunning $exe
+if (-not $List) {
+	Assert-ExeCurrent $exe
+	Assert-NotRunning $exe
+}
 
 # EVERY REPORT LINE GOES THROUGH HERE so the run can be both coloured on screen
 # and saved to a file. Write-Host alone cannot be redirected (that is F2) and
@@ -226,7 +229,7 @@ if ($List) {
 	Write-Host ''
 	Write-Host 'eval suites:'
 	foreach ($s in $suites) {
-		Write-Host ("  {0,-8} {1,-24} {2}" -f $s.name, $s.script, $s.what)
+		Write-Host ("  {0,-10} {1,-20} {2}" -f $s.name, $s.script, $s.what)
 	}
 	Write-Host ''
 	Write-Host 'fragments (pulled in by include/sweep, not run directly):'

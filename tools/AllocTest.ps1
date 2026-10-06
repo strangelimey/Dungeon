@@ -119,10 +119,12 @@
 # steady. That logged ~5000 allocations on every Esc (2026-09-28). A frame that
 # LEAVES the guarded states is a transition, and Game::Update now disarms it; this
 # run presses Esc during the window, resumes, and repeats, so a regression of
-# that rule - or a resume path that allocates in the frames after it - lands
-# inside the window. It refuses a PASS unless the verdict line counts at least
-# one such transition (`transitions=`), since a swallowed Esc would otherwise
-# report exactly like a clean run.
+# that rule lands inside the window. It refuses a PASS unless the verdict line
+# counts at least one such transition (`transitions=`), since a swallowed Esc
+# would otherwise report exactly like a clean run. What it does NOT cover is the
+# frames just after a resume: they fall inside the guard's 120-frame warm-up, so
+# a resume path that allocates there passes (code-review C216; a -Cold mode that
+# arms them is phase 2's).
 #
 # -Sheet IS THE CHARACTER SHEET'S TURN (docs/ui-updates-plan.md). The sheet is a
 # guarded state, and since ui-updates it does things every frame the pointer
@@ -781,8 +783,9 @@ try {
 		# looks exactly like a clean one. The `party` line below is the evidence.
 		Send-Text 'logecho on'; Send-Key 0x0D
 		foreach ($m in 0..($memberCount - 1)) {
-			# Level the practices first (a level-up inside the window is an
-			# event, and events are allowed to allocate - see the header).
+			# Level the practices first, so the window measures the regeneration
+			# tick alone and not a level-up landing in it. (Not because an event
+			# may allocate - none may, since the event exemption went; C216.)
 			foreach ($s in 'constitution', 'conditioning', 'attunement') {
 				Send-Text "setskill $m $s 20"; Send-Key 0x0D
 			}

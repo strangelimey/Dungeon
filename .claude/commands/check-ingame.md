@@ -4,7 +4,7 @@ argument-hint: "[selftest]"
 allowed-tools: PowerShell, Read, Grep, Glob
 ---
 
-Two audits that need a running game, sharing one launch (~45 s).
+Two audits that need a running game, sharing one launch (a few minutes).
 
 - no argument → `.\tools\CheckAll.ps1 -Only ingame`
 - `selftest` → `.\tools\CheckAll.ps1 -Only ingame -SelfTest` (must FAIL)
@@ -19,8 +19,11 @@ a missing texture renders magenta and is survivable, a missing model is a
 nobody has visited in weeks.
 
 **`uioverlap`** — CLAUDE.md says run it after touching any screen, and the one
-manual sweep found four defects nobody had reported. Four screens: hud, paused,
-map, editor.
+manual sweep found four defects nobody had reported. It sweeps every screen a
+console command can open - the HUD, pause, both maps, the editor and its dialogs,
+the sheet and the party window, the party creation page and its picker, the
+generator and new-world dialogs, short parties of three and one - each under its
+own `sweep_<name>` label (InGameTest.ps1 lists them).
 
 ## Reading a failure
 
@@ -37,6 +40,7 @@ reporting four clean screens.
 **`uioverlap found overlaps`** — a real layout defect. The findings name both
 widgets; `uitree dump <context>` in the dev console gives the pixel rects.
 
-The **settings page and character sheet are not swept** — both need a mouse
-click, and a scripted click against a moving layout is how a sweep starts
-silently auditing the wrong screen. The run prints that every time.
+The **settings page is not swept** - it needs a mouse click, and a scripted
+click against a moving layout is how a sweep starts silently auditing the wrong
+screen. Nor are the sheet's hand-drawn bars: uioverlap audits widgets, not
+direct draws. The run prints both every time.

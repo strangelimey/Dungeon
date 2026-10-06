@@ -742,10 +742,17 @@ def main():
                       not any(l.startswith("preset my_recipe") for l in after),
                       "deleting removes it from the list and from genpresets.cat, and only it",
                       f"file has my_recipe: {'[my_recipe]' in presets}")
-            check(any(l.startswith("catround 29 of 29") for l in con),
-                  "every catalog file round-trips, genpresets.cat included (29 of 29 "
+            # A FLOOR, not an exact count: the exact 29 failed the day lights.cat
+            # and trails.cat joined the project, though nothing had gone wrong
+            # (WorldTest's check, the same lesson). Every file checked must
+            # round-trip with none absent, and there must be at least the 29.
+            cr = next((l for l in con if l.startswith("catround")), "")
+            m = re.match(r"catround (\d+) of (\d+) file\(s\) round-trip, (\d+) absent", cr)
+            check(m is not None and m.group(1) == m.group(2) and m.group(3) == "0"
+                  and int(m.group(2)) >= 29,
+                  "every catalog file round-trips, genpresets.cat included (29 or more "
                   "since shapes.cat)",
-                  next((l for l in con if l.startswith("catround")), "(no catround line)"))
+                  cr or "(no catround line)")
             check("validate: clean - no faults found" in con,
                   "the checker finds nothing wrong",
                   next((l for l in con if l.startswith("validate:")), "(no validate line)"))

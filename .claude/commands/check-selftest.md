@@ -32,5 +32,18 @@ checks still passed. Only the check that reads the health record caught it.
 - **A check that "passes" its self-test run** (i.e. reports success when handed a
   failure) is broken, however green it normally looks. Say which one, plainly.
 - **Checks with no self-test mode are named and skipped**, never counted as
-  passing. Currently `build-debug`, `build-release` and `diag` — all
-  compile-or-run gates whose failure mode is not silent.
+  passing. Today they are these (generated from `CheckAll.ps1 -List`):
+
+<!-- BEGIN generated: checkall-noself (tools\CheckDocs.ps1 -Write rewrites this; CheckAll's `docs` check fails on drift) -->
+```text
+  diag           quick  no self-test   the health record: ring, wrap, cross-thread writes, torn reads
+  evalrunner     full   no self-test   the eval runner: reset = new game, batched = solo, headless = windowed, knobs move numbers
+  editor         full   no self-test   the editor, phase by phase (EditorTest.py, each phase mutation-tested)
+  world          full   no self-test   the world tier: saves, worlds, dungeons, the world map (WorldTest.py)
+  levelbuild     full   no self-test   the level generator, measured from the files it writes (LevelBuildTest.py)
+  stale          full   no self-test   a harness refuses a stale exe, and CheckAll builds what it runs (StaleTest)
+```
+<!-- END generated -->
+
+- **The build rows are not skipped.** They run as themselves, first, because
+  every self-test runs on the exe they make - a harness refuses a stale one.

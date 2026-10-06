@@ -1,21 +1,40 @@
 ---
-description: Run the complete regression suite (~20 min) — every check, both builds
+description: Run the complete regression suite (about an hour) - every check, both builds
 allowed-tools: PowerShell, Read, Grep, Glob
 ---
 
-Run the full regression suite. Use a timeout of at least 30 minutes: it drives
-the real game several times and each launch waits on a cold-cache load.
+Run the full regression suite. Use a timeout of at least 90 minutes: it drives
+the real game dozens of times (the Python judges alone launch it over fifty),
+and each launch waits on a load.
 
 ```
 .\tools\CheckAll.ps1 -Full
 ```
 
-Adds to the quick tier: the release build, the thread-system stress run, the
-allocation guard, the diagnostics harness, and the BC7 encoder.
+Adds the rows marked `full` to the quick tier:
+
+<!-- BEGIN generated: checkall-full (tools\CheckDocs.ps1 -Write rewrites this; CheckAll's `docs` check fails on drift) -->
+```text
+  build-release  full   no self-test   the release build compiles clean (the config that rots unwatched)
+  threads        full   self-testable  ThreadManager + AI buckets under load: no force-terminate, clean reboots
+  alloc          full   self-testable  a steady-state frame allocates nothing on the heap
+  alloc-hand     full   self-testable  the hand spells (light, douse, flare, fill, pebble) allocate nothing
+  typing         full   self-testable  typed console text arrives whole and in order (focus loss, heavy frames)
+  health         full   self-testable  crashes, faults and stalls are caught, recorded and explained
+  evalrunner     full   no self-test   the eval runner: reset = new game, batched = solo, headless = windowed, knobs move numbers
+  editor         full   no self-test   the editor, phase by phase (EditorTest.py, each phase mutation-tested)
+  world          full   no self-test   the world tier: saves, worlds, dungeons, the world map (WorldTest.py)
+  levelbuild     full   no self-test   the level generator, measured from the files it writes (LevelBuildTest.py)
+  stale          full   no self-test   a harness refuses a stale exe, and CheckAll builds what it runs (StaleTest)
+  build-profile  full   no self-test   the release-profile build compiles clean (DN_PROFILE rots unwatched too)
+  profile        full   self-testable  the frame budget still adds up, and the verdict still reacts to load
+  bc7            full   self-testable  the BC7 encoder error estimate against an independent decoder
+```
+<!-- END generated -->
 
 This is the one to run before a merge, or after a stretch of work touching
 threads, rendering or assets. Report per `/check`'s reporting guidance.
 
-If a check fails, run its own command (`/check-threads`, `/check-health`, …) to
-re-run just that one while investigating — a 20-minute suite is a poor debug
-loop.
+If a check fails, run its own command (`/check-threads`, `/check-health`, ...)
+or `.\tools\CheckAll.ps1 -Only <name>` to re-run just that one while
+investigating - an hour-long suite is a poor debug loop.

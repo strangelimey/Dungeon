@@ -13,12 +13,16 @@ scripts unattended — no clicks, no screenshots.
 - `selftest` → `.\tools\Eval.ps1 -SelfTest` (must PASS by making the runner FAIL)
 - anything else → `.\tools\Eval.ps1 -Only <name>`
 
-Needs a debug build; ~2 minutes for all six.
+Needs a current debug build (a stale one is refused, exit 4); a few minutes for
+all of them, in one process.
 
 ## THIS IS NOT A PASS/FAIL CHECK
 
 **A green verdict means the scripts RAN, not that the numbers are good.** That is
-why it is not in `CheckAll`'s tiers and why it has its own command.
+why the suites are not in `CheckAll`'s tiers and why they have their own
+command. (`-SelfTest` is the exception: it checks the RUNNER - reset equals a new
+game, batched equals solo, headless equals windowed, a knob moves its number - so
+it is CheckAll's full-tier `evalrunner` row.)
 
 The numbers are the artefact — `TALLY` lines and blast tables, to be **compared
 against a previous run** after a knob changes. Nothing asserts that a balance
@@ -38,14 +42,28 @@ automatically a defect.
 
 ## What each suite is for
 
-| suite | what it measures |
-|---|---|
-| `smoke` | the runner drives the game start to finish — machinery only |
-| `arena` | arenas carve, monsters spawn where asked, a fight resolves |
-| `tiers` | one encounter at two preset tiers, same seed |
-| `ladder` | the progression ladder: walk in, fight, tp away, repeat, **no healing between rungs** |
-| `blast` | one detonation in four geometries |
-| `sweep` | one rung over twelve seeds — a distribution, not an anecdote |
+`Eval.ps1 -List`, as it prints today (name, script, what it measures):
+
+<!-- BEGIN generated: eval-suites (tools\CheckDocs.ps1 -Write rewrites this; CheckAll's `docs` check fails on drift) -->
+```text
+  smoke      smoke.eval           the runner drives the game unattended, start to finish
+  arena      arena.eval           arenas carve, monsters spawn where asked, a fight resolves
+  tiers      tiers.eval           the same encounter at two preset tiers, same seed
+  ladder     ladder.eval          the progression ladder: walk in, fight, tp away, repeat
+  blast      blast-geometry.eval  one detonation in four geometries
+  sweep      sweep-novice.eval    one rung over twelve seeds - a distribution, not an anecdote
+  resources  resources.eval       the three pools: rates, the state gate, and what recovery trains
+  supplies   supplies.eval        food and water: what they cost, and what an empty meter does
+  rest       rest.eval            the rest state: what it costs, and the three ways it ends
+  expedition expedition.eval      fight, retreat, rest, repeat - how many fights a load of supplies buys
+  parties    smallparty.eval      parties of one, three and two: who the formation lets a monster reach
+  rootmotion rootmotion.eval      a walking, then dying, kit skeleton: how far its body strays from its square
+  spawnrise  spawnrise.eval       a freshly spawned skeleton holds its square until it is up
+```
+<!-- END generated -->
+
+The `ladder` is cumulative: **no healing between rungs**. `sweep` is one rung
+over twelve seeds - a distribution, not an anecdote.
 
 ## Reading them
 
@@ -77,5 +95,6 @@ Two traps that have already bitten, both of which look like a broken build:
 - **Dev commands work from the MENU.** After a party wipe the app returns to the
   title screen and every `step` is correctly refused — `state` is how a script
   sees it, and `step` says so rather than reporting a bare zero.
-- **A stale exe.** If the build failed, the script still runs against the last
-  binary and reports plausible numbers. Check the build succeeded first.
+- **A stale exe.** If the build failed, the script used to run against the last
+  binary and report plausible numbers. It now refuses (exit 4, "STALE") - build
+  and run it again.

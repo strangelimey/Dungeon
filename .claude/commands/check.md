@@ -1,5 +1,5 @@
 ---
-description: Run the quick regression tier (~1 min) and report what drifted
+description: Run the quick regression tier (a few minutes) and report what drifted
 argument-hint: "[extra CheckAll.ps1 flags]"
 allowed-tools: PowerShell, Read, Grep, Glob
 ---
@@ -10,25 +10,60 @@ Run the quick regression tier and report the result.
 .\tools\CheckAll.ps1 $ARGUMENTS
 ```
 
-Quick is the everyday tier — debug build, the health record's unit test, and the
-in-game audits — about a minute. It is meant to be run often enough that drift
-is caught while you still remember what you changed.
+Quick is the everyday tier - the rows marked `quick` below, a few minutes. It is
+meant to be run often enough that drift is caught while you still remember what
+you changed. Whatever is selected brings its build rows with it, first, and every
+harness refuses a stale exe on its own (exit 4).
+
+## What the tiers run
+
+`CheckAll.ps1 -List`, as it prints today:
+
+<!-- BEGIN generated: checkall-list (tools\CheckDocs.ps1 -Write rewrites this; CheckAll's `docs` check fails on drift) -->
+```text
+  build-debug    quick  no self-test   the debug build compiles clean
+  build-release  full   no self-test   the release build compiles clean (the config that rots unwatched)
+  diag           quick  no self-test   the health record: ring, wrap, cross-thread writes, torn reads
+  rolls          quick  self-testable  the pure rules: dice, strike, armour, blasts, resources, ledger, carve, party
+  docs           quick  self-testable  the /check-* commands list what CheckAll -List and Eval -List print
+  threads        full   self-testable  ThreadManager + AI buckets under load: no force-terminate, clean reboots
+  ingame         quick  self-testable  level files + installed models, and a uioverlap sweep of every screen
+  pipeline       quick  self-testable  every source of damage goes through fx::Deal; nothing else writes health
+  spells         quick  self-testable  every spell tier does what it says: hand spells, bolts, modifiers, wards
+  alloc          full   self-testable  a steady-state frame allocates nothing on the heap
+  alloc-hand     full   self-testable  the hand spells (light, douse, flare, fill, pebble) allocate nothing
+  typing         full   self-testable  typed console text arrives whole and in order (focus loss, heavy frames)
+  health         full   self-testable  crashes, faults and stalls are caught, recorded and explained
+  evalrunner     full   no self-test   the eval runner: reset = new game, batched = solo, headless = windowed, knobs move numbers
+  editor         full   no self-test   the editor, phase by phase (EditorTest.py, each phase mutation-tested)
+  world          full   no self-test   the world tier: saves, worlds, dungeons, the world map (WorldTest.py)
+  levelbuild     full   no self-test   the level generator, measured from the files it writes (LevelBuildTest.py)
+  stale          full   no self-test   a harness refuses a stale exe, and CheckAll builds what it runs (StaleTest)
+  build-profile  full   no self-test   the release-profile build compiles clean (DN_PROFILE rots unwatched too)
+  profile        full   self-testable  the frame budget still adds up, and the verdict still reacts to load
+  bc7            full   self-testable  the BC7 encoder error estimate against an independent decoder
+```
+<!-- END generated -->
 
 ## The family
 
+<!-- BEGIN generated: family (each command file's own description; tools\CheckDocs.ps1) -->
 | command | covers |
 |---|---|
-| `/check` | quick tier (this one) |
-| `/check-full` | everything, ~20 min |
-| `/check-selftest` | every checker must FAIL on purpose |
-| `/check-build` | debug + release compile |
-| `/check-diag` | the health record's ring |
-| `/check-threads` | ThreadManager under load |
-| `/check-health` | crashes are caught and explained |
-| `/check-alloc` | steady-state frames allocate nothing |
-| `/check-ingame` | levels, models, and a UI overlap sweep |
-| `/check-pipeline` | every source of damage goes through `fx::Deal` |
-| `/check-bc7` | the BC7 encoder |
+| `/check` | Run the quick regression tier (a few minutes) and report what drifted |
+| `/check-alloc` | A steady-state frame allocates nothing on the heap |
+| `/check-bc7` | The BC7 encoder's error estimate against an independent decoder |
+| `/check-build` | Both configs compile clean — including release, which rots unwatched |
+| `/check-diag` | The health record's ring — wrap, cross-thread writes, torn reads |
+| `/check-eval` | Run the damage-system eval suites and report what they measured |
+| `/check-full` | Run the complete regression suite (about an hour) - every check, both builds |
+| `/check-health` | Crashes, faults and stalls are caught, recorded and explained |
+| `/check-ingame` | Level files, installed models, and a UI overlap sweep of every screen |
+| `/check-pipeline` | Every source of damage goes through fx::Deal — nothing else writes health |
+| `/check-profile` | The frame budget still adds up, and the verdict still reacts to load |
+| `/check-selftest` | Check the checkers — every harness is handed a failure and must report it |
+| `/check-threads` | Thread system under load — no force-terminate, clean supervised reboots |
+<!-- END generated -->
 
 ## How to report — applies to every command in this family
 

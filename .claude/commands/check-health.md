@@ -33,9 +33,10 @@ The `[FAIL]` line prints the exact pattern that was missing. Then look at
   `Game_DevDiagnostics.cpp` (the throw) means the vectored handler did not fire.
 - **`stall` / `restart` failing** — stall detection must not ride the reboot
   path; a worker with no `autoRestart` still has to be recorded.
-- **A case timing out at startup** — that is the harness, not the product. It
-  retries `Start New Game` three times; if all three miss, the window never took
-  focus.
+- **A case timing out at startup** - that is the harness, not the product. The
+  new game is started through the console's `newgame` (tools\HarnessGame.ps1
+  Start-NewGame) and waited for on `Level ready:`; a case is not retried, so a
+  launch that never got there fails that case as a harness error.
 
 `Killed` has **no scripted coverage** — a hard kill is a THREADS panel button,
 not a console command. The run says so every time; that line is expected output,

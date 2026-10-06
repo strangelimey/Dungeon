@@ -5,9 +5,9 @@
 # find new bugs - each check below already knows what it is guarding - but to
 # notice when something that used to hold has quietly stopped holding.
 #
-#   .\tools\CheckAll.ps1              # quick tier  (~4 min)
-#   .\tools\CheckAll.ps1 -Full        # everything  (~20 min)
-#   .\tools\CheckAll.ps1 -SelfTest    # every checker must FAIL (~15 min)
+#   .\tools\CheckAll.ps1              # quick tier  (a few minutes)
+#   .\tools\CheckAll.ps1 -Full        # everything  (about an hour)
+#   .\tools\CheckAll.ps1 -SelfTest    # every checker must FAIL
 #   .\tools\CheckAll.ps1 -Only diag,health
 #   .\tools\CheckAll.ps1 -List
 #   .\tools\CheckAll.ps1 -Only alloc -Plan   # what would run, in order; runs nothing
@@ -62,7 +62,9 @@ if (-not $List -and -not $Plan -and -not (Test-HarnessMuted $bin)) { exit (Invok
 # exe a check runs, and `build` marks the build rows themselves.
 #
 # Kept in ONE table so adding a check is one row, and so -List can print what
-# the suite actually covers rather than what a comment claims it covers.
+# the suite actually covers rather than what a comment claims it covers. The
+# /check-* command files carry that list too, GENERATED: after adding or
+# changing a row, run tools\CheckDocs.ps1 -Write, or the `docs` check fails.
 # ---------------------------------------------------------------------------
 $checks = @(
 	@{
@@ -85,6 +87,23 @@ $checks = @(
 		# worse than the ordering it fixes. cmd merges before PowerShell ever sees
 		# the stream, so the output is both ordered and clean.
 		run  = { & cmd /c "`"$(Join-Path $bin 'DiagTest.exe')`" 2>&1" | Out-Host; $LASTEXITCODE }
+	},
+	@{
+		name = 'rolls'; tier = 'quick'; needs = "build-$Config"
+		what = 'the pure rules: dice, strike, armour, blasts, resources, ledger, carve, party'
+		# RollTest links the real Game rules (never a copy) and runs in seconds,
+		# so it belongs where it is run most (code-review C213). --self-test
+		# injects a broken die and must name exactly the checks that fail.
+		run      = { & cmd /c "`"$(Join-Path $bin 'RollTest.exe')`" 2>&1" | Out-Host; $LASTEXITCODE }
+		selfTest = { & cmd /c "`"$(Join-Path $bin 'RollTest.exe')`" --self-test 2>&1" | Out-Host; $LASTEXITCODE }
+	},
+	@{
+		name = 'docs'; tier = 'quick'
+		what = 'the /check-* commands list what CheckAll -List and Eval -List print'
+		# Generated blocks in .claude\commands\check*.md (tools\CheckDocs.ps1;
+		# -Write regenerates). Needs no build: it reads two tables, runs nothing.
+		run      = { & (Join-Path $root 'tools\CheckDocs.ps1') | Out-Host; $LASTEXITCODE }
+		selfTest = { & (Join-Path $root 'tools\CheckDocs.ps1') -SelfTest | Out-Host; $LASTEXITCODE }
 	},
 	@{
 		name = 'threads'; tier = 'full'; needs = "build-$Config"
@@ -144,6 +163,36 @@ $checks = @(
 		selfTest = { & (Join-Path $root 'tools\HealthTest.ps1') -Config $Config -SelfTest | Out-Host; $LASTEXITCODE }
 	},
 	@{
+		name = 'evalrunner'; tier = 'full'; needs = "build-$Config"
+		what = 'the eval runner: reset = new game, batched = solo, headless = windowed, knobs move numbers'
+		# Eval.ps1's SUITES measure and stay out of every tier (check-eval.md: a
+		# green suite means it RAN). Its -SelfTest is a pass/fail check of the
+		# RUNNER, and PipelineTest's quick PASS rests on that runner (C213). It
+		# has no fail-on-purpose mode of its own: it IS one.
+		run = { & (Join-Path $root 'tools\Eval.ps1') -Config $Config -SelfTest | Out-Host; $LASTEXITCODE }
+	},
+	@{
+		name = 'editor'; tier = 'full'; needs = 'build-debug'
+		what = 'the editor, phase by phase (EditorTest.py, each phase mutation-tested)'
+		# The Python judges read build\debug, like SpellTest.
+		run = { python (Join-Path $root 'tools\EditorTest.py') | Out-Host; $LASTEXITCODE }
+	},
+	@{
+		name = 'world'; tier = 'full'; needs = 'build-debug'
+		what = 'the world tier: saves, worlds, dungeons, the world map (WorldTest.py)'
+		run = { python (Join-Path $root 'tools\WorldTest.py') | Out-Host; $LASTEXITCODE }
+	},
+	@{
+		name = 'levelbuild'; tier = 'full'; needs = 'build-debug'
+		what = 'the level generator, measured from the files it writes (LevelBuildTest.py)'
+		run = { python (Join-Path $root 'tools\LevelBuildTest.py') | Out-Host; $LASTEXITCODE }
+	},
+	@{
+		name = 'stale'; tier = 'full'; needs = 'build-debug'
+		what = 'a harness refuses a stale exe, and CheckAll builds what it runs (StaleTest)'
+		run = { & (Join-Path $root 'tools\StaleTest.ps1') | Out-Host; $LASTEXITCODE }
+	},
+	@{
 		name = 'build-profile'; tier = 'full'; build = $true
 		what = 'the release-profile build compiles clean (DN_PROFILE rots unwatched too)'
 		run  = { & cmd /c ".\build.cmd release-profile > `"$env:TEMP\checkall-build-profile.txt`" 2>&1"; $LASTEXITCODE }
@@ -171,7 +220,7 @@ if ($List) {
 	Write-Host 'checks in this suite:'
 	foreach ($c in $checks) {
 		$st = if ($c.selfTest) { 'self-testable' } else { 'no self-test' }
-		Write-Host ("  {0,-14} {1,-6} {2,-13} {3}" -f $c.name, $c.tier, $st, $c.what)
+		Write-Host ("  {0,-14} {1,-6} {2,-14} {3}" -f $c.name, $c.tier, $st, $c.what)
 	}
 	exit 0
 }

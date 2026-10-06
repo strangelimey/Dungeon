@@ -157,8 +157,10 @@ void Manager::Run(Worker* w, std::stop_token st) {
 	alloc::RegisterThread(w->name);
 	// And to the profiler, for the same reason and in the same place. Doing it
 	// HERE rather than in any particular client is what makes every managed
-	// thread measured — the AI buckets, the supervisor, a stress worker, and
-	// whatever spawns next — instead of only the ones someone remembered to wire.
+	// thread measured - the AI buckets, a stress worker, and whatever spawns
+	// next - instead of only the ones someone remembered to wire. (Not the
+	// supervisor: it is the Manager's own std::jthread, never a Worker, so it
+	// never comes through here.)
 	prof::RegisterThread(w->name);
 	// And to the health record, in the same place and for the same reason: being
 	// MANAGED is what gets a thread covered, rather than somebody having
