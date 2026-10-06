@@ -361,4 +361,96 @@ step 2
 tally
 party
 
+; --- A FLARE REACHES WHAT IT CAN WALK TO (code-review C17) ---------------------
+; Maren's Firelight flare (Sowilo Hagalaz) in a corridor, a shut wooden door two
+; squares east. It reaches 3 walking steps - into open squares only, as a blast
+; does - so it dazzles and scorches the mummy behind the party (11,12) and the one
+; at 9,12, 3 open steps west, and kindles the doused wall torch at 10,12 (2
+; steps). The 3-step mummy is what makes the door below mean anything: a reach
+; of 2 would keep the mummy beyond it out with no door at all. The corridor ends
+; at 9,12, so the square west of it (8,12) is carved open for a fourth mummy, 4
+; open steps off, which the flare does NOT reach - so the reach is 3, not more.
+; It touches nothing else:
+;   - the mummy at 15,12, 3 steps away THROUGH the door, which the old reach map
+;     (it walked floor, and a shut door is floor) dazzled and the scorch struck;
+;   - the mummy at 18,12, dazzled by hand beforehand: the old scorch struck every
+;     monster still dazzled from an earlier flare, wherever it stood;
+;   - a wall torch in a lone square carved two north of the party (12,10), behind
+;     the rock, which the old kindling reached by Manhattan distance.
+; Mummies (fire -1, flammable), so a scorch cannot hide in a resist. `castsvc
+; fire` reads each torch from its own square, before the flare and after.
+
+echo === flare-door ===
+reset
+timescale 0
+lockstep on
+seed 25
+goto eval_arena
+arena corridor 11
+heal
+freeze on
+; off the door's square first: the arena starts the party on 14,12
+tp 12 12
+editor place floors floor_temple 12 10
+editor place floors floor_temple 8 12
+editor place fixtures sconce 12 10 north
+editor place fixtures sconce 10 12 north
+editor place doors wooden_door 14 12
+mappage close
+spawn mummy 11 12 east up
+spawn mummy 9 12 east up
+spawn mummy 8 12 east up
+spawn mummy 15 12 west up
+spawn mummy 18 12 west up
+tp 17 12
+face e
+effect dazzle ahead 1 60
+tp 10 12
+face n
+castsvc douse
+castsvc fire
+tp 12 10
+face n
+castsvc douse
+castsvc fire
+tp 12 12
+face e
+learn 2 fire
+learn 2 light
+learn 2 explode
+setskill 2 fire 5
+monsters
+cast 2 fire light explode
+step 0.3
+monsters
+tp 10 12
+face n
+castsvc fire
+tp 12 10
+face n
+castsvc fire
+
+; --- A WARD LANDED BY HAND KEEPS ITS SCHOOL (code-review C279) ------------------
+; `effect <ward> ahead` lands a ward on the monster ahead in the KIND's own school.
+; The ward kinds had none, so each fell back to fire: a stone skin landed as fire.
+; The `monsters` readout prints each effect's school, and that is the whole
+; claim: both wards are held either way, since a ward refreshes only its own KIND
+; (fx::Apply's Stacking::Refresh) and never looks at the school.
+
+echo === wards-ahead ===
+reset
+timescale 0
+lockstep on
+seed 25
+goto eval_arena
+arena open 9 9
+heal
+tp 14 14
+face n
+freeze on
+spawn skeleton 14 13 south up
+effect stoneskin ahead 5 60
+effect fireshield ahead 5 60
+monsters
+
 echo === end ===

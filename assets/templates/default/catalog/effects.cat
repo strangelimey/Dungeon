@@ -5,6 +5,13 @@
 ; Fields: name = the display loc key (the sheet appends ".desc" for the long
 ; form), icon = the item id whose baked icon it borrows in the HUD strip
 ; ("" = the school-tinted square), stacking = refresh | school | stack.
+;
+; fade_party / fade_monster = the line saying it RAN OUT, one per side (a piece
+; of the dungeon - a burning door - takes the monster's). Each is formatted with
+; the bearer's name, then the effect's own name, and may use either or both
+; ({0} / {1}). Absent = log.effect_fades, "<who> shakes off the <effect>". An
+; effect that ends by SPENDING itself (a veil bursting, the wind stilling) says
+; its own line instead, never this one.
 
 ; --- the Protect wards ------------------------------------------------------
 ; One kind per school, four different guards. They take their names from the
@@ -14,21 +21,33 @@
 [stoneskin]
 name = spell.stoneskin
 icon = rune_protect
+school = earth
+fade_party = log.shield_fades
+fade_monster = log.effect_fades
 stacking = refresh
 
 [fireshield]
 name = spell.fireshield
 icon = rune_protect
+school = fire
+fade_party = log.shield_fades
+fade_monster = log.effect_fades
 stacking = refresh
 
 [waterveil]
 name = spell.waterveil
 icon = rune_protect
+school = water
+fade_party = log.shield_fades
+fade_monster = log.effect_fades
 stacking = refresh
 
 [windward]
 name = spell.windward
 icon = rune_protect
+school = air
+fade_party = log.shield_fades
+fade_monster = log.effect_fades
 stacking = refresh
 
 ; --- damage over time -------------------------------------------------------
@@ -53,6 +72,8 @@ damage_type = earth
 school = earth
 apply_party = log.poisoned
 apply_monster = log.monster_poisoned
+fade_party = log.effect_fades
+fade_monster = log.effect_fades
 stacking = refresh
 
 [bleed]
@@ -61,6 +82,8 @@ damage_type = pierce
 school = fire
 apply_party = log.bleeding
 apply_monster = log.monster_bleeding
+fade_party = log.effect_fades
+fade_monster = log.effect_fades
 stacking = refresh
 
 [burn]
@@ -69,6 +92,8 @@ plume = 1
 light = burning
 apply_party = log.member_ignites
 apply_monster = log.monster_ignites
+fade_party = log.effect_fades
+fade_monster = log.monster_burns_out
 stacking = refresh
 
 ; --- an empty supply meter --------------------------------------------------
@@ -89,6 +114,8 @@ damage_type = starve
 school = earth
 apply_party = log.starving
 apply_monster = log.monster_starving
+fade_party = log.effect_fades
+fade_monster = log.effect_fades
 stacking = refresh
 
 [parched]
@@ -97,6 +124,8 @@ damage_type = starve
 school = water
 apply_party = log.parched
 apply_monster = log.monster_parched
+fade_party = log.effect_fades
+fade_monster = log.effect_fades
 stacking = refresh
 
 ; --- the see-through mark ---------------------------------------------------
@@ -110,6 +139,8 @@ name_earth = spell.stonesight
 name_air = spell.farsight
 name_water = spell.scrying
 icon = rune_sight
+fade_party = log.sight_fades
+fade_monster = log.effect_fades
 stacking = school
 
 ; --- a doused fire's smoke ------------------------------------------------
@@ -134,6 +165,8 @@ name_earth = spell.stonelight
 name_air = spell.skylight
 name_water = spell.tidelight
 icon = rune_light
+fade_party = log.light_fades
+fade_monster = log.effect_fades
 stacking = school
 scale_power = 8
 ; FIRE's light kindles an unlit fire within a step (a brazier only at
@@ -161,4 +194,6 @@ stone_item = rock
 ; A light spell's flare blinds a monster: it does nothing while this lasts.
 [dazzle]
 name = effect.dazzle
+fade_party = log.effect_fades
+fade_monster = log.monster_dazzle_fades
 stacking = refresh

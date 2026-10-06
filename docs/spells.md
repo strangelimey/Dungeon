@@ -181,7 +181,12 @@ them all (`Spell/ModifiedSpell.h`): AllSpells.cpp wraps every Project, Protect
 and Light spell with each modifier, giving twenty-four whole spells with their
 own ids, names and spells.cat entries - so learning, the spellbook, the hand
 menus and saves treat them like any other spell. Each costs about twice its
-base (spells.cat `mana`).
+base (spells.cat `mana`). Its DEFAULTS are its form's AS TUNED - power, twice
+the mana, the form's `on_hit` and `push` - taken after the forms' own entries
+are read (SpellBook::Build, `Spell::DeriveFromForm`), and its own entry wins on
+each: a volley bolt leaves the volley's `on_hit` (`[firebolt_volley]` burn 1 4)
+and shoves by its own `push`. Its bolts used to carry the form's on-hit whatever
+its entry said, and its defaults were the form's CLASS numbers (code-review C19).
 
 ### Ingwaz (multiple) on a bolt - the VOLLEY (`<bolt>_volley`)
 
@@ -228,10 +233,15 @@ stone is the bigger one.
 No lasting light: a 0.7 s flash round the party (`spell_flare`, a hand-glow
 slot) and a cloud of motes, and every monster within 3 walking steps DAZZLED -
 the `dazzle` effect, under which it does nothing - for 1.5 + power / 4 seconds
-(2..8). Then the school's light acts ONCE over that reach: fire scorches every
-dazzled monster and kindles every fire within 3 steps; water quenches the party
-and gives each member `power` stamina; air shocks every dazzled monster; earth
-maps every square its light would reach and shows the tracks in them.
+(2..8). A step is into an OPEN square (`DungeonWorld::WalkReach`, a blast's own
+test), so neither rock nor a shut door lets it by. Then the school's light acts
+ONCE over that reach: fire scorches every monster THIS flare dazzled (never one
+still dazzled by an earlier flare elsewhere) and kindles every fire it reached;
+water quenches the party and gives each member `power` stamina; air shocks
+every monster it dazzled; earth maps every square its light would reach and
+shows the tracks in them. (The flare once dazzled by the light budget's reach
+map, which a shut door passes, and kindled by Manhattan distance, through rock
+- code-review C17.)
 
 ## Monster casters
 

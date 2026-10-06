@@ -504,24 +504,16 @@ void Game::RegisterPartyCommands() {
 							   m_console.Refuse(std::format("no effect '{}'", args[0]));
 							   return;
 						   }
-						   const float magnitude = args.size() > 2
-							   ? std::strtof(args[2].c_str(), nullptr) : 8.0f;
-						   const float seconds = args.size() > 3
-							   ? std::strtof(args[3].c_str(), nullptr) : 60.0f;
-						   // The school picks a ward's flavour and every effect's
-						   // tint, so derive it from the kind — `effect fireshield`
-						   // must land the FIRE ward, not an oddly tinted one.
-						   SpellSymbol school = SpellSymbol::Fire;
-						   if (args[0] == "stoneskin" || args[0] == "poison")
-							   school = SpellSymbol::Earth;
-						   else if (args[0] == "windward") school = SpellSymbol::Air;
-						   else if (args[0] == "waterveil") school = SpellSymbol::Water;
-						   fx::Apply(m_characters[m].effects, *kind, school, magnitude,
-									 seconds);
+						   // The KIND's own school, exactly as ApplyEffectAhead lands one: it
+						   // picks a ward's flavour and every effect's tint, and each kind
+						   // carries its own (a ward its school, starving earth, parched
+						   // water). This command kept an id-to-school table of its own while
+						   // the wards had none (code-review C279).
+						   fx::Apply(m_characters[m].effects, *kind, kind->DefaultSchool(), mag,
+									 secs);
 						   m_ui.RefreshSheet();
 						   m_console.Print(std::format("{} gains {} ({} for {}s)",
-													   m_characters[m].name, args[0],
-													   magnitude, seconds));
+													   m_characters[m].name, args[0], mag, secs));
 					   });
 	// Named `grudges`, not `threat`: another file registers a different
 	// `threat` first, so this one was unreachable under that name.

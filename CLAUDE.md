@@ -273,6 +273,10 @@ Key conventions (memorize, they bite):
   the ward on the whole party; Hagalaz = a burst on impact or a burst round the
   caster sparing its square, and no ward. Twenty-four whole spells with their own
   ids and spells.cat entries, so learning / the book / saves needed nothing.
+  A modified spell's DEFAULTS are its form's AS TUNED: SpellBook::Build reads
+  the forms' entries, then `Spell::DeriveFromForm` (power, 2x mana, on_hit,
+  push), then the modified entry - and its bolts carry ITS on_hit and push
+  (code-review C19: `[firebolt_volley] on_hit` was read by nothing).
   TRAP: `blast_force` counts SQUARES, not a radius. Monsters cast any spell id;
   the mage ladder is skel_mage / skel_mage_adept / skel_magus (bolt, volley,
   burst). A monster's burst bolt that reaches a member's lane GOES OFF in the
@@ -282,7 +286,8 @@ Key conventions (memorize, they bite):
   every member, unrolled. New spell services reach the world only through
   CastServices (each drivable bare with `castsvc`). Checked by `tools\SpellTest.py` (judges
   spells.eval, CheckAll quick; `--selftest` cuts every cast), `tools\CombatTest.py`
-  (the burst on the party, the ward and the gust), `AllocTest.ps1 -Hand` and
+  (the burst on the party, the ward and the gust, the flare's reach, a ward's
+  school by hand), `AllocTest.ps1 -Hand` and
   `AllocTest.ps1 -Burst` (the burst, the ward and every repel outcome inside a
   guarded window, fired by `autocast bolt ... [repel <power> <member>]`).
   THE LIGHT FORM (lighting-updates Phase 6): a fourth form rune, SOWILO
@@ -308,7 +313,13 @@ Key conventions (memorize, they bite):
   records its MAKER so the party can leave tracks / scent / noise later.
   Ingwaz on a light = one bigger light (`grow` x the power); Hagalaz = a FLARE
   (the `lightFlare` service: a flash, `dazzle` on monsters within 3 steps - a
-  dazzled monster skips its turn - and the school's light acting once). With
+  dazzled monster skips its turn - and the school's light acting once, on what
+  THIS flare dazzled). A light's REACH is one walk, `DungeonWorld::WalkReach`:
+  walking steps into OPEN squares (OpenSquare, a blast's test - no rock, no
+  shut door), for the flare's dazzle and kindling and a stone's mapping and
+  tracks (code-review C17). An effect's expiry line is its KIND's (effects.cat
+  `fade_party` / `fade_monster`), never picked by category (C9); `messages`
+  prints the HUD log a world line goes to. With
   it: every skeleton resists fire 0.75, and a monsters.cat `flammable` monster
   (the mummy) catches from ANY fire that lands on it - the one seam is
   `MonsterTarget::Wound` (balance.cat `ignite_burn` / `ignite_seconds`). Dev:

@@ -19,12 +19,17 @@
 #   GRAMMAR school, form, then one modifier: four malformed recipes refused,
 #           a well-formed one cast.
 #   TIER 2+ Fire Bolt strikes once and bursts nothing; Ingwaz flies more than one
-#           bolt; Hagalaz bursts, reaching the square beside the target; Ingwaz
-#           on a ward wards all four; Hagalaz on a ward kills what stands round
-#           the caster, harms no one in the party, and leaves no ward.
+#           bolt, each leaving the VOLLEY's own on-hit (burn 1 4), not its
+#           form's (code-review C19); Hagalaz bursts, reaching the square beside
+#           the target; Ingwaz on a ward wards all four; Hagalaz on a ward kills
+#           what stands round the caster, harms no one in the party, and leaves
+#           no ward.
 #   MONSTERS the adept's spell hurts the party, the ladder is authored, and the
 #           magus's burst bolt goes off on the party it reaches (code-review C1).
 #   REPEL   a strong gust turns arrows back, and they kill the archer.
+#   LIGHT   a Firelight running out says its own line, naming the light, and
+#           never the Sight spell's (code-review C9) - read off the HUD's
+#           message log (`messages`) in the game's own language.
 #
 # --selftest runs the same script with every `cast` line removed and demands
 # that EXACTLY the checks resting on a spell fail (SPELL_FREE names the rest,
@@ -165,6 +170,43 @@ def effects(sec):
 	return out
 
 
+def monster_effects(sec):
+	"""Every monster line, in order: (type, {effect id: magnitude})."""
+	out = []
+	for l in sec:
+		m = re.match(r"  (\w+) @ \d+,\d+  hp [\d.]+(.*)$", l)
+		if m:
+			out.append((m.group(1), {k: float(v) for k, v in
+									 re.findall(r"\[(\w+) ([\d.-]+) ", m.group(2))}))
+	return out
+
+
+def said(sec):
+	"""The HUD message log lines a `messages` readout printed in the section."""
+	return [l[4:] for l in sec if l.startswith("  | ")]
+
+
+def lang():
+	"""The game's own strings, in the language it runs in (settings.ini beside
+	the exe, en when unset): a world line is localized, so the judge formats the
+	expected line from the same table rather than assuming English."""
+	code = "en"
+	ini = os.path.join(os.path.dirname(EXE), "settings.ini")
+	if os.path.isfile(ini):
+		for l in io.open(ini, encoding="utf-8", errors="replace"):
+			if l.startswith("language="):
+				code = l.split("=", 1)[1].strip() or "en"
+	path = os.path.join(ROOT, "assets", "lang", f"{code}.lang")
+	if not os.path.isfile(path):
+		path = os.path.join(ROOT, "assets", "lang", "en.lang")
+	table = {}
+	for l in io.open(path, encoding="utf-8-sig"):
+		if "=" in l and not l.lstrip().startswith(";"):
+			k, v = l.rstrip("\n").split("=", 1)
+			table[k.strip()] = v
+	return table
+
+
 def party(sec):
 	out = {}
 	for l in sec:
@@ -291,6 +333,14 @@ def judge(lines):
 	bolts = num(t, "bolthits") + num(t, "boltmisses") + num(t, "expired")
 	check(bolts >= 2 and num(t, "blasts") == 0, "Ingwaz on a bolt flies a volley",
 		  f"bolts={bolts} blasts={t.get('blasts')}")
+	# Its bolts leave the volley's OWN on-hit, spells.cat [firebolt_volley] burn
+	# 1 4 - not firebolt's burn 2 4, which every volley bolt carried while the
+	# entry was read by nothing (code-review C19).
+	burned = [fx["burn"] for kind, fx in monster_effects(get("volley"))
+			  if kind == "skel_warrior" and "burn" in fx]
+	check(num(t, "bolthits") >= 1 and burned == [1.0],
+		  "a volley bolt leaves the volley's own burn (1 a second), not its form's (2)",
+		  f"bolthits={t.get('bolthits')} warrior burns {burned}")
 	t = tally(get("burst"))
 	m = monsters(get("burst"))
 	check(num(t, "blasts") == 1, "Hagalaz on a bolt bursts", f"blasts={t.get('blasts')}")
@@ -340,6 +390,17 @@ def judge(lines):
 	check(turned >= 1, "a strong gust turns an arrow back", f"turned {turned} times")
 	check(num(tally(sec), "slain") >= 1, "and the turned arrows kill the archer",
 		  f"slain={tally(sec).get('slain')}")
+
+	print("LIGHT - a light running out says its own line (code-review C9)")
+	sec = get("light-fades")
+	words = lang()
+	lines = said(sec)
+	own = words.get("log.light_fades", "?").format("Maren", words.get("spell.firelight", "?"))
+	sight = {words.get("log.sight_fades", "?").format(n) for n in NAMES}
+	check(cast(sec) and own in lines, "a Firelight running out says its own line, naming the light",
+		  f"want {own!r} among {lines}")
+	check(cast(sec) and own in lines and not sight.intersection(lines),
+		  "and never the Sight spell's", f"{lines}")
 	check("end" in s, "the script ran to its end")
 
 

@@ -2,9 +2,9 @@
 // Game/Game_DevEval.cpp — the eval harness's dev-console commands.
 //
 // Split out of Game_DevCommands.cpp by concern (docs/eval-harness.md): the
-// primitives that make a measurement mean anything (timescale/logecho/seed/
-// lockstep/aiwait/step/state), getting into a world and out of it without a
-// mouse (newgame/reset/title),
+// primitives that make a measurement mean anything (timescale/logecho/messages/
+// seed/lockstep/aiwait/step/state), getting into a world and out of it without
+// a mouse (newgame/reset/title),
 // and staging and reading an encounter (arena/forward/freeze/blast/spawn/
 // autoattack/tally).
 // ============================================================================
@@ -70,6 +70,21 @@ void Game::RegisterEvalCommands() {
 						   const bool on = args[0] == "on" || args[0] == "1";
 						   m_console.SetMirrorToLog(on);
 						   m_console.Print(std::format("logecho {}", on ? "on" : "off"));
+					   });
+	// The HUD's MESSAGE LOG, which logecho does not reach: what the world said
+	// ("Maren's Firelight fades."), as the player read it. A world line goes to
+	// the footer and nowhere else, so without this a script could not tell which
+	// line a thing said (code-review C9 - a light's fade read as the Sight spell's).
+	m_console.Register({.name = "messages",
+						.group = CmdGroup::Console,
+						.params = "[n]",
+						.summary = "print the newest lines of the HUD message log"},
+					   [this](const std::vector<std::string>& args) {
+						   const int n = args.empty() ? 10 : std::atoi(args[0].c_str());
+						   const std::vector<std::string> lines =
+							   m_ui.RecentLogLines(static_cast<size_t>(std::max(n, 0)));
+						   m_console.Print(std::format("messages: {}", lines.size()));
+						   for (const std::string& l : lines) m_console.Print("  | " + l);
 					   });
 
 	// The only route from the title screen into a fight that does not involve

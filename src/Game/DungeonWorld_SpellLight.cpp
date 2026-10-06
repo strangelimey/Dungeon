@@ -33,9 +33,15 @@ namespace {
 // torch's rule, so a spell's light runs out the way a torch does.
 constexpr float kDimShare = 0.1f;
 constexpr float kDimFloor = 0.35f;
-// How far round the party a flare dazzles, in walking steps (the light
-// budget's reach map, so a wall between keeps a monster out of it).
-constexpr u16 kFlareSteps = 3;
+// How far round the party a flare reaches, in walking steps (WalkReach, so a
+// wall or a shut door between keeps a monster or a fire out of it).
+constexpr int kFlareSteps = 3;
+// The most monsters one flare can dazzle: every square within kFlareSteps (a
+// diamond of 2s(s+1)+1 squares) packed with the smallest monsters a square holds.
+// A promise, not an estimate, so the list of what it dazzled never overflows.
+constexpr size_t kFlareTargets =
+	static_cast<size_t>(2 * kFlareSteps * (kFlareSteps + 1) + 1) *
+	static_cast<size_t>(SlotsPerCell(SizeClass::Tiny));
 // A stone's light sits a little above it, so it pools on the floor round the
 // stone and climbs the walls from below.
 constexpr float kStoneLightHeight = 0.15f;
@@ -126,42 +132,52 @@ void DungeonWorld::LightFlare(SpellSymbol school, float power, int casterIndex) 
 	m_projectiles.Puff({eye.x, eye.y - 0.1f, eye.z}, {c.x * 1.6f, c.y * 1.6f, c.z * 1.6f, 0.0f},
 					   28, 1.4f, 0.6f, 0.05f * kUnit, 0.6f * kUnit);
 
-	// THE DAZZLE: every monster within a few steps of the party - by walking,
-	// so a wall keeps one out of it - does nothing for a time that grows with
-	// the flare's power.
+	// WHAT IT REACHES: every square within a few walking steps of the party, so
+	// a wall or a shut door keeps a monster (and a fire) out of it. ONE walk for
+	// all of it - the dazzle, the scorch or shock, the kindling - where three
+	// rules once disagreed (code-review C17).
+	Reach reach;
+	WalkReach(m_party.GridX(), m_party.GridZ(), kFlareSteps, reach);
+
+	// THE DAZZLE: every monster it reaches does nothing for a time that grows
+	// with the flare's power. The ones THIS flare dazzled are kept, by index, in
+	// a fixed list: the school's light below acts on them and on nothing else - a
+	// monster still dazzled by an earlier flare cast elsewhere is not struck.
 	const fx::EffectKind* dazzle = m_effects.Find("dazzle");
-	RefreshReach();
-	const int w = m_map.Width(), h = m_map.Height();
 	const float seconds = std::clamp(1.5f + 0.25f * power, 2.0f, 8.0f);
+	std::array<u32, kFlareTargets> struck;
+	size_t struckCount = 0;
 	int dazzled = 0;
-	for (Monster& monster : m_monsters) {
-		if (!monster.Alive() || !dazzle) continue;
-		if (monster.x < 0 || monster.z < 0 || monster.x >= w || monster.z >= h) continue;
-		const size_t cell = static_cast<size_t>(monster.z) * static_cast<size_t>(w) +
-							static_cast<size_t>(monster.x);
-		if (cell >= m_reach.size() || m_reach[cell] > kFlareSteps) continue;
+	for (size_t i = 0; i < m_monsters.size() && dazzle; ++i) {
+		Monster& monster = m_monsters[i];
+		if (!monster.Alive() || reach.StepsTo(monster.x, monster.z) < 0) continue;
 		fx::Apply(monster.effects, *dazzle, school, power, seconds, casterIndex);
 		++dazzled;
+		if (struckCount < struck.size()) struck[struckCount++] = static_cast<u32>(i);
 	}
 	if (dazzled > 0 && onMessage) onMessage(loc::FormatLine("log.monsters_dazzled", dazzled));
+	// Each monster this flare dazzled, still standing (a scorch may kill one, and
+	// the list is re-checked against the vector each time it is read).
+	const auto eachStruck = [&](auto&& act) {
+		for (size_t k = 0; k < struckCount; ++k)
+			if (struck[k] < m_monsters.size() && m_monsters[struck[k]].Alive())
+				act(m_monsters[struck[k]]);
+	};
 
 	// THE SCHOOL'S LIGHT, ONCE, over the flare's reach.
 	const fx::LightEffect* kind = SpellLightKind();
 	switch (school) {
 	case SpellSymbol::Fire: {
-		// Every monster it dazzled is scorched, and every fire in reach catches.
+		// Every monster it dazzled is scorched, and every fire it reaches catches.
 		const float damage = kind ? kind->ScorchDamage() * power / kind->ScalePower() : 0.0f;
-		for (Monster& monster : m_monsters)
-			if (monster.Alive() && IsDazzled(monster)) ScorchMonster(monster, damage, casterIndex);
-		KindleNear(kFlareSteps, power);
+		eachStruck([&](Monster& monster) { ScorchMonster(monster, damage, casterIndex); });
+		KindleNear(reach, power);
 		break;
 	}
 	case SpellSymbol::Air: {
 		// A shock at every monster it dazzled.
 		const float damage = kind ? kind->CrackleDamage() * power / kind->ScalePower() : 0.0f;
-		for (Monster& monster : m_monsters)
-			if (monster.Alive() && IsDazzled(monster))
-				CrackleMonster(monster, damage, casterIndex);
+		eachStruck([&](Monster& monster) { CrackleMonster(monster, damage, casterIndex); });
 		break;
 	}
 	case SpellSymbol::Earth:
@@ -251,14 +267,17 @@ void DungeonWorld::ScorchMonster(Monster& monster, float damage, int source) {
 	if (!monster.Alive()) onMessage(loc::FormatLine("log.monster_slain", name));
 }
 
-int DungeonWorld::KindleNear(int steps, float power) {
+int DungeonWorld::KindleNear(const Reach& reach, float power) {
 	const fx::LightEffect* kind = SpellLightKind();
 	const float brazierPower = kind ? kind->KindleBrazierPower() : 14.0f;
-	const int px = m_party.GridX(), pz = m_party.GridZ();
 	int kindled = 0;
 	for (Fire& fire : m_fires) {
 		if (fire.lit || fire.empty || (fire.kind && fire.kind->flameless)) continue;
-		if (std::abs(fire.x - px) + std::abs(fire.z - pz) > steps) continue;
+		// The fire's own square, reached: a wall torch's is the floor square it
+		// hangs over, a brazier's the square it stands in (floor the party may not
+		// enter, but open to the light - OpenSquare). By Manhattan distance it
+		// lit a torch in the next corridor through the rock (code-review C17).
+		if (reach.StepsTo(fire.x, fire.z) < 0) continue;
 		if (fire.brazier && power < brazierPower) continue;
 		if (SetFireBurning(fire.x, fire.z, fire.wall, true)) ++kindled;
 	}
@@ -281,6 +300,11 @@ void DungeonWorld::TickSpellLights(float dt) {
 	const bool kindleDue = m_kindleClock <= 0.0f;
 	if (kindleDue) m_kindleClock = 0.25f;
 	const int px = m_party.GridX(), pz = m_party.GridZ();
+	// What a carried Firelight kindles: the party's square and a step from it,
+	// walked like every light's reach (a torch through the wall stays dark).
+	// (`beside`, not `near`: <windows.h> defines that one away.)
+	Reach beside;
+	if (kindleDue) WalkReach(px, pz, 1, beside);
 	for (size_t m = 0; m < m_roster->size() && m < m_scorchClock.size(); ++m) {
 		const fx::Inst* fire = nullptr;
 		for (const fx::Inst& inst : (*m_roster)[m].effects)
@@ -291,7 +315,7 @@ void DungeonWorld::TickSpellLights(float dt) {
 		}
 		const float power = fire->magnitude;
 		// KINDLES what it passes: a fire in the party's square or one beside it.
-		if (kindleDue) KindleNear(1, power);
+		if (kindleDue) KindleNear(beside, power);
 		// SCORCHES what comes close: each monster in a square beside the party.
 		m_scorchClock[m] -= dt;
 		if (m_scorchClock[m] > 0.0f) continue;
@@ -362,46 +386,64 @@ float DungeonWorld::StoneReach(float power) const {
 	return LightProfileFor("spell_earth").radius * SpellLightScale(power);
 }
 
-int DungeonWorld::StoneReachCells(int x, int z, float power, StoneCells& out) const {
+int DungeonWorld::StoneSteps(float power) const {
+	return std::clamp(static_cast<int>(std::ceil(StoneReach(power))), 0, kStoneSteps);
+}
+
+namespace {
+constexpr u8 kUnwalked = 0xFF;
+} // namespace
+
+int DungeonWorld::Reach::StepsTo(int cx, int cz) const {
+	const int lx = cx - x + kStoneSteps, lz = cz - z + kStoneSteps;
+	if (count == 0 || lx < 0 || lz < 0 || lx >= kStoneWindow || lz >= kStoneWindow) return -1;
+	const u8 d = steps[static_cast<size_t>(lz * kStoneWindow + lx)];
+	return d == kUnwalked ? -1 : d;
+}
+
+void DungeonWorld::WalkReach(int x, int z, int steps, Reach& out) const {
+	out.x = x;
+	out.z = z;
+	out.count = 0;
+	out.steps.fill(kUnwalked);
 	const int w = m_map.Width(), h = m_map.Height();
-	if (x < 0 || z < 0 || x >= w || z >= h) return 0;
-	const int steps =
-		std::clamp(static_cast<int>(std::ceil(StoneReach(power))), 0, kStoneSteps);
-	// A breadth-first walk in a window round the stone: `out` doubles as the
-	// queue, the window's distances say where the walk has been.
-	constexpr u8 kUnwalked = 0xFF;
-	std::array<u8, kStoneWindow * kStoneWindow> dist;
-	dist.fill(kUnwalked);
+	if (x < 0 || z < 0 || x >= w || z >= h) return;
+	steps = std::clamp(steps, 0, kStoneSteps);
+	// A breadth-first walk in a window round (x, z): `cells` doubles as the
+	// queue, the window's step counts say where the walk has been. The origin
+	// counts whatever stands there (the party may be in an open doorway).
 	const auto local = [&](int cx, int cz) {
-		return (cz - z + kStoneSteps) * kStoneWindow + (cx - x + kStoneSteps);
+		return static_cast<size_t>((cz - z + kStoneSteps) * kStoneWindow + (cx - x + kStoneSteps));
 	};
-	int count = 0;
-	dist[static_cast<size_t>(local(x, z))] = 0;
-	out[static_cast<size_t>(count++)] = z * w + x;
-	for (int head = 0; head < count; ++head) {
-		const int c = out[static_cast<size_t>(head)];
+	out.steps[local(x, z)] = 0;
+	out.cells[static_cast<size_t>(out.count++)] = z * w + x;
+	for (int head = 0; head < out.count; ++head) {
+		const int c = out.cells[static_cast<size_t>(head)];
 		const int cx = c % w, cz = c / w;
-		const u8 d = dist[static_cast<size_t>(local(cx, cz))];
+		const u8 d = out.steps[local(cx, cz)];
 		if (d >= steps) continue;
 		constexpr int kDX[4] = {0, 1, 0, -1}, kDZ[4] = {-1, 0, 1, 0};
 		for (int k = 0; k < 4; ++k) {
 			const int nx = cx + kDX[k], nz = cz + kDZ[k];
-			if (!m_map.IsWalkable(nx, nz)) continue; // also false off the map
-			u8& slot = dist[static_cast<size_t>(local(nx, nz))];
+			// Detonate's own test: floor, and no shut door (also false off the
+			// map). It was IsWalkable, which a closed door passes.
+			if (!OpenSquare(nx, nz)) continue;
+			u8& slot = out.steps[local(nx, nz)];
 			if (slot != kUnwalked) continue;
 			slot = static_cast<u8>(d + 1);
-			out[static_cast<size_t>(count++)] = nz * w + nx;
+			out.cells[static_cast<size_t>(out.count++)] = nz * w + nx;
 		}
 	}
-	return count;
 }
 
 int DungeonWorld::MapStoneReach(int x, int z, float power) {
-	StoneCells cells;
-	const int count = StoneReachCells(x, z, power, cells);
+	Reach reach;
+	WalkReach(x, z, StoneSteps(power), reach);
 	const int w = m_map.Width();
-	for (int i = 0; i < count; ++i) MarkSeen(cells[i] % w, cells[i] / w); // and the walls round it
-	return count;
+	for (int i = 0; i < reach.count; ++i)
+		MarkSeen(reach.cells[static_cast<size_t>(i)] % w,
+				 reach.cells[static_cast<size_t>(i)] / w); // and the walls round it
+	return reach.count;
 }
 
 void DungeonWorld::PlaceLightStone(float power, float seconds) {
@@ -483,8 +525,10 @@ float DungeonWorld::TrackAge(const Track& t) const {
 
 void DungeonWorld::ShowTracks(int x, int z, float power, float strength) {
 	if (m_tracks.empty() || m_balance.trackLife <= 0.0f) return;
-	StoneCells cells;
-	const int count = StoneReachCells(x, z, power, cells);
+	Reach reach;
+	WalkReach(x, z, StoneSteps(power), reach);
+	const int count = reach.count;
+	const auto& cells = reach.cells;
 	const light::Profile& profile = LightProfileFor("spell_earth");
 	const int w = m_map.Width();
 	// A cheap hash for which tracks show this time and where on the square.

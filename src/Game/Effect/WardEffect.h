@@ -22,12 +22,16 @@
 
 namespace dungeon::game::fx {
 
-// The shared half: category, the "wears the Protect rune's face" icon, and the
+// The shared half: category, the "wears the Protect rune's face" icon, the
 // name taken from the spell that casts it (so the HUD keeps reading "Stone
-// Skin", and the sheet finds its existing spell.<id>.desc long form).
+// Skin", and the sheet finds its existing spell.<id>.desc long form), the
+// ward's fade line, and its SCHOOL - which a hand-applied ward (the `effect`
+// command, a monster's) lands with, as DotEffect's kinds do. Unset, every ward
+// fell back to fire and `effect stoneskin ahead` laid a fire-flavoured stone
+// skin (code-review C279).
 class WardEffect : public EffectKind {
 public:
-	WardEffect(std::string id, std::string nameKey);
+	WardEffect(std::string id, std::string nameKey, SpellSymbol school);
 };
 
 // Earth HARDENS: the ward's magnitude becomes PHYSICAL resist at the

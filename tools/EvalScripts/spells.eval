@@ -214,6 +214,10 @@ tally reset
 cast 2 0 fire project multiple
 step 4
 tally
+; What a volley bolt LEAVES: the volley's own on-hit (spells.cat [firebolt_volley]
+; on_hit = burn 1 4), not its form's (firebolt's burn 2 4) - its own entry was
+; read by nothing (code-review C19).
+monsters
 
 echo === burst ===
 arena open 9 9
@@ -386,4 +390,28 @@ tally reset
 spawn skel_magus 14 11 south
 step 6
 tally
+
+; --- A LIGHT RUNNING OUT SAYS SO (code-review C9) -------------------------------
+; A Firelight on Maren, left to run out, ends with ITS OWN line, naming the light -
+; never the Sight spell's ("The stone closes to Maren's sight."), which every
+; carried Sowilo light used to end with: the party's expiry line was picked by
+; the effect's CATEGORY, and a light is a Marker as Sight is. A world line goes to
+; the HUD's message log and nowhere else, so `messages` reads it there. Its own
+; reset, and after everything above, so it changes no fight's dice.
+echo === light-fades ===
+reset
+timescale 0
+lockstep on
+seed 11
+goto eval_arena
+arena open 9 9
+heal
+learn 2 fire
+learn 2 light
+; skilled enough that a two-rune cast cannot fumble
+setskill 2 fire 5
+cast 2 fire light
+char 2
+step 400
+messages 30
 echo === end ===

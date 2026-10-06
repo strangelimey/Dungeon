@@ -327,6 +327,9 @@ public:
 	// footer). Casting, learning, eating, being struck — anything personal.
 	void AddLogLine(std::string_view line, const Vec4& memberColor);
 	void ClearLog();
+	// The newest `n` lines of the log, oldest first (empty before the HUD is
+	// built) - the dev `messages` readout; it allocates.
+	std::vector<std::string> RecentLogLines(size_t n) const;
 
 	// --- rendering (inside the caller's SpriteBatch Begin/End) -------------------
 	void RenderLoadingScreen(const LoadQueue& queue);     // boot: title (+ art once loaded)

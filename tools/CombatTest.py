@@ -37,6 +37,15 @@
 #              its burn (C18), and one of its full strength leaves nothing: the
 #              bolt falls without an expiry, so it never bursts in the party's
 #              face at full force.
+#   FLARE      a Firelight flare reaches 3 WALKING steps into open squares
+#              (C17): it dazzles and scorches the mummy behind the party and
+#              the one 3 open steps off, not the one 4 off, and kindles the
+#              wall torch it reaches - and nothing through a shut door 3 steps
+#              off (so the door, not a short reach, kept it out), no monster
+#              still dazzled by an earlier flare elsewhere, no wall torch
+#              through the rock.
+#   WARDS      `effect <ward> ahead` lands each ward in its own school (C279):
+#              a stone skin as earth, a fire shield as fire.
 #
 # Each later combat batch adds its sections to combat.eval and its checks here.
 #
@@ -153,8 +162,8 @@ def tally(sec):
 
 def monster_rows(sec, kind):
 	"""Every `monsters` row for monsters of `kind` in the section, in order: a
-	dict per row with its cell, hp, whether it is dead and its effects
-	{id: magnitude}."""
+	dict per row with its cell, hp, whether it is dead, its effects
+	{id: magnitude} and each effect's school {id: school}."""
 	out = []
 	for l in sec:
 		m = re.match(r"\s+(\S+) @ (\d+),(\d+)\s+hp ([\d.-]+)(.*)$", l)
@@ -162,7 +171,19 @@ def monster_rows(sec, kind):
 			out.append({"cell": (int(m.group(2)), int(m.group(3))), "hp": float(m.group(4)),
 						"dead": "(dead)" in m.group(5),
 						"effects": {k: float(v) for k, v in
-									re.findall(r"\[(\w+) ([\d.-]+) ", m.group(5))}})
+									re.findall(r"\[(\w+) ([\d.-]+) ", m.group(5))},
+						"schools": dict(re.findall(r"\[(\w+) [\d.-]+ [\d.-]+s (\w+)", m.group(5)))})
+	return out
+
+
+def fires(sec):
+	"""Every `castsvc fire` readout in the section, in order: True for a lit
+	fire, False for one out, None for no fire there."""
+	out = []
+	for l in sec:
+		m = re.match(r"castsvc fire: kind=(\w+) lit=(\d)", l)
+		if m:
+			out.append(None if m.group(1) == "none" else m.group(2) == "1")
 	return out
 
 
@@ -464,6 +485,54 @@ def judge(lines):
 		  f"repel {repel(sec)} expired={t.get('expired')} blasts={t.get('blasts')}")
 	check(fell and num(t, "taken") == 0 and sl is not None and not any(sl.values()),
 		  "and nothing reached the party", f"taken={t.get('taken')} lost {sl}")
+
+	print("THE FLARE - it reaches what it can walk to, and nothing else (C17)")
+	sec = get("flare-door")
+	rows = monster_rows(sec, "mummy")
+	at = lambda cell: [r for r in rows if r["cell"] == cell]
+	near, beyond, far = at((11, 12)), at((15, 12)), at((18, 12))
+	edge, past = at((9, 12)), at((8, 12))  # 3 and 4 open steps west
+	torches = fires(sec)  # the torch at 10,12, then 12,10; before the flare, then after
+	whole = (len(near) == len(beyond) == len(far) == len(edge) == len(past) == 2
+			 and len(torches) == 4)
+	hit = lambda r: ("dazzle" in r[1]["effects"] and "dazzle" not in r[0]["effects"]
+					 and r[1]["hp"] < r[0]["hp"])
+	untouched = lambda r: "dazzle" not in r[1]["effects"] and r[1]["hp"] == r[0]["hp"]
+	# What the flare DID, which every claim after it rests on: a flare that did
+	# nothing would dazzle nothing beyond the door, strike nothing far and light
+	# nothing through the rock as well.
+	struck = whole and hit(near)
+	check(struck, "the flare dazzled and scorched the mummy behind the party",
+		  f"mummy at 11,12 before/after {near}")
+	# The far end of its reach, which the door claim rests on: the mummy beyond
+	# the door is 3 steps off too, so a reach of 2 would keep it out with no door.
+	reached = whole and hit(edge)
+	check(reached, "it reached the mummy 3 open steps away and scorched it",
+		  f"mummy at 9,12 before/after {edge}")
+	check(reached and untouched(past), "and not the one 4 open steps away",
+		  f"mummy at 8,12 before/after {past}")
+	lit = whole and torches[0] is False and torches[2] is True
+	check(lit, "and kindled the wall torch it reached, two steps off",
+		  f"torches (10,12 then 12,10, before then after) {torches}")
+	check(struck and reached and untouched(beyond),
+		  "nothing beyond the shut door, 3 steps off, was dazzled or struck",
+		  f"mummy at 15,12 before/after {beyond}")
+	check(struck and "dazzle" in far[0]["effects"] and far[1]["hp"] == far[0]["hp"],
+		  "a monster still dazzled from before, far off, was not scorched",
+		  f"mummy at 18,12 before/after {far}")
+	check(lit and torches[1] is False and torches[3] is False,
+		  "and no wall torch was kindled through the rock", f"torches {torches}")
+
+	print("WARDS BY HAND - each lands in its own school (C279)")
+	rows = monster_rows(get("wards-ahead"), "skeleton")
+	last = rows[-1] if rows else {"effects": {}, "schools": {}}
+	# The school is the claim. Both wards are held with or without the fix (a
+	# ward refreshes only its own kind, whatever the school), so "both held" is
+	# no check of C279 - only the printed schools are.
+	check(len(rows) == 1 and last["schools"].get("stoneskin") == "earth"
+		  and last["schools"].get("fireshield") == "fire",
+		  "`effect stoneskin ahead` lands as earth, `effect fireshield ahead` as fire",
+		  f"{rows}")
 	check("end" in s, "the script ran to its end")
 
 

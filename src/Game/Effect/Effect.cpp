@@ -38,6 +38,8 @@ void EffectKind::ApplyOverrides(const CatalogEntry& e, const DamageTypeBook& typ
 	m_iconItem = e.Get("icon", m_iconItem);
 	m_applyParty = e.Get("apply_party", m_applyParty);
 	m_applyMonster = e.Get("apply_monster", m_applyMonster);
+	m_fadeParty = e.Get("fade_party", m_fadeParty);
+	m_fadeMonster = e.Get("fade_monster", m_fadeMonster);
 	m_plume = e.GetBool("plume", m_plume);
 	m_light = e.Get("light", m_light);
 	m_haze = e.GetBool("haze", m_haze);

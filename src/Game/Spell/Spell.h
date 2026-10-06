@@ -190,6 +190,16 @@ public:
 	// class-only — identity never comes from data.
 	virtual void ApplyOverrides(const CatalogEntry& e);
 
+	// A spell BUILT ON ANOTHER (a modifier on a form, ModifiedSpell) names that
+	// form here; nullptr for one that stands alone. SpellBook::Build tunes every
+	// standalone spell first, then calls DeriveFromForm on each derived one - its
+	// defaults (power, mana, what it leaves behind) taken from its form AS TUNED -
+	// and only then lays the derived spell's own entry on top. A derived spell's
+	// constructor runs before any project exists, so it sees only its form's CLASS
+	// defaults (code-review C19).
+	virtual const Spell* Form() const { return nullptr; }
+	virtual void DeriveFromForm() {}
+
 	// The payload a cast hands its carrier: this spell's on-hit effects and blast,
 	// PACKED ONCE AT LOAD (ApplyOverrides) and copied from there. A cast happens
 	// in a frame the steady-state allocation guard watches, and packing per shot

@@ -26,6 +26,13 @@
 // `_party`; a light's `_bright` and `_flare`), its own name, its own spells.cat entry for the knobs above and its
 // mana - so learning it, the spellbook, the hand menus and saves need nothing
 // new. The FORM spell it modifies is borrowed (the registry owns both).
+//
+// ITS DEFAULTS COME FROM ITS FORM AS TUNED (Spell::DeriveFromForm, called by
+// SpellBook::Build between the forms' entries and its own): power, twice the
+// mana, the form's on-hit and shove. Its own entry then wins on each - and its
+// bolts carry what IT says they leave behind (`on_hit`, `push`): a volley's
+// `on_hit = burn 1 4` used to be read by nothing, every volley bolt burning at
+// its form's `burn 2 4` (code-review C19).
 // ============================================================================
 #pragma once
 
@@ -48,7 +55,9 @@ public:
 	std::optional<ProjectileSpec> MonsterBolt(const Vec3& origin, const Vec3& dir,
 											  float accuracy) const override;
 	int MonsterVolley() const override;
-	void ApplyOverrides(const CatalogEntry& e) override;
+	void ApplyOverrides(const CatalogEntry& e) override; // + push and the knobs above
+	const Spell* Form() const override { return &m_form; }
+	void DeriveFromForm() override;
 
 	// The id a form spell gets with a modifier: firebolt + Explode =
 	// "firebolt_burst" (the one place the convention lives).
@@ -60,7 +69,11 @@ private:
 	int VolleyCount(float power) const;
 	// The blast rules scaled to `power` (the authored rules at base power).
 	BlastSpec ScaledBlast(float power) const;
+	// Makes a bolt the form built THIS spell's: its look, its on-hit effects and
+	// shove, and for a burst its blast at `power`.
+	void Dress(ProjectileSpec& bolt, float power) const;
 
+	const Spell& m_form;
 	const BoltSpell* m_bolt = nullptr;
 	const WardSpell* m_ward = nullptr;
 	const LightSpell* m_light = nullptr;
@@ -76,6 +89,8 @@ private:
 	float m_jitter = 0.12f; // metres a volley bolt may sit off the lane's line
 	// Hagalaz: one more square of reach per this much power past the base.
 	float m_forcePerPower = 12.0f;
+	// Cells a struck survivor is shoved (a bolt's; the form's unless authored).
+	int m_push = 0;
 };
 
 } // namespace dungeon::game

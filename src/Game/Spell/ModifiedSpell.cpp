@@ -34,20 +34,46 @@ std::string ModifiedSpell::IdFor(const Spell& base, SpellSymbol modifier) {
 ModifiedSpell::ModifiedSpell(const Spell& base, SpellSymbol modifier)
 	: Spell(IdFor(base, modifier), WithModifier(base.Sequence(), modifier), base.Power(),
 			base.Mana() * 2.0f),
-	  m_bolt(dynamic_cast<const BoltSpell*>(&base)),
+	  m_form(base), m_bolt(dynamic_cast<const BoltSpell*>(&base)),
 	  m_ward(dynamic_cast<const WardSpell*>(&base)),
 	  m_light(dynamic_cast<const LightSpell*>(&base)), m_modifier(modifier) {
 	// A burst's first-cut rules, until spells.cat says otherwise: a small fire-
-	// ball's shape, damage near the base spell's power. (A light's flare is no
-	// blast: it dazzles - LightSpell::Flare.)
+	// ball's shape. (A light's flare is no blast: it dazzles - LightSpell::Flare.)
 	if (modifier == SpellSymbol::Explode && !m_light) {
 		blast::Rules& r = m_payload.blast.rules;
 		r.force = 3;
-		r.damage = base.Power() * 0.6f;
 		r.falloff = 1.5f;
 		r.rate = 0.06f;
 	}
 	if (m_ward && modifier == SpellSymbol::Multiple) m_share = 0.75f;
+	// The rest - power, mana, the form's on-hit and shove, the burst's damage -
+	// is the form's, so it waits for the form's own tuning (DeriveFromForm); taken
+	// here as well, so a spell built outside SpellBook::Build is whole.
+	DeriveFromForm();
+}
+
+void ModifiedSpell::DeriveFromForm() {
+	m_power = m_form.Power();
+	m_mana = m_form.Mana() * 2.0f;
+	// What it leaves behind is its form's until its own entry says otherwise -
+	// the burn a firebolt lands, a burst's blast rules kept as they stand.
+	const BlastSpec blast = m_payload.blast;
+	m_payload = m_form.MakePayload();
+	m_payload.blast = blast;
+	// A burst's damage is near its form's power.
+	if (m_modifier == SpellSymbol::Explode && !m_light)
+		m_payload.blast.rules.damage = m_form.Power() * 0.6f;
+	if (m_bolt) m_push = m_bolt->Push();
+}
+
+void ModifiedSpell::Dress(ProjectileSpec& bolt, float power) const {
+	LendLook(bolt);
+	// THIS spell's on-hit effects, in its school (the form's bolt carried the
+	// form's), and its shove.
+	bolt.payload = m_payload;
+	bolt.payload.flavour = School();
+	bolt.push = m_push;
+	if (m_modifier == SpellSymbol::Explode) bolt.payload.blast = ScaledBlast(power);
 }
 
 int ModifiedSpell::VolleyCount(float power) const {
@@ -79,8 +105,7 @@ void ModifiedSpell::Cast(CastContext& ctx) const {
 	if (m_bolt) {
 		if (m_modifier == SpellSymbol::Explode) {
 			ProjectileSpec bolt = m_bolt->PartyBolt(ctx, ctx.power);
-			LendLook(bolt);
-			bolt.payload.blast = ScaledBlast(ctx.power);
+			Dress(bolt, ctx.power);
 			ctx.services.spawnBolt(bolt);
 			return;
 		}
@@ -90,7 +115,7 @@ void ModifiedSpell::Cast(CastContext& ctx) const {
 		const Vec3 across{ctx.dir.z, 0.0f, -ctx.dir.x};
 		for (int i = 0; i < n; ++i) {
 			ProjectileSpec bolt = m_bolt->PartyBolt(ctx, ctx.power * m_share);
-			LendLook(bolt);
+			Dress(bolt, ctx.power);
 			const float side = i == 0 ? 0.0f : ((i % 2) ? 1.0f : -1.0f) * m_jitter /
 														   static_cast<float>((i + 1) / 2);
 			bolt.pos = Add(bolt.pos, Scale(across, side));
@@ -121,9 +146,8 @@ std::optional<ProjectileSpec> ModifiedSpell::MonsterBolt(const Vec3& origin, con
 	if (!m_bolt) return std::nullopt;
 	std::optional<ProjectileSpec> bolt = m_bolt->MonsterBolt(origin, dir, accuracy);
 	if (!bolt) return bolt;
-	LendLook(*bolt);
-	if (m_modifier == SpellSymbol::Explode) bolt->payload.blast = ScaledBlast(Power());
-	else bolt->atk.damage *= m_share;
+	Dress(*bolt, Power()); // a burst at the spell's own power
+	if (m_modifier != SpellSymbol::Explode) bolt->atk.damage *= m_share;
 	return bolt;
 }
 
@@ -139,6 +163,9 @@ void ModifiedSpell::ApplyOverrides(const CatalogEntry& e) {
 	m_jitter = e.GetFloat("jitter", m_jitter);
 	m_forcePerPower = e.GetFloat("blast_force_per_power", m_forcePerPower);
 	m_grow = e.GetFloat("grow", m_grow);
+	// Only a BoltSpell read `push`, so `[airbolt_volley] push = 1` was dead data
+	// and a volley shoved by its form's number (code-review C19).
+	m_push = static_cast<int>(e.GetFloat("push", static_cast<float>(m_push)));
 }
 
 } // namespace dungeon::game

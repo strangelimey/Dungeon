@@ -13,6 +13,7 @@ SightEffect::SightEffect()
 	  m_schoolNames{"spell.embersight", "spell.stonesight", "spell.farsight",
 					"spell.scrying"} {
 	m_iconItem = "rune_sight"; // wears the Sight rune tablet's face
+	m_fadeParty = "log.sight_fades"; // the stone closes again
 }
 
 std::string_view SightEffect::NameKey(const Inst& inst) const {

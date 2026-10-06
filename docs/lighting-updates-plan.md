@@ -312,7 +312,8 @@ committed and checked on its own:
   the party a fifth of a square ahead (`LightKind::Spell`), dimming over its
   last tenth; `LightFlare` (a new cast service, at the END of CastServices) a
   0.7 s `spell_flare` flash in a hand-glow slot, a mote cloud, and `dazzle` on
-  every monster within 3 walking steps (the light budget's reach map) for
+  every monster within 3 walking steps (the light budget's reach map - since
+  code-review C17 the stone's walk, `WalkReach`, which a shut door stops) for
   1.5 + power/4 s (2..8); a dazzled monster skips its turn at the harness
   `freeze` seam. ModifiedSpell: `<id>_bright` (Ingwaz, `grow` 2: cast at twice
   the power, lasting what the plain power buys) and `<id>_flare` (no blast).
@@ -426,7 +427,8 @@ committed and checked on its own:
   ...` line (`seen`'s shape), captured in SnapshotActive, restored against the
   clock in ApplyActiveSnapshot, cleared for a new game. SHOWN by a stone every
   0.3 s while the party is within 8 squares: for each track in its reach (now a
-  walk in a fixed 17x17 window round the STONE - StoneReachCells - which also
+  walk in a fixed 17x17 window round the STONE - StoneReachCells, now
+  `WalkReach` into open squares only, the flare's reach too - which also
   does the mapping, replacing the party-centred reach map), a faint amber
   ProjectileSystem::Mote at a footprint - along the line it walked, a little to
   one side - drifting the way it went, fewer and dimmer as it ages. A mote is

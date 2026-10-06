@@ -14,6 +14,9 @@ LightEffect::LightEffect()
 	  m_schoolNames{"spell.firelight", "spell.stonelight", "spell.skylight",
 					"spell.tidelight"} {
 	m_iconItem = "rune_light"; // wears the Sowilo tablet's face
+	// Its OWN fade line, naming the light ("Maren's Firelight fades."). As a
+	// Marker it once took the Sight spell's, by category (code-review C9).
+	m_fadeParty = "log.light_fades";
 }
 
 std::string_view LightEffect::NameKey(const Inst& inst) const {
@@ -42,6 +45,8 @@ void LightEffect::ApplyOverrides(const CatalogEntry& e, const DamageTypeBook& ty
 }
 
 DazzleEffect::DazzleEffect()
-	: EffectKind("dazzle", Category::Marker, "effect.dazzle", Stacking::Refresh) {}
+	: EffectKind("dazzle", Category::Marker, "effect.dazzle", Stacking::Refresh) {
+	m_fadeMonster = "log.monster_dazzle_fades"; // it can see again
+}
 
 } // namespace dungeon::game::fx

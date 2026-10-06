@@ -367,6 +367,16 @@ public:
 	const std::string& ApplyLine(bool onMonster) const {
 		return onMonster ? m_applyMonster : m_applyParty;
 	}
+	// The line saying this effect RAN OUT, one per side (effects.cat fade_party /
+	// fade_monster): formatted with the bearer's name and then the effect's own
+	// name, and a line uses either or both. The class sets what fits it; the base
+	// default is the generic "shakes off the ...". It used to be chosen by
+	// CATEGORY at the call site, and every Sowilo light (a Marker, as Sight is)
+	// ended with the Sight spell's line (code-review C9). An effect that dies by
+	// SPENDING says its own line instead and never reaches this.
+	const std::string& FadeLine(bool onMonster) const {
+		return onMonster ? m_fadeMonster : m_fadeParty;
+	}
 	// The school an instance takes when its source doesn't name one — a
 	// monster's poison has no element behind it, but still wants earth green.
 	SpellSymbol DefaultSchool() const { return m_school; }
@@ -382,6 +392,7 @@ protected:
 	std::string m_nameKey;
 	std::string m_iconItem;
 	std::string m_applyParty, m_applyMonster;
+	std::string m_fadeParty = "log.effect_fades", m_fadeMonster = "log.effect_fades";
 	std::string m_damageTypeId; // resolved into m_damageType at ApplyOverrides
 	std::string m_light;        // lights.cat id (effects.cat `light`)
 	Category m_category;

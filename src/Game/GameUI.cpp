@@ -2295,6 +2295,10 @@ void GameUI::ClearLog() {
 	if (m_log) m_log->Clear();
 }
 
+std::vector<std::string> GameUI::RecentLogLines(size_t n) const {
+	return m_log ? m_log->Recent(n) : std::vector<std::string>{};
+}
+
 // ============================================================================
 // Rendering — all 2D, inside the caller's SpriteBatch Begin/End.
 // ============================================================================

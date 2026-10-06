@@ -61,6 +61,9 @@ public:
 	// ownership of and nothing to allocate.
 	void AddLine(std::string_view line, std::optional<Vec4> color = std::nullopt);
 	void Clear();
+	// The newest `n` lines held, oldest first: a READOUT for the dev console's
+	// `messages` (it allocates - never call it from a frame path).
+	std::vector<std::string> Recent(size_t n) const;
 
 	// Advances per-message fades and the height/opacity animation. Drive once
 	// per frame with the real frame dt (UI animation, not world time).

@@ -311,7 +311,11 @@ As built:
   differently — "Sera is poisoned!" against "The blob is poisoned!". The
   target picks the one that fits its grammar (`ITarget::SayApplied`), and
   only a NEW affliction announces: a refresh is the same thing lasting
-  longer, not a fresh alarm.
+  longer, not a fresh alarm. It owns the line saying it RAN OUT the same way
+  (effects.cat `fade_party` / `fade_monster`, `EffectKind::FadeLine`; a piece
+  of the dungeon takes the monster's): the party's expiry used to pick its
+  line by CATEGORY, and every Sowilo light - a Marker, as Sight is - ended
+  with the Sight spell's (code-review C9).
 - **An element is a flavour, not a separate mechanism.** A weapon's
   `element` lends its school to whatever its procs land, so the *same*
   `on_hit = burn` is fire on the flamebrand and a freezing burn on the

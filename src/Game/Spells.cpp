@@ -144,10 +144,20 @@ void SpellBook::Build(const Catalog& catalog, const DamageTypeBook& types) {
 	// Lay the project's numeric overrides on top, matched by entry id. A
 	// stale `symbols` field (the recipe is class identity now) and an entry
 	// naming no class are warned about — data can tune, never redefine.
-	for (const CatalogEntry& e : catalog.Entries()) {
-		Spell* spell = nullptr;
+	//
+	// IN TWO PASSES: every spell that stands alone first; then each spell built
+	// on another (Spell::Form - a modifier on a form) takes its defaults from
+	// that form AS TUNED (DeriveFromForm), and only then its own entry. In one
+	// pass a modified spell's defaults were its form's CLASS numbers, and its
+	// bolts carried its form's on-hit whatever its own entry said (code-review
+	// C19).
+	const auto spellFor = [&](const CatalogEntry& e) -> Spell* {
 		for (const auto& s : m_spells)
-			if (s->Id() == e.id) { spell = s.get(); break; }
+			if (s->Id() == e.id) return s.get();
+		return nullptr;
+	};
+	for (const CatalogEntry& e : catalog.Entries()) {
+		Spell* spell = spellFor(e);
 		if (!spell) {
 			log::Warn("spells.cat entry '{}' has no spell class; ignored", e.id);
 			continue;
@@ -160,8 +170,12 @@ void SpellBook::Build(const Catalog& catalog, const DamageTypeBook& types) {
 						  "class recipe; the class wins",
 						  e.id);
 		}
-		spell->ApplyOverrides(e);
+		if (!spell->Form()) spell->ApplyOverrides(e);
 	}
+	for (const auto& spell : m_spells)
+		if (spell->Form()) spell->DeriveFromForm();
+	for (const CatalogEntry& e : catalog.Entries())
+		if (Spell* spell = spellFor(e); spell && spell->Form()) spell->ApplyOverrides(e);
 	log::Info("Spellbook: {} spells", m_spells.size());
 	// A member's learned list and quick-cast lists hold at most this many: past
 	// it, a newly cast spell is silently not learned.

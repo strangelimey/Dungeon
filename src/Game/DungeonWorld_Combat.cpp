@@ -2543,10 +2543,10 @@ void DungeonWorld::TickBreakables(float dt) {
 		++m_harness.tally.sceneryTicks;
 		TickEffects(t, brk.effects, dt, [&](const fx::Inst& e) {
 			if (!onMessage) return;
-			onMessage(e.Is("burn")
-						  ? loc::FormatLine("log.monster_burns_out", t.Name())
-						  : loc::FormatLine("log.effect_fades", t.Name(),
-											loc::View(e.NameKey())));
+			// A piece of the dungeon is named as a monster is ("the door"), so it
+			// takes the kind's monster-side line.
+			onMessage(loc::FormatLine(e.kind->FadeLine(/*onMonster=*/true), t.Name(),
+									  loc::View(e.NameKey())));
 		});
 		// A DoT that finished it says so - the line a blow's caller would have
 		// said (NarrateBreak), and the consequence already ran inside Wound.

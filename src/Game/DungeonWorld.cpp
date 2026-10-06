@@ -750,7 +750,10 @@ std::vector<std::string> DungeonWorld::MonsterList() const {
 								std::sqrt(dx * dx + dz * dz));
 		}
 		for (const fx::Inst& e : m.effects) {
-			line += std::format("  [{} {:.1f} {:.1f}s", e.Id(), e.magnitude, e.timeLeft);
+			// With its SCHOOL, the flavour it landed with: a hand-applied ward
+			// used to land as fire whatever it was (code-review C279).
+			line += std::format("  [{} {:.1f} {:.1f}s {}", e.Id(), e.magnitude, e.timeLeft,
+								SymbolId(e.school));
 			// An effect with its own colour (a magical torch's burn) says so.
 			if (e.tinted)
 				line += std::format(" tint {:.2f},{:.2f},{:.2f}", e.tint.x, e.tint.y, e.tint.z);
@@ -1126,28 +1129,19 @@ void DungeonWorld::TickParty(float dt, bool danger) {
 			TickSupplies(member, dt);
 			// Age the effects and let their DoTs bite (the shared TickEffects —
 			// the monster loop below runs the very same call). An expired one
-			// leaves with its category's fade line; spend-to-die wards — the
-			// water pool, the air charges — are erased where they spend
-			// themselves instead, so their burst/still lines replace the fade.
+			// leaves with its KIND's own fade line (EffectKind::FadeLine - it was
+			// a switch on the category, which gave every Sowilo light the Sight
+			// spell's line); spend-to-die wards - the water pool, the air
+			// charges - are erased where they spend themselves instead, so their
+			// burst/still lines replace the fade.
 			//
 			// A DoT ticks a DOWNED member too, and a wound on someone already
 			// at 0 is death by the overkill rule (Phase 5): poison finishes
 			// the fallen, so get them clear of the fight.
 			PartyTarget bitten{*this, member};
 			TickEffects(bitten, member.effects, dt, [&](const fx::Inst& e) {
-				switch (e.kind->Kind()) {
-				case fx::Category::Ward:
-					MemberMessage(member, loc::FormatLine("log.shield_fades", member.name));
-					break;
-				case fx::Category::Marker:
-					MemberMessage(member, loc::FormatLine("log.sight_fades", member.name));
-					break;
-				case fx::Category::Dot:
-					MemberMessage(member,
-								  loc::FormatLine("log.effect_fades", member.name,
-												  loc::View(e.NameKey())));
-					break;
-				}
+				MemberMessage(member, loc::FormatLine(e.kind->FadeLine(/*onMonster=*/false),
+													  member.name, loc::View(e.NameKey())));
 			});
 			bitten.NarrateFall(); // the one line a tick does say
 		}
@@ -1242,10 +1236,8 @@ void DungeonWorld::UpdateMonsters(float dt) {
 			const loc::Line name = loc::ViewKey("monster.", monster.kind->name);
 			MonsterTarget afflicted{*this, monster};
 			TickEffects(afflicted, monster.effects, dt, [&](const fx::Inst& e) {
-				onMessage(e.Is("burn")
-							  ? loc::FormatLine("log.monster_burns_out", name)
-							  : loc::FormatLine("log.effect_fades", name,
-											loc::View(e.NameKey())));
+				onMessage(loc::FormatLine(e.kind->FadeLine(/*onMonster=*/true), name,
+										  loc::View(e.NameKey())));
 			});
 			// A DoT that finished it says so — the counterpart of the "slain"
 			// a blow's caller would have printed. (The corpse was stripped of

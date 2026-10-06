@@ -16,17 +16,20 @@
 
 namespace dungeon::game::fx {
 
-WardEffect::WardEffect(std::string id, std::string nameKey)
+WardEffect::WardEffect(std::string id, std::string nameKey, SpellSymbol school)
 	: EffectKind(std::move(id), Category::Ward, std::move(nameKey),
 				 Stacking::Refresh) {
 	// A ward wears the Protect rune tablet's face in the HUD strip; the school
 	// tint around it tells the four apart (effects.cat can override).
 	m_iconItem = "rune_protect";
+	m_school = school;
+	m_fadeParty = "log.shield_fades";
 }
 
 // --- earth: harden ------------------------------------------------------------
 
-StoneskinEffect::StoneskinEffect() : WardEffect("stoneskin", "spell.stoneskin") {}
+StoneskinEffect::StoneskinEffect()
+	: WardEffect("stoneskin", "spell.stoneskin", SpellSymbol::Earth) {}
 
 float StoneskinEffect::ResistFor(const Inst& inst, DamageType type,
 								 const Knobs& knobs) const {
@@ -39,7 +42,8 @@ float StoneskinEffect::ResistFor(const Inst& inst, DamageType type,
 
 // --- fire: burn back ----------------------------------------------------------
 
-FireshieldEffect::FireshieldEffect() : WardEffect("fireshield", "spell.fireshield") {}
+FireshieldEffect::FireshieldEffect()
+	: WardEffect("fireshield", "spell.fireshield", SpellSymbol::Fire) {}
 
 void FireshieldEffect::OnStruck(Inst& inst, const DamageEvent& ev, ITarget& self,
 								ITarget* attacker, const ReactCtx& ctx) const {
@@ -76,7 +80,8 @@ void FireshieldEffect::OnStruck(Inst& inst, const DamageEvent& ev, ITarget& self
 
 // --- water: absorb ------------------------------------------------------------
 
-WaterveilEffect::WaterveilEffect() : WardEffect("waterveil", "spell.waterveil") {}
+WaterveilEffect::WaterveilEffect()
+	: WardEffect("waterveil", "spell.waterveil", SpellSymbol::Water) {}
 
 void WaterveilEffect::OnAbsorb(Inst& inst, float& remaining,
 							   const DamageEvent& ev, ITarget& self) const {
@@ -94,7 +99,8 @@ void WaterveilEffect::OnAbsorb(Inst& inst, float& remaining,
 
 // --- air: deflect -------------------------------------------------------------
 
-WindwardEffect::WindwardEffect() : WardEffect("windward", "spell.windward") {}
+WindwardEffect::WindwardEffect()
+	: WardEffect("windward", "spell.windward", SpellSymbol::Air) {}
 
 void WindwardEffect::OnDeflect(Inst& inst, DamageEvent& ev, ITarget& self) const {
 	if (ev.delivery != Delivery::Ranged) return; // it turns bolts, not blows

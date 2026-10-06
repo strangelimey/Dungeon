@@ -36,6 +36,7 @@ BurnEffect::BurnEffect() : DotEffect("burn", "effect.burn", "fire") {
 	m_plume = true; // a burning body is visibly on fire
 	m_applyParty = "log.member_ignites";
 	m_applyMonster = "log.monster_ignites";
+	m_fadeMonster = "log.monster_burns_out"; // the flames gutter out
 }
 
 DamageType BurnEffect::DamageTypeOf(const Inst& inst) const {

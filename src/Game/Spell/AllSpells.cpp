@@ -70,7 +70,9 @@ std::vector<std::unique_ptr<Spell>> MakeAllSpells() {
 	// Hagalaz a bursting bolt / a burst round the caster / a dazzling flare. Sight
 	// takes no modifier. Built from the
 	// list above (the registry owns every spell, so the borrowed base outlives
-	// its modified forms).
+	// its modified forms). Each takes its defaults from its form only once the
+	// form is TUNED - SpellBook::Build calls DeriveFromForm between the forms'
+	// spells.cat entries and its own - since here they are class defaults.
 	const size_t forms = all.size();
 	for (size_t i = 0; i < forms; ++i) {
 		const Spell& base = *all[i];

@@ -50,6 +50,13 @@ void MessageLog::Clear() {
 	m_scroll = 0.0f;
 }
 
+std::vector<std::string> MessageLog::Recent(size_t n) const {
+	std::vector<std::string> out;
+	const size_t first = m_count > n ? m_count - n : 0;
+	for (size_t i = first; i < m_count; ++i) out.emplace_back(At(i).text.View());
+	return out;
+}
+
 float MessageLog::MsgAlpha(const Msg& msg) const {
 	if (m_expanded) return 1.0f; // full opacity while the player is reading
 	if (msg.age < kHold) return 1.0f;

@@ -4606,9 +4606,7 @@ private:
 	void TickSpellLights(float dt);
 	// Fire's scorch on one monster: a small fire burst credited to `source`.
 	void ScorchMonster(Monster& monster, float damage, int source);
-	// Lights every unlit fire whose square is within `steps` of the party's
-	// (a brazier only at `power` >= the light kind's kindle_brazier_power).
-	int KindleNear(int steps, float power);
+	// (KindleNear, which lights the fires a light reaches, sits with Reach below.)
 	// WATER (6d): the strongest Tidelight on the party (its power; 0 = none),
 	// the factor stamina regenerates at in it, the clear bubble it cuts in the
 	// haze (a negative dust puff, Render), and putting the party's fires out.
@@ -4651,16 +4649,34 @@ private:
 	void AppendStoneLights(float time);
 	// The stones themselves, as `stone_item`'s model glowing (Render).
 	void DrawLightStones(ID3D12GraphicsCommandList* list, const ViewCull* cull);
-	// How far, in squares, an Earth light of `power` reaches.
+	// How far, in squares, an Earth light of `power` reaches, and that reach in
+	// whole walking steps (cut at kStoneSteps).
 	float StoneReach(float power) const;
-	// THE SQUARES AN EARTH LIGHT REACHES from (x, z) at `power`: every one within
-	// its reach in WALKING steps (so a wall stops it), as map cell indices into
-	// `out`, walked in a fixed window round the stone (no allocation; the reach
-	// is cut at kStoneSteps). Returns how many.
+	int StoneSteps(float power) const;
+	// WHAT A LIGHT SPELL REACHES from (x, z): every square within `steps` WALKING
+	// steps, a step being into an OPEN square (OpenSquare: no rock, no shut door -
+	// the test that stops a bolt and a blast), so neither a wall nor a closed door
+	// lets it by. Walked in a fixed window round (x, z), so it allocates nothing
+	// (`steps` is cut at kStoneSteps). THE ONE STATEMENT of a light's reach: an
+	// Earth stone's (what it maps, the tracks it shows) and a flare's (what it
+	// dazzles, what it kindles). The flare used the light budget's reach map,
+	// which walks floor and so passed shut doors, and kindled by Manhattan
+	// distance, through rock (code-review C17).
 	static constexpr int kStoneSteps = 8;
 	static constexpr int kStoneWindow = 2 * kStoneSteps + 1;
-	using StoneCells = std::array<int, kStoneWindow * kStoneWindow>;
-	int StoneReachCells(int x, int z, float power, StoneCells& out) const;
+	struct Reach {
+		int x = 0, z = 0; // walked from
+		int count = 0;    // cells[0, count) were reached, nearest first
+		std::array<int, kStoneWindow * kStoneWindow> cells{}; // map cell indices
+		std::array<u8, kStoneWindow * kStoneWindow> steps{};  // per window square, 0xFF = not
+		// Walking steps from (x, z) to (cx, cz), or -1 when it was not reached.
+		int StepsTo(int cx, int cz) const;
+	};
+	void WalkReach(int x, int z, int steps, Reach& out) const;
+	// FIRE: lights every unlit fire whose square `reach` reached (a brazier only
+	// at `power` >= the light kind's kindle_brazier_power) - so never one through
+	// rock or behind a shut door.
+	int KindleNear(const Reach& reach, float power);
 	// MAPS what it shows: those squares marked seen, with the walls round them.
 	int MapStoneReach(int x, int z, float power);
 

@@ -32,6 +32,9 @@ public:
 	// `ctx`) - what Cast() spawns, and what a third-tier modifier
 	// (ModifiedSpell) builds its volley or its exploding bolt from.
 	ProjectileSpec PartyBolt(const CastContext& ctx, float power) const;
+	// Cells a struck survivor is shoved (spells.cat `push`) - what a modified
+	// bolt takes as its own default (ModifiedSpell::DeriveFromForm).
+	int Push() const { return m_push; }
 
 protected:
 	// One bolt spec, shared by the party and monster doors — only the power,
