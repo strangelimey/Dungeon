@@ -937,6 +937,8 @@ public:
 	// What lockstep's inline compute has done since it last came on (`lockstep
 	// stats`, which AllocTest -Rest reads).
 	const ai::AsyncDirector::InlineStats& LockstepStats() const { return m_director.Inline(); }
+	// How many plan batches a bucket has published (`aiwait` watches it climb).
+	uint64_t AIPlanSeq(int bucket) const { return m_director.PlanSeq(bucket); }
 	// The live combat tuning (balance.cat + attacks.cat knobs, Balance.h). The
 	// editor's Balance dialog edits it in place and Save()s it via the project.
 	Balance& GetBalance() { return m_balance; }

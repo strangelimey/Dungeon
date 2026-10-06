@@ -756,6 +756,10 @@ std::vector<std::string> DungeonWorld::MonsterList() const {
 				line += std::format(" tint {:.2f},{:.2f},{:.2f}", e.tint.x, e.tint.y, e.tint.z);
 			line += ']';
 		}
+		// Whether it has noticed the party - the sticky latch a new game or a load
+		// must clear and a stale AI plan must not set again (code-review C52). Last,
+		// so every reader matching the line's head is undisturbed.
+		line += std::format("  aware={}", m.aware ? 1 : 0);
 		out.push_back(std::move(line));
 	}
 	return out;

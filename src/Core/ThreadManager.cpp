@@ -86,6 +86,15 @@ struct Manager::Worker {
 
 	std::atomic<bool> paused{false};
 	std::atomic<u64> wakeGen{0}; // bumped by a control call to wake the cadence sleep
+	// THE PAUSE HANDSHAKE (WaitPaused), both under sleepMx: every Pause bumps
+	// pauseGen, and the worker copies it into pauseAck each time it settles at
+	// its pause point - where no tick of its is in flight - then signals quietCv.
+	// A generation rather than a "paused" state, because the state can read
+	// Paused for an instant AFTER a Resume, while the worker is waking to run a
+	// tick; an ack can only name a pause the worker has actually honoured.
+	u64 pauseGen = 0;
+	u64 pauseAck = 0;
+	std::condition_variable quietCv;
 
 	bool autoRestart = false;        // set once at spawn
 	// One Stall event per stall EPISODE. Set when the supervisor records one,
@@ -93,6 +102,7 @@ struct Manager::Worker {
 	std::atomic<bool> stallReported{false};
 	std::atomic<bool> userStopped{false}; // a kill/stop the supervisor must respect
 	std::atomic<bool> quarantined{false}; // force-terminated; slot poisoned until reboot
+	std::atomic<bool> removed{false};     // Remove took it out; never restarted again
 	std::atomic<u32> restarts{0};
 	std::atomic<int> priority{0};    // OS thread priority (-2..+2)
 	std::atomic<u64> affinity{0};    // CPU affinity mask (0 = any)
@@ -129,7 +139,7 @@ Manager::~Manager() {
 }
 
 WorkerId Manager::Spawn(JobFn job, Options opt) {
-	auto w = std::make_unique<Worker>();
+	auto w = std::make_shared<Worker>();
 	Worker* p = w.get();
 	p->name = std::move(opt.name);
 	p->job = std::move(job);
@@ -143,7 +153,9 @@ WorkerId Manager::Spawn(JobFn job, Options opt) {
 	p->id = m_nextId++; // stable id, not the array index
 	m_workers.push_back(std::move(w));
 	// jthread injects the stop_token as the first arg. p is stable (the Worker
-	// lives in a unique_ptr; the vector only moves the pointers, never the node).
+	// lives in a shared_ptr; the vector only moves the pointers, never the node),
+	// and it outlives the thread: ~Manager and Remove join (or terminate) it
+	// before the registry lets go, and Reap only drops a slot whose thread is gone.
 	p->thread = std::jthread([this, p](std::stop_token st) { Run(p, st); });
 	return p->id;
 }
@@ -201,10 +213,22 @@ void Manager::Run(Worker* w, std::stop_token st) {
 
 	while (!st.stop_requested()) {
 		// Paused: hold here (not joined) until resumed or stopped, running no job.
+		// Holding here is QUIET - no tick of this worker is in flight - so every
+		// pause asked so far is acknowledged on the way in, and again on each
+		// wake while still paused: a Resume and a fresh Pause can both land
+		// while it sleeps, and that second pause must be acknowledged too, or a
+		// WaitPaused for it would wait out its timeout on a worker already still.
 		if (w->paused.load()) {
 			w->state.store(State::Paused);
 			std::unique_lock<std::mutex> lk(w->sleepMx);
-			w->sleepCv.wait(lk, st, [w] { return !w->paused.load(); });
+			while (w->paused.load() && !st.stop_requested()) {
+				const u64 gen = w->pauseGen;
+				w->pauseAck = gen;
+				w->quietCv.notify_all();
+				w->sleepCv.wait(lk, st, [w, gen] {
+					return !w->paused.load() || w->pauseGen != gen;
+				});
+			}
 			continue; // re-check stop + paused at the top
 		}
 
@@ -268,18 +292,25 @@ void Manager::Run(Worker* w, std::stop_token st) {
 	// takes a fresh one: the two lives are then recorded separately, which is the
 	// honest answer when one of them was killed mid-tick.
 	diag::UnregisterThisThread();
-	w->state.store(State::Dead);
+	{
+		// Under the handshake's lock, then signalled: a thread that has ended is
+		// as quiet as one holding at its pause point, and a WaitPaused begun
+		// while it was stopping must hear so rather than wait out its timeout.
+		std::lock_guard<std::mutex> lk(w->sleepMx);
+		w->state.store(State::Dead);
+	}
+	w->quietCv.notify_all();
 }
 
-Manager::Worker* Manager::Get(WorkerId id) const {
+std::shared_ptr<Manager::Worker> Manager::Get(WorkerId id) const {
 	std::lock_guard<std::mutex> lk(m_mx);
 	for (const auto& w : m_workers)
-		if (w->id == id) return w.get();
+		if (w->id == id) return w;
 	return nullptr;
 }
 
 void Manager::RequestStop(WorkerId id) {
-	Worker* w = Get(id);
+	const std::shared_ptr<Worker> w = Get(id);
 	if (!w) return;
 	std::lock_guard<std::mutex> ctl(w->controlMx);
 	w->userStopped.store(true); // intentional — the supervisor must not revive it
@@ -288,7 +319,8 @@ void Manager::RequestStop(WorkerId id) {
 }
 
 void Manager::Stop(WorkerId id) {
-	Worker* w = Get(id); // resolve under the lock, then join WITHOUT m_mx held
+	// Resolved under the lock, then joined WITHOUT m_mx held.
+	const std::shared_ptr<Worker> w = Get(id);
 	if (!w) return;
 	std::lock_guard<std::mutex> ctl(w->controlMx);
 	w->userStopped.store(true);
@@ -298,21 +330,63 @@ void Manager::Stop(WorkerId id) {
 	w->state.store(State::Dead);
 }
 
+void Manager::Remove(WorkerId id) {
+	const std::shared_ptr<Worker> w = Get(id);
+	if (!w) return;
+	{
+		std::lock_guard<std::mutex> ctl(w->controlMx);
+		// Marked FIRST, under the lock every lifecycle op takes, so a Restart
+		// already waiting on it - the supervisor's, which looked this worker up
+		// before it was asked to go - finds it removed and gives up rather than
+		// relaunching a job whose owner is being destroyed.
+		w->removed.store(true);
+		w->userStopped.store(true);
+		w->state.store(State::Cancelling);
+		w->thread.request_stop();
+		if (w->thread.joinable()) w->thread.join();
+		w->state.store(State::Dead);
+		// The job goes NOW, on the caller's thread: what it captured belongs to
+		// the caller, who is about to destroy it, and nothing may run it again.
+		w->job = nullptr;
+	}
+	// Out of the registry: no row in the THREADS panel to `boot`, no id for
+	// anything to find. A copy the supervisor still holds keeps the Worker
+	// itself alive until its check is done - it can neither run nor restart it.
+	std::lock_guard<std::mutex> lk(m_mx);
+	std::erase_if(m_workers, [&w](const std::shared_ptr<Worker>& p) { return p == w; });
+}
+
 // Control calls flip the worker's atomics UNDER its sleep mutex, then notify, so
 // a worker that is between checking the predicate and waiting can't miss it.
 void Manager::Pause(WorkerId id) {
-	Worker* w = Get(id);
+	const std::shared_ptr<Worker> w = Get(id);
 	if (!w) return;
 	{
 		std::lock_guard<std::mutex> lk(w->sleepMx);
 		w->paused.store(true);
+		++w->pauseGen; // the pause WaitPaused waits to see honoured
 		++w->wakeGen;
 	}
 	w->sleepCv.notify_all();
 }
 
+bool Manager::WaitPaused(WorkerId id, std::chrono::milliseconds timeout) {
+	const std::shared_ptr<Worker> w = Get(id);
+	if (!w) return true; // gone from the registry: nothing of it can be running
+	std::unique_lock<std::mutex> lk(w->sleepMx);
+	if (!w->paused.load()) return false; // nobody asked it to pause
+	const u64 want = w->pauseGen;
+	// Quiet once it has honoured this pause - or has no thread left to run a
+	// tick on. A quarantined one ended without signalling (it was terminated),
+	// so it is seen at the timeout's final look, not before.
+	return w->quietCv.wait_for(lk, timeout, [&w, want] {
+		return w->pauseAck >= want || w->state.load() == State::Dead ||
+			   w->quarantined.load();
+	});
+}
+
 void Manager::Resume(WorkerId id) {
-	Worker* w = Get(id);
+	const std::shared_ptr<Worker> w = Get(id);
 	if (!w) return;
 	{
 		std::lock_guard<std::mutex> lk(w->sleepMx);
@@ -323,7 +397,7 @@ void Manager::Resume(WorkerId id) {
 }
 
 void Manager::SetRate(WorkerId id, float hz) {
-	Worker* w = Get(id);
+	const std::shared_ptr<Worker> w = Get(id);
 	if (!w) return;
 	{
 		std::lock_guard<std::mutex> lk(w->sleepMx);
@@ -334,7 +408,7 @@ void Manager::SetRate(WorkerId id, float hz) {
 }
 
 void Manager::SetPriority(WorkerId id, int priority) {
-	Worker* w = Get(id);
+	const std::shared_ptr<Worker> w = Get(id);
 	if (!w) return;
 	std::lock_guard<std::mutex> ctl(w->controlMx); // don't race Restart's relaunch
 	w->priority.store(priority);
@@ -346,7 +420,7 @@ void Manager::SetPriority(WorkerId id, int priority) {
 }
 
 void Manager::SetAffinity(WorkerId id, u64 mask) {
-	Worker* w = Get(id);
+	const std::shared_ptr<Worker> w = Get(id);
 	if (!w) return;
 	std::lock_guard<std::mutex> ctl(w->controlMx);
 	w->affinity.store(mask);
@@ -419,24 +493,27 @@ void Manager::StopOrTerminate(Worker* w) {
 }
 
 void Manager::Kill(WorkerId id) {
-	Worker* w = Get(id);
+	const std::shared_ptr<Worker> w = Get(id);
 	if (!w) return;
 	std::lock_guard<std::mutex> ctl(w->controlMx);
 	w->userStopped.store(true); // intentional — the supervisor must not revive it
 	w->state.store(State::Cancelling);
-	StopOrTerminate(w);
+	StopOrTerminate(w.get());
 	w->state.store(w->quarantined.load() ? State::Quarantined : State::Dead);
 }
 
 void Manager::Restart(WorkerId id) {
-	Worker* w = Get(id);
+	const std::shared_ptr<Worker> w = Get(id);
 	if (!w) return;
 	std::lock_guard<std::mutex> ctl(w->controlMx);
+	// Taken out of the registry (Remove) while this call waited for the lock:
+	// its job is gone with the client that owned it. Nothing to relaunch.
+	if (w->removed.load()) return;
 	// Stop the current thread (force-terminating a wedged one) so the old thread
 	// is entirely gone before the new one touches this Worker — no shared-state
 	// race, and a stuck worker can't block the reboot.
 	w->state.store(State::Cancelling);
-	StopOrTerminate(w);
+	StopOrTerminate(w.get());
 
 	// Recorded BEFORE the counters are cleared, so the event carries the tick the
 	// worker died on rather than the zero it is about to be reset to. Covers both
@@ -452,9 +529,13 @@ void Manager::Restart(WorkerId id) {
 
 	// Fresh slate; keep the stored job + config. Booting clears the user-stopped
 	// and quarantine flags so the worker runs again and is supervised again.
+	// NOT `paused`: a pause belongs to whoever asked for it, not to this thread's
+	// life. It used to be cleared here, so the supervisor rebooting a stalled AI
+	// worker while lockstep held it paused set it running again - beside the
+	// inline compute lockstep promises is the only thinking (code-review C63).
+	// The new thread finds the flag at the top of its loop and holds there.
 	w->quarantined.store(false);
 	w->userStopped.store(false);
-	w->paused.store(false);
 	w->iterations.store(0);
 	w->lastMs.store(0.0);
 	w->avgMs.store(0.0);
@@ -466,7 +547,11 @@ void Manager::Restart(WorkerId id) {
 	}
 	w->restarts.fetch_add(1);
 	w->state.store(State::Starting);
-	w->thread = std::jthread([this, w](std::stop_token st) { Run(w, st); });
+	// A RAW pointer into the thread, as Spawn passes: a thread holding its own
+	// Worker's shared_ptr could end up destroying that Worker - and so joining
+	// itself - when the registry lets go first.
+	Worker* p = w.get();
+	w->thread = std::jthread([this, p](std::stop_token st) { Run(p, st); });
 }
 
 void Manager::SupervisorLoop(std::stop_token st) {
@@ -479,7 +564,7 @@ void Manager::SupervisorLoop(std::stop_token st) {
 			for (const auto& w : m_workers) ids.push_back(w->id);
 		}
 		for (WorkerId id : ids) {
-			Worker* w = Get(id);
+			const std::shared_ptr<Worker> w = Get(id);
 			if (!w || w->watchdogMs == 0) continue;
 
 			// DETECTION is separate from the reboot, and deliberately so. It used
@@ -528,7 +613,7 @@ void Manager::SupervisorLoop(std::stop_token st) {
 }
 
 int Manager::CaptureStack(WorkerId id, void** out, int max) const {
-	Worker* w = Get(id);
+	const std::shared_ptr<Worker> w = Get(id);
 	if (!w || !w->thread.joinable()) return 0;
 #ifdef _WIN32
 	// A quarantined slot's thread was force-terminated and detached; the handle
@@ -541,7 +626,7 @@ int Manager::CaptureStack(WorkerId id, void** out, int max) const {
 }
 
 WorkerInfo Manager::Inspect(WorkerId id) const {
-	Worker* w = Get(id);
+	const std::shared_ptr<Worker> w = Get(id);
 	if (!w) return {};
 	WorkerInfo info;
 	info.id = w->id;
@@ -596,7 +681,7 @@ void Manager::Reap() {
 	// Remove only fully-stopped slots: Dead = cleanly joined, Quarantined = force-
 	// terminated + detached. Either way the thread is gone (not joinable), so the
 	// Worker's destruction joins nothing and frees no in-use state.
-	std::erase_if(m_workers, [](const std::unique_ptr<Worker>& w) {
+	std::erase_if(m_workers, [](const std::shared_ptr<Worker>& w) {
 		const State s = w->state.load();
 		return (s == State::Dead || s == State::Quarantined) && !w->thread.joinable();
 	});

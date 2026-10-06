@@ -80,6 +80,20 @@ void DungeonWorld::ResetForNewGame() {
 			0, FreeSlotInCell(monster.x, monster.z, monster.kind->size, static_cast<int>(i)));
 		monster.visualPos =
 			SlotCenter(monster.x, monster.z, monster.kind->size, monster.slot);
+		// A NEW IDENTITY, so no plan thought before the reset can reach it. The
+		// AI workers keep thinking while the world is frozen - on the title after
+		// a wipe, in the pause menu - from the last snapshot, where this monster
+		// was hunting the party, and every tick of theirs is a fresh batch the
+		// first frame back would apply, latching `aware` again for every
+		// non-idle plan: a Continue or a Start New Game on the same level began
+		// with the last fight's monsters already hunting, sleepers included
+		// (code-review C52). Plans match by runtimeId, so a batch naming the old
+		// ids now finds nobody - including one a worker is still building, which
+		// a "skip batches up to this seq" mark could not have caught. Before
+		// RebaseDamageLedger below, which keys monsters by this id.
+		monster.runtimeId = m_nextMonsterId++;
+		monster.aiPath.clear(); // and the route its last plan gave it
+		monster.aiCursor = 0;
 	}
 	m_partyWiped = false;
 	m_projectiles.Clear(); // drop any bolts/sparks still in flight from a prior run

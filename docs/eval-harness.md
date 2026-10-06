@@ -56,6 +56,19 @@ Pauses the four bucket workers and drives `AsyncDirector::ComputeInline` from th
 host at the same cadences counted in **sim** time (`DungeonWorld::TickLockstepAI`).
 It calls the very same `ComputeBucket` the worker calls — not a reimplementation
 — so the two modes cannot drift apart in *what* they decide, only in when.
+Turning it on WAITS until every worker holds at its pause point
+(`threads::Manager::WaitPaused`): a pause only sets a flag, and a worker caught
+mid-tick used to publish that tick after the first inline compute (code-review
+C63; ThreadStress phase G).
+
+The reverse case, a defect that lives only on the wall clock, has its own
+command: `aiwait [n]` blocks until every bucket has published `n` more batches
+(default 2) and refuses under lockstep. `tools\EvalScripts\aiasync.eval` (judged
+by `tools\AITest.py`) uses it with `title` to show the workers thinking on from
+the last fight while the game sits on the title (code-review C52). It ends in a
+world switch, so AITest runs it with `-project dungeon-demo`: without the flag,
+`Game::SwitchWorld` saves Test-World in settings.ini as the last world played,
+and the next ordinary launch opens it.
 
 **Be honest about what this is.** It is not a bit-exact reproduction of async
 mode and cannot be: async plan latency depends on thread scheduling, so "the same

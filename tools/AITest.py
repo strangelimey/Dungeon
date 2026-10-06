@@ -1,13 +1,33 @@
 # tools/AITest.py - the monster AI's checks (code-review batch 33: where a
-# monster can stand, and where a thing can come to rest - C58, C57, C74).
+# monster can stand, and where a thing can come to rest - C58, C57, C74; batch
+# 34: the AI director's lifetime - C52, C69).
 #
 # Run:  python tools\AITest.py [--selftest]   (needs a debug build)
 #
-# Runs tools\EvalScripts\ai.eval headless and JUDGES what it printed. The eval
-# runner's own verdict only says every line named a command; a monster that
-# never moved reads PASS there. Each section of the script ends in a readout
-# (`monsters`, `tally`, `castsvc floor`, the `drop` answers), and every check
-# below is a claim about one section's readouts:
+# Runs two scripts headless, each in its own process, and JUDGES what they
+# printed. The eval runner's own verdict only says every line named a command;
+# a monster that never moved reads PASS there.
+#
+# tools\EvalScripts\aiasync.eval runs on the WALL CLOCK - no lockstep, no
+# `reset`, a real cold `newgame` - because that is where its defects live, and
+# it must start its own process for the cold start to be one:
+#
+#   CONTINUE crypt1: a skeleton bolted awake hunts the party; the bucket workers
+#            think from that (`aiwait`), go on thinking on the title, and a
+#            Continue (a save from before the fight) must start every monster
+#            unaware. Stale plans used to latch `aware` again (C52).
+#   NEWGAME  the same fight, then Start New Game on the same level, reset in
+#            place - the same claim (C52).
+#   WORLDS   a world switch leaves exactly the new director's four `ai.bucketN`
+#            workers - ids none of the old four had - none Dead: the old
+#            director's used to linger, Dead, still holding jobs aimed at it
+#            (C69). The run names its world (-project dungeon-demo) so the
+#            switch does not save Test-World as the developer's last world,
+#            and checks settings.ini's `project=` afterwards to show it did not.
+#
+# tools\EvalScripts\ai.eval runs in lockstep at timescale 0. Each section ends
+# in a readout (`monsters`, `tally`, `castsvc floor`, the `drop` answers), and
+# every check below is a claim about one section's readouts:
 #
 #   BRAZIER  crypt1 as shipped: a skeleton bolted awake behind the brazier
 #            reaches a side of the party - not the brazier's square, which no
@@ -28,11 +48,14 @@
 #            SHOVED toward the pit stops short of it - FreeSlotInCell's refusal on
 #            its own, which the walk cannot isolate (C74).
 #
-# --selftest runs the same script with its `step` lines removed - no time
+# --selftest runs the same scripts with their `step` lines removed - no time
 # passes, so no monster thinks, walks or swings and nothing in flight lands -
 # and demands that EXACTLY the checks resting on time fail (STEP_FREE names the
 # rest, which must still pass), so no check is satisfied by nothing happening.
-# The one step it keeps is the party's walk up to the pit (WALK_SECTIONS).
+# The one step it keeps is the party's walk up to the pit (WALK_SECTIONS). The
+# C52 claims are tied to the fight having happened, so they fail with it; the
+# wall-clock waits, the in-place new game and the world switch rest on no step,
+# and stay green.
 import io
 import os
 import re
@@ -46,6 +69,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 EXE = os.path.join(ROOT, r"build\debug\bin\Dungeon.exe")
 LOG = os.path.join(ROOT, r"build\debug\bin\dungeon.log")
 SCRIPT = os.path.join(ROOT, r"tools\EvalScripts\ai.eval")
+ASYNC_SCRIPT = os.path.join(ROOT, r"tools\EvalScripts\aiasync.eval")
 
 # crypt1's geometry the script relies on (assets/projects/dungeon-demo/levels):
 # the party at 8,4 has open squares N, S and W and the brazier E.
@@ -59,18 +83,38 @@ PIT = (3, 4)              # `stairadd pit 3 4` on crypt1
 PIT_WALK_SIDE = (4, 5)    # the party at 3,5: its one side that is not the pit
 STAIRWELL = (1, 1)        # crypt1's stairs_down, where the party arrives from crypt2
 SHOVE_FROM, SHOVE_STOP = (5, 4), (4, 4)
+# Where a new game on dungeon-demo begins (project.ini start_level/x/z), and the
+# line StartNewGame logs when that level is the one already in memory - the
+# world reset IN PLACE, monsters and all, rather than loaded afresh.
+IN_PLACE = "New game started in crypt (crypt1 at 7,7)"
+BUCKETS = [f"ai.bucket{b}" for b in range(4)]
+# The async run's world, named so a world switch leaves settings.ini alone
+# (Game::SwitchWorld saves the last world played unless -project chose it).
+PROJECT = ("-project", "dungeon-demo")
+SETTINGS = os.path.join(os.path.dirname(EXE), "settings.ini")
+SWITCHED_TO = "Test-World"  # aiasync.eval's `worlds load`
 
 results = []
 
 # The checks that rest on no `step`: with every step cut (--selftest) these,
 # and ONLY these, may still pass. A drop is an instant act, and so is its
-# refusal; everything else needs the world to run.
+# refusal; the wall-clock waits, the title, a new game reset in place and a
+# world switch need no simulated time either. Everything else needs the world
+# to run.
 STEP_FREE = {
 	"a drop beside the pit is laid",
 	"a drop onto the pit is refused, and nothing lies there",
 	"a skeleton shoved toward the pit stops short of it",
 	"the script ran to its end",
-	"the game ran the script to its verdict",
+	"the game ran ai.eval to its verdict",
+	"the game ran aiasync.eval to its verdict",
+	"the async script ran to its end",
+	"lockstep stayed off for the whole async run",
+	"continue: the workers thought on from that fight while the game sat on the title",
+	"newgame: the workers thought on from that fight while the game sat on the title",
+	"newgame: Start New Game reset crypt1 in place (no level load)",
+	"a world switch leaves exactly the new director's four ai.bucket workers, none Dead",
+	"the world switch left settings.ini's last world as it was",
 }
 # Sections whose steps --selftest keeps: the party's walk to the pit, which only
 # sets the drops up (a drop needs its square seen, and only a step reveals one).
@@ -84,18 +128,29 @@ def check(ok, label, detail=""):
 		print(f"         {detail}")
 
 
-def run(script):
-	code, text = harness_game.run_eval(EXE, ROOT, LOG, [script])
+def last_world():
+	"""settings.ini's `project=` - the world an ordinary launch opens - or None."""
+	try:
+		text = io.open(SETTINGS, encoding="utf-8").read()
+	except OSError:
+		return None
+	return next((l[len("project="):] for l in text.splitlines() if l.startswith("project=")), None)
+
+
+def run(script, name, extra=()):
+	"""One script in its own process: (verdict line, the console lines, the
+	whole log)."""
+	code, text = harness_game.run_eval(EXE, ROOT, LOG, [script], extra)
 	log = text.splitlines()
 	for f in harness_game.fatal_lines(text):
 		print(f"         game FATAL: {f}")
 	# A run that died before its verdict is a failed run, not a log to judge as
 	# if it were whole.
-	check(harness_game.finished(code, text), "the game ran the script to its verdict",
+	check(harness_game.finished(code, text), f"the game ran {name} to its verdict",
 		  f"exit code {code}, no verdict line")
 	verdict = next((l for l in log if "eval RESULT=" in l), "")
 	said = [l.split("console: ", 1)[1] for l in log if "console: " in l]
-	return code, verdict, [l for l in said if not l.startswith("> ")]
+	return verdict, [l for l in said if not l.startswith("> ")], log
 
 
 def sections(lines):
@@ -117,6 +172,16 @@ def monsters(sec):
 		m = re.match(r"  (\w+) @ (\d+),(\d+)  hp ([\d.]+)", l)
 		if m:
 			out.append((m.group(1), int(m.group(2)), int(m.group(3)), float(m.group(4))))
+	return out
+
+
+def awareness(sec):
+	"""Every monster line's (type, aware) - `aware=` closes the line."""
+	out = []
+	for l in sec:
+		m = re.match(r"  (\w+) @ \d+,\d+  hp [\d.]+.*  aware=(\d)$", l)
+		if m:
+			out.append((m.group(1), int(m.group(2))))
 	return out
 
 
@@ -176,6 +241,81 @@ def dropped(sec, x, z):
 
 def last(seq, default=None):
 	return seq[-1] if seq else default
+
+
+def split_at(sec, marker):
+	"""The section's lines before and after the first line starting `marker`
+	(the marker line itself in neither); everything before it, and [], when the
+	marker never came."""
+	for i, l in enumerate(sec):
+		if l.startswith(marker):
+			return sec[:i], sec[i + 1:]
+	return sec, []
+
+
+def judge_async(lines, log):
+	"""aiasync.eval: the wall-clock half (C52, C69)."""
+	s = sections(lines)
+	get = lambda name: s.get(name, [])
+	check("lockstep off" in lines and not any(l == "lockstep on" for l in lines),
+		  "lockstep stayed off for the whole async run",
+		  "the defects measured here live only where the workers think on the wall clock")
+
+	def stale_plans(name, back, came_back):
+		"""A fight, the workers thinking from it on the title, then `back` - and
+		every monster unaware after it."""
+		sec = get(name)
+		before, after = split_at(sec, "back to the title")
+		t = tally(before)
+		fought = awareness(before)
+		woke = num(t, "bolthits") >= 1 and ("skeleton", 1) in fought
+		check(woke, f"{name}: the bolt woke the skeleton, which hunts the party before the title",
+			  f"bolthits={t.get('bolthits')}, before the title {fought}")
+		waits = [l for l in sec if l.startswith("aiwait:")]
+		titled = "state menu" in after
+		thought = (titled and len(waits) == 2 and
+				   all(w.startswith("aiwait: every bucket published") for w in waits))
+		check(thought, f"{name}: the workers thought on from that fight while the game sat on the title",
+			  f"state menu seen: {titled}; aiwait said {waits}")
+		_, returned = split_at(after, came_back)
+		now = awareness(returned)
+		hunting = [m for m in now if m[1] != 0]
+		# Tied to the setup: an unaware monster proves nothing unless there was a
+		# fight for stale plans to come from, and the workers thought from it.
+		check(woke and thought and bool(now) and not hunting,
+			  f"{name}: {back} after that fight starts every monster unaware",
+			  f"after {back}: {now}")
+
+	print("CONTINUE - a fight's stale plans do not survive Continue (C52)")
+	stale_plans("continue", "Continue", "loaded: aitest_async")
+
+	print("NEWGAME - nor a Start New Game on the same level (C52)")
+	stale_plans("newgame", "Start New Game", "starting a new game")
+	# The new game must have been the in-place reset: a level LOAD would hand
+	# every monster a fresh id whatever ResetForNewGame did, and prove nothing.
+	at = next((i for i, l in enumerate(log) if "console: === newgame ===" in l), None)
+	in_place = at is not None and any(IN_PLACE in l for l in log[at:])
+	check(in_place, "newgame: Start New Game reset crypt1 in place (no level load)",
+		  f"no '{IN_PLACE}' line after the newgame section began")
+
+	print("WORLDS - a world switch takes its AI workers with it (C69)")
+	sec = get("worlds")
+	before, after = split_at(sec, "switching to Test-World")
+	rows = lambda part: [m.groups() for m in
+						 (re.match(r"  #(\d+) (ai\.bucket\d) (\w+)", l) for l in part) if m]
+	old, new = rows(before), rows(after)
+	names = sorted(n for _, n, _ in new)
+	dead = [r for r in new if r[2] in ("dead", "quarantd")]
+	# The new world's game is up (Test-World starts on its world map)...
+	landed = "state playing" in after or "state worldmap" in after
+	# ...and the four are a NEW director's: ids are never reused, so a switch
+	# that never landed - crypt1 still playing, the old director's four rows
+	# listed again - shares every id and proves nothing.
+	fresh = bool(new) and not ({i for i, _, _ in old} & {i for i, _, _ in new})
+	check(landed and fresh and len(old) == 4 and names == BUCKETS and not dead,
+		  "a world switch leaves exactly the new director's four ai.bucket workers, none Dead",
+		  f"landed: {landed}; fresh ids: {fresh}; before {old}; after {new}")
+	check("end" in s, "the async script ran to its end")
 
 
 def judge(lines):
@@ -273,33 +413,54 @@ def judge(lines):
 	check("end" in s, "the script ran to its end")
 
 
+def cut_steps(path):
+	"""A copy of the script with its `step` lines removed (but for the walk the
+	pit drops need - WALK_SECTIONS), in a temp file the caller deletes."""
+	text = io.open(path, encoding="utf-8").read()
+	kept, section = [], None
+	for l in text.splitlines():
+		m = re.match(r"echo === (\S+) ===$", l)
+		if m:
+			section = m.group(1)
+		# Every step but the walk that brings the party beside the pit for the
+		# drops (WALK_SECTIONS): that one is set-up, not a measured stretch of
+		# time, and a party left where it was could not reach the squares.
+		drop = l.startswith("step ") and section not in WALK_SECTIONS
+		kept.append("echo skipped" if drop else l)
+	fd, cut = tempfile.mkstemp(suffix=".eval")
+	with os.fdopen(fd, "w", encoding="utf-8") as fh:
+		fh.write("\n".join(kept) + "\n")
+	return cut
+
+
 def main():
 	if not os.path.exists(EXE):
 		print(f"no debug build at {EXE}")
 		return 2
 	selftest = "--selftest" in sys.argv
-	script = SCRIPT
-	if selftest:
-		text = io.open(SCRIPT, encoding="utf-8").read()
-		kept, section = [], None
-		for l in text.splitlines():
-			m = re.match(r"echo === (\S+) ===$", l)
-			if m:
-				section = m.group(1)
-			# Every step but the walk that brings the party beside the pit for
-			# the drops (WALK_SECTIONS): that one is set-up, not a measured stretch
-			# of time, and a party left where it was could not reach the squares.
-			drop = l.startswith("step ") and section not in WALK_SECTIONS
-			kept.append("echo skipped" if drop else l)
-		cut = "\n".join(kept)
-		fd, script = tempfile.mkstemp(suffix=".eval")
-		with os.fdopen(fd, "w", encoding="utf-8") as fh:
-			fh.write(cut + "\n")
-	code, verdict, lines = run(script)
-	print(f"eval: {verdict.split('] ', 1)[-1] if verdict else '(no verdict line)'}")
-	judge(lines)
-	if selftest:
-		os.remove(script)
+	# The async script FIRST and alone: its opening `newgame` must be a cold
+	# start, which only a fresh process gives it. It names its world with
+	# -project, which is the world an -eval run opens anyway, because its
+	# `worlds load Test-World` would otherwise remember Test-World in
+	# settings.ini as the last world played - the developer's next launch.
+	for path, name, extra, judge_it in (
+			(ASYNC_SCRIPT, "aiasync.eval", PROJECT, judge_async),
+			(SCRIPT, "ai.eval", (), None)):
+		script = cut_steps(path) if selftest else path
+		world_before = last_world()
+		verdict, lines, log = run(script, name, extra)
+		print(f"{name}: {verdict.split('] ', 1)[-1] if verdict else '(no verdict line)'}")
+		if judge_it:
+			judge_it(lines, log)
+			world_after = last_world()
+			check(world_after == world_before or world_after != SWITCHED_TO,
+				  "the world switch left settings.ini's last world as it was",
+				  f"project= was {world_before}, is {world_after} - the developer's next launch "
+				  f"opens {world_after}")
+		else:
+			judge(lines)
+		if selftest:
+			os.remove(script)
 	failed = sum(1 for _, ok in results if not ok)
 	if selftest:
 		# Every check that rests on time passing must FAIL with the steps cut, and

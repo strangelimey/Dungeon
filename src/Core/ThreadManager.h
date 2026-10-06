@@ -26,6 +26,7 @@
 #include "Core/Types.h"
 
 #include <atomic>
+#include <chrono>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -88,14 +89,13 @@ struct WorkerInfo {
 // The manager. Owns every worker for its lifetime; destruction stops and joins
 // them all. Spawning is the only structural mutation and is rare, so it takes a
 // brief lock; per-worker stats are atomics, so Inspect/SnapshotAll never block a
-// worker. Workers are addressed by a stable WorkerId (an index that is never
-// reused or invalidated — a stopped worker stays in the registry as Dead).
+// worker. Workers are addressed by a stable WorkerId (an id that is never
+// reused - a stopped worker stays in the registry as Dead until Reap or Remove
+// takes it out, and an id that is gone just answers as unknown).
 // ----------------------------------------------------------------------------
 class Manager {
 public:
-	// Both defined out-of-line in the .cpp: Worker is incomplete here, so the
-	// vector<unique_ptr<Worker>> destruction these would emit (ctor unwind, dtor)
-	// can't be instantiated in a client TU.
+	// Both defined out-of-line in the .cpp, where Worker is complete.
 	Manager();
 	~Manager(); // requests stop on every worker and joins them
 	Manager(const Manager&) = delete;
@@ -110,16 +110,32 @@ public:
 	// its Tick::stop token.
 	void RequestStop(WorkerId id);
 
-	// Request stop AND block until the worker has finished and joined. A client
-	// MUST Stop its own workers in its destructor before its captured state dies,
-	// since the job closure typically references that client.
+	// Request stop AND block until the worker has finished and joined. The slot
+	// stays, Dead, holding its job - which a Restart (the console's `boot`) runs
+	// again. So a client whose job captures the client itself must not Stop its
+	// workers in its destructor: it must Remove them.
 	void Stop(WorkerId id);
+
+	// Stop (and join) a worker, then take it OUT of the registry and drop its
+	// job, so nothing can ever run that job again: a Restart already waiting on
+	// it gives up, and the id answers as unknown from here on. This is what a
+	// client's destructor calls when its job captures `this` (AsyncDirector).
+	// Blocks like Stop, so a worker that never checks its token blocks it too.
+	void Remove(WorkerId id);
 
 	// Throttle controls — all take effect immediately (they wake the worker's
 	// cadence sleep). Pause holds the worker after its current tick without
 	// joining it; Resume releases it; SetRate changes the re-run cadence (hz<=0
 	// means run flat-out). No-ops for an unknown or dead worker.
+	//
+	// PAUSE ONLY ASKS. It sets a flag and returns: a worker in the middle of a
+	// tick finishes it first, publishing whatever that tick makes. WaitPaused is
+	// the other half - it blocks until the worker is HOLDING at its pause point,
+	// so no tick of its is in flight, and answers false after `timeout` (or when
+	// no pause is pending). A worker with no thread left (Dead, or quarantined)
+	// counts as quiet.
 	void Pause(WorkerId id);
+	bool WaitPaused(WorkerId id, std::chrono::milliseconds timeout);
 	void Resume(WorkerId id);
 	void SetRate(WorkerId id, float hz);
 	void SetPriority(WorkerId id, int priority); // -2..+2, applied to the live thread
@@ -147,7 +163,10 @@ public:
 	// but a worker truly wedged in an infinite loop (never checking its token)
 	// will block here — that case needs the hard-quarantine kill (a later step).
 	// Clears the user-stopped flag, so a killed worker booted here runs again and
-	// is supervised again.
+	// is supervised again. KEEPS a pause: a worker paused when it is rebooted
+	// comes back paused, so the supervisor rebooting a stalled worker cannot
+	// release one that lockstep is holding (code-review C63). A removed worker
+	// (Remove) is not restarted.
 	void Restart(WorkerId id);
 
 	// THE PROBE: what is this worker doing RIGHT NOW. Suspends it, walks its
@@ -168,9 +187,11 @@ public:
 
 	// Drop fully-stopped workers (Dead or Quarantined, thread gone) from the
 	// registry so it doesn't grow without bound as short-lived workers come and
-	// go. WorkerIds are stable, so survivors keep theirs. MAIN-THREAD ONLY:
-	// it frees Workers, and the only cross-thread caller (the supervisor) touches
-	// just Running workers, never the stopped ones removed here.
+	// go. WorkerIds are stable, so survivors keep theirs. MAIN-THREAD ONLY. It
+	// drops the REGISTRY'S hold on a Worker: a Worker the supervisor is looking
+	// at lives on in its copy (Get hands out shared ownership). One window is
+	// still open - a supervisor Restart, between its join and its relaunch,
+	// leaves a slot that reads Dead and not joinable (code-review C386).
 	void Reap();
 
 private:
@@ -180,10 +201,13 @@ private:
 	// Stop a worker, force-terminating it if it won't stop cooperatively. Leaves
 	// w->thread joined (clean) or detached (quarantined). Caller serialises.
 	void StopOrTerminate(Worker* w);
-	Worker* Get(WorkerId id) const; // null if out of range
+	// Null if unknown. SHARED ownership, so a Worker found here outlives a Reap
+	// or a Remove that drops it from the registry while the caller still holds
+	// it - the supervisor, between its lookup and its checks, is that caller.
+	std::shared_ptr<Worker> Get(WorkerId id) const;
 
 	mutable std::mutex m_mx; // guards the m_workers vector structure only
-	std::vector<std::unique_ptr<Worker>> m_workers;
+	std::vector<std::shared_ptr<Worker>> m_workers;
 	WorkerId m_nextId = 1; // stable id source (not the array index, so Reap is safe)
 	std::atomic<float> m_globalScale{1.0f}; // governor: multiplies every cadence
 	std::jthread m_supervisor; // monitors heartbeats; last member = stopped first

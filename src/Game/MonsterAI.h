@@ -286,12 +286,17 @@ private:
 // Publish()es snapshots and TakePlans() to execute. Owning the threads through
 // the manager means they are inspectable / killable / throttleable like every
 // other engine thread. Handoffs are immutable shared_ptr swaps under brief
-// mutexes, so the main thread never blocks on a worker's compute.
+// mutexes, so the main thread never blocks on a worker's compute - except once,
+// when lockstep begins and waits out a tick still in flight (SetLockstep).
 // ----------------------------------------------------------------------------
 class AsyncDirector {
 public:
 	explicit AsyncDirector(threads::Manager& manager);
-	~AsyncDirector(); // stops its workers before its captured state dies
+	// REMOVES its workers from the manager (Manager::Remove), not merely stops
+	// them: each job captures `this`, and a stopped worker keeps its job in a
+	// Dead slot that a `boot` (Restart) would run against a destroyed director
+	// (code-review C69). Removal joins first, so no tick outlives the director.
+	~AsyncDirector();
 	AsyncDirector(const AsyncDirector&) = delete;
 	AsyncDirector& operator=(const AsyncDirector&) = delete;
 
@@ -342,6 +347,9 @@ public:
 		const HandBack* m_mark = nullptr;
 	};
 	Batch TakePlans(int bucket) const;
+	// Any thread: the bucket's publish count alone (TakePlans' `seq`, without
+	// taking a batch) - what the `aiwait` dev command watches climb.
+	uint64_t PlanSeq(int bucket) const;
 
 	// Main thread, at level load and whenever a monster is added: size the
 	// INLINE compute for a map of `cells` squares with `slots[b]` monsters in
@@ -375,7 +383,13 @@ public:
 	// happened.
 	//
 	// ON, the workers are PAUSED and the host drives ComputeInline() itself at
-	// those same cadences counted in SIM time. It runs the very same
+	// those same cadences counted in SIM time. Turning it on RETURNS ONLY ONCE
+	// every worker is holding at its pause point (Manager::WaitPaused): Pause
+	// alone only sets a flag, and a worker caught mid-tick would publish its
+	// batch AFTER the first inline compute - a plan thought on another clock,
+	// landing in a run that promises the same decisions every time (code-review
+	// C63). A worker the supervisor reboots meanwhile comes back still paused
+	// (Restart keeps the flag). It runs the very same
 	// ComputeBucket the worker runs — not a reimplementation — so the two modes
 	// cannot drift apart in WHAT they decide, only in when.
 	//
@@ -442,14 +456,21 @@ private:
 	// Lockstep state. The inline Brain is the director's OWN — a Brain carries
 	// BFS scratch that must not be shared, and although the workers are paused
 	// while lockstep is on, borrowing one of theirs would make that safety
-	// depend on the pause actually having taken effect. The stop_source is never
-	// requested: ComputeBucket wants a token so a worker can be cancelled
-	// mid-BFS, and an inline call on the main thread has nobody to cancel it.
+	// depend on the pause actually having taken effect (SetLockstep waits for
+	// it, but gives up after kQuietTimeoutMs on a worker that never pauses).
+	// The stop_source is never requested: ComputeBucket wants a token so a
+	// worker can be cancelled mid-BFS, and an inline call on the main thread
+	// has nobody to cancel it.
 	bool m_lockstep = false;
 	Brain m_inlineBrain;
 	bool m_inlineBrainWarned = false; // its scratch grew in a compute, and said so
 	std::stop_source m_neverStops;
 	InlineStats m_inlineStats;
+	// How long SetLockstep waits for each worker to reach its pause point. A tick
+	// runs well under a second - the supervisor reboots one past 5x its 100 ms
+	// watchdog, and the reboot comes back paused - so only a worker wedged past
+	// all of that runs this out; lockstep then starts anyway, and says so.
+	static constexpr unsigned kQuietTimeoutMs = 2000;
 
 	mutable std::mutex m_snapMutex;
 	std::shared_ptr<const Snapshot> m_snapshot;
@@ -467,11 +488,12 @@ private:
 	// instead of make_shared-ing one per tick, and plan slots are overwritten in
 	// place, so a steady-state tick allocates nothing. TWO per bucket, because a
 	// pool must have ONE producer and a bucket has two: its worker, and the
-	// inline compute lockstep runs on the main thread. They never share a batch -
-	// not even when lockstep begins while the worker is still mid-tick, which it
-	// can be, since Pause only sets a flag (C63, batch 34) - so neither pool
-	// needs a lock or a claim, and the inline one can be sized at level load
-	// from the main thread (ReserveInline) without racing anybody.
+	// inline compute lockstep runs on the main thread. They never share a batch,
+	// so neither pool needs a lock or a claim, and the inline one can be sized at
+	// level load from the main thread (ReserveInline) without racing anybody -
+	// which holds by construction, not only because SetLockstep waits for the
+	// workers to go quiet (C63): a worker the wait timed out on still cannot
+	// touch a batch the inline compute owns.
 	//  * The WORKER's: filled in the constructor to kPlanPoolDepth - the
 	//    published batch, one a consumer is still reading, the one being built.
 	//    Its plans and paths grow as they first need to, on the worker's thread.

@@ -488,6 +488,22 @@ void Game::RegisterDiagnosticCommands() {
 								  std::strtoull(args[1].c_str(), nullptr, 0));
 			m_console.Print("affinity set");
 		});
+	// The THREADS panel as text: a line per worker in the registry, which is what
+	// a script can read (the panel is a picture). A world switch must leave no
+	// Dead `ai.bucketN` behind - each held a job aimed at the director it
+	// destroyed (code-review C69; tools/AITest.py reads this).
+	m_console.Register(
+		{.name = "threads",
+		 .group = CmdGroup::Threads,
+		 .summary = "list every managed worker: id, name, state, ticks, restarts"},
+		[this](const std::vector<std::string>&) {
+			const std::vector<threads::WorkerInfo> all = m_threads.SnapshotAll();
+			m_console.Print(std::format("threads: {} worker(s)", all.size()));
+			for (const threads::WorkerInfo& w : all)
+				m_console.Print(std::format("  #{} {} {} it={} re={}{}", w.id, w.name,
+											threads::StateName(w.state), w.iterations,
+											w.restarts, w.paused ? " paused" : ""));
+		});
 	m_console.Register(
 		{.name = "threadreap",
 		 .group = CmdGroup::Threads,

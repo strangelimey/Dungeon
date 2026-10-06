@@ -1518,7 +1518,18 @@ past Options::watchdogMs), not a stored state. Lock order: m_mx (registry) →
 per-worker sleepMx; lifecycle ops serialize on a per-worker controlMx; Inspect/
 SnapshotAll read atomics so they never block a worker. The Manager is owned by
 Game (declared BEFORE m_world so it outlives every client) and is inspected/
-controlled live from the dev console.
+controlled live from the dev console (`threads` lists the registry as text).
+THREE RULES THAT BITE (code-review batch 34): (1) PAUSE ONLY ASKS - it sets a
+flag, and a worker mid-tick finishes and publishes that tick first;
+`WaitPaused(id, timeout)` is the other half, blocking until the worker HOLDS at
+its pause point (a pause GENERATION it acknowledges there, not the Paused state,
+which can lag a Resume). (2) RESTART KEEPS A PAUSE - a pause belongs to whoever
+asked for it, so the supervisor rebooting a stalled AI worker under lockstep
+leaves it paused. (3) A CLIENT WHOSE JOB CAPTURES ITSELF REMOVES ITS WORKERS -
+`Stop` leaves a Dead slot still holding the job, which the panel's `boot` would
+run against a destroyed client; `Remove(id)` joins, drops the job and takes the
+slot out (a Restart already waiting on it gives up). Get hands out SHARED
+ownership, so a Worker the supervisor is looking at outlives a Remove or Reap.
 
 The AI itself (Game/MonsterAI.h, namespace dungeon::ai) is walled off like
 MagicSystem — it knows nothing about DungeonWorld/Party/map, reaching the world
@@ -1551,8 +1562,10 @@ play. A POOL HAS ONE PRODUCER: each bucket has a worker plan pool (3 batches,
 filled in the director's ctor; its plans and paths grow on the worker's own,
 unguarded, thread) and an INLINE one (2 batches) for lockstep's main-thread
 compute, which REST forces into guarded frames. The two never share a batch -
-not even when lockstep starts while a worker is still mid-tick, since Pause only
-sets a flag (C63) - so the inline pool can be SIZED from the main thread: at level
+by construction, not only because entering lockstep now WAITS for every worker
+to hold at its pause point (WaitPaused; C63, ThreadStress phase G - a tick still
+in flight used to publish after the first inline compute) - so the inline pool
+can be SIZED from the main thread: at level
 load and on every AddMonster, ReserveAIPools sizes the inline brain's BFS scratch
 and gives every monster of a bucket (+2) a plan slot with a whole map's worth of
 path. A batch NEVER SHRINKS: it publishes a COUNT and the consumer's Batch is a
@@ -1572,7 +1585,17 @@ per-monster runtimeId (DungeonWorld
 assigns from m_nextMonsterId, never reused) — NOT an array index — so a plan
 whose monster died / changed bucket / was erased simply finds no match
 (MonsterByRuntimeId) and is dropped, never misapplied to a neighbour that shifted
-into its slot. A monster's iq (monsters.cat field; Scheduler::BucketForIq) picks
+into its slot. A NEW GAME OR A LOAD GIVES EVERY MONSTER A NEW ONE
+(ResetForNewGame): the workers keep thinking while the world stands frozen on
+the title or the pause menu, from the last snapshot, and the first frame back
+used to apply those batches and latch `aware` for every monster of the last
+fight, sleepers included (code-review C52). Measured where it lives, on the wall
+clock: tools/AITest.py's aiasync.eval (no lockstep, no `reset`; `aiwait` blocks
+until every bucket has published, `title` takes the pause menu's way out, and
+`monsters` ends each line `aware=0|1`). The director's lifetime is the world's:
+~AsyncDirector REMOVES its four workers, so a world switch leaves no Dead
+`ai.bucketN` slot (C69; the same script reads `threads` after one, and runs with
+`-project` so that switch leaves settings.ini's last world alone). A monster's iq (monsters.cat field; Scheduler::BucketForIq) picks
 its bucket; bucket intervals are PRIME milliseconds (251/499/997/1999 ms ≈
 4/2/1/0.5 Hz; Scheduler::BucketInterval) — coprime, so the buckets almost never
 fire together (cicada pattern) instead of resonating like power-of-two harmonics.

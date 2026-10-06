@@ -289,11 +289,15 @@ AsyncDirector::AsyncDirector(threads::Manager& manager) : m_manager(manager) {
 }
 
 AsyncDirector::~AsyncDirector() {
-	// Stop (and JOIN) our workers before this object's captured state dies — the
-	// job closures reference `this`. Stop blocks, so once it returns no worker
-	// can call ComputeBucket again.
+	// Take our workers OUT of the manager before this object's captured state
+	// dies - the job closures reference `this`. Remove joins first (so once it
+	// returns no tick can be running ComputeBucket) and then drops the slot, job
+	// and all. Stop used to be enough to end the threads but left four Dead
+	// `ai.bucketN` slots still holding those jobs: a world switch destroys this
+	// director, and the THREADS panel's `boot` on one of them ran ComputeBucket
+	// against freed memory (code-review C69).
 	for (int b = 0; b < Scheduler::kBucketCount; ++b)
-		m_manager.Stop(m_workers[b]);
+		m_manager.Remove(m_workers[b]);
 }
 
 void AsyncDirector::Publish(std::shared_ptr<const Snapshot> snap) {
@@ -317,6 +321,11 @@ AsyncDirector::Batch AsyncDirector::TakePlans(int bucket) const {
 	return out;
 }
 
+uint64_t AsyncDirector::PlanSeq(int bucket) const {
+	std::lock_guard<std::mutex> lk(m_planMutex);
+	return m_planSeq[bucket];
+}
+
 void AsyncDirector::SetLockstep(bool on) {
 	if (on == m_lockstep) return;
 	m_lockstep = on;
@@ -324,13 +333,28 @@ void AsyncDirector::SetLockstep(bool on) {
 	// PAUSE, not stop-and-respawn: the workers keep their identities, iteration
 	// counts and diagnostic rings, so a run that toggled lockstep still reads as
 	// one thread's history in the console THREADS panel rather than as four
-	// reboots. Pause only SETS A FLAG, though: a worker already mid-tick finishes
-	// that tick, and can publish after the first inline compute (C63, batch 34).
-	// It cannot write a buffer the inline compute is using - the inline compute
-	// draws its plans from pools of its own - but "paused" is not yet "quiet".
+	// reboots.
+	if (!on) {
+		for (int b = 0; b < Scheduler::kBucketCount; ++b) m_manager.Resume(m_workers[b]);
+		return;
+	}
+	// All four asked first, so their in-flight ticks finish side by side and the
+	// wait below costs the longest of them, not their sum.
+	for (int b = 0; b < Scheduler::kBucketCount; ++b) m_manager.Pause(m_workers[b]);
+	// ...and then WAITED FOR. Pause only sets a flag: a worker already mid-tick
+	// finishes that tick and publishes it, and without this wait that publish
+	// could land after the first inline compute - a plan from the wall-clock
+	// side, taken as lockstep's (code-review C63). It could never write a buffer
+	// the inline compute uses (those are pools of its own); it could still make
+	// a lockstep run decide something its seed did not.
 	for (int b = 0; b < Scheduler::kBucketCount; ++b) {
-		if (on) m_manager.Pause(m_workers[b]);
-		else m_manager.Resume(m_workers[b]);
+		if (m_manager.WaitPaused(m_workers[b], std::chrono::milliseconds(kQuietTimeoutMs)))
+			continue;
+		alloc::Excused excuse; // the report's own formatting
+		log::Warn("lockstep: ai.bucket{} did not reach its pause point within {} ms - "
+				  "starting anyway; a tick it still has in flight may publish one "
+				  "batch thought on the wall clock",
+				  b, kQuietTimeoutMs);
 	}
 }
 

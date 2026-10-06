@@ -1,0 +1,92 @@
+; aiasync.eval - the AI workers' lifetime, on the WALL CLOCK (code-review batch
+; 34: C52, C69). tools\AITest.py runs this and JUDGES it; on its own it only
+; reports. Every section header is `=== <name> ===`, as in ai.eval.
+;
+; NO `reset` AND NO LOCKSTEP, and both are the point. Lockstep pauses the bucket
+; workers, and `reset` recycles the world down a path no player takes - so the
+; harness never saw a worker keep thinking from the last fight while the world
+; stood frozen on the title. A real new game opens the starter dungeon (crypt1,
+; 7,7), the bucket workers think on the wall clock, and `aiwait` blocks until
+; every one of them has published twice more, so the thinking this is about
+; has certainly happened before the next line looks.
+;
+; MUST RUN IN ITS OWN PROCESS, first: the opening `newgame` is a cold start, and
+; a `reset` before it would send every new game to the harness's own ground.
+; And with `-project dungeon-demo` (AITest passes it): without it the world
+; switch at the end saves Test-World in settings.ini as the last world played,
+; which the next ordinary launch would open.
+logecho on
+newgame
+lockstep off
+lockstep
+seed 11
+pos
+monsters
+; A save from before any fight: every monster unaware. The title's Continue
+; loads the newest save through LoadGame, which is what `load` calls.
+save aitest_async
+
+; --- C52: Continue after a fight ------------------------------------------------
+; Maren's Fire Bolt wakes the skeleton behind the brazier (ai.eval's brazier
+; section): it hunts the party, and every snapshot says so. The workers think
+; from that, the party leaves for the title - where nothing is published, and
+; the workers go on thinking from the last snapshot, a fresh batch each tick -
+; and then Continue. The first frame back used to apply those batches and latch
+; `aware` again for every monster that was hunting.
+echo === continue ===
+tp 8 4
+face e
+learn 2 fire
+learn 2 project
+setskill 2 fire 5
+tally reset
+cast 2 0 fire project
+step 5
+tally
+monsters
+aiwait
+title
+state
+aiwait
+load aitest_async
+step 0.5
+pos
+monsters
+
+; --- C52: Start New Game after a fight ------------------------------------------
+; The same fight, then the title's Start New Game. With the dungeon resident and
+; the starter level the one in memory, the new game resets the world IN PLACE
+; (`New game started in crypt (crypt1 at 7,7)` in the log, no level load) -
+; which is the case that kept the monsters and their old ids.
+echo === newgame ===
+tp 8 4
+face e
+learn 2 fire
+learn 2 project
+setskill 2 fire 5
+tally reset
+cast 2 0 fire project
+step 5
+tally
+monsters
+aiwait
+title
+state
+aiwait
+newgame
+step 0.5
+pos
+monsters
+
+; --- C69: a world switch takes its AI workers with it ---------------------------
+; Switching worlds destroys this world's AI director. Its four workers used to
+; be STOPPED, leaving four Dead `ai.bucketN` slots that still held jobs aimed
+; at the destroyed director - a `boot` on one ran it against freed memory.
+; After the switch there must be exactly the new director's four, all alive,
+; under ids the old four did not have (ids are never reused).
+echo === worlds ===
+threads
+worlds load Test-World
+state
+threads
+echo === end ===

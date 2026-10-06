@@ -4,13 +4,16 @@ argument-hint: "[selftest]"
 allowed-tools: PowerShell, Read, Grep, Glob
 ---
 
-Drive the real `ThreadManager` + AI buckets under synthetic load (~36 s).
+Drive the real `ThreadManager` + AI buckets under synthetic load (~40 s).
 
 - no argument → `.\tools\CheckAll.ps1 -Only threads`
 - `selftest` → `.\tools\CheckAll.ps1 -Only threads -SelfTest` (must FAIL)
 
-Six phases: baseline, asymmetric per-bucket load, heavy full-BFS, a ramp into
-the supervisor's reboot zone, the global governor, and cooperative kill/restart.
+Seven phases: baseline, asymmetric per-bucket load, heavy full-BFS, a ramp into
+the supervisor's reboot zone, the global governor, cooperative kill/restart, and
+lockstep entered while bucket 0 is caught mid-tick (G, code-review C63: it must
+return only once every worker holds at its pause point, nothing may publish
+after it, and a worker rebooted under lockstep must come back still paused).
 The synthetic world is built the way `DungeonWorld::BuildAISnapshot` builds the
 real one: each monster chases the party's cell, monsters crowd through `occ`
 (not `blocked`), and each bucket's IQ is derived from `Scheduler::BucketForIq`.
@@ -69,6 +72,14 @@ with an earlier one's (a pooled batch that kept a bigger tick's tail - drop
 it). `stale skipped` is not a failure: the first batch after a new snapshot may
 come from a tick that was already running on the old one. Only that first one
 may.
+
+**If a G check fails**, read its `caught=` line. `G: lockstep began while
+bucket0 was mid-tick` failing means the setup missed (a tick too short to catch,
+or the sizing never reached ~40 ms) and the rest of G proved nothing.
+`returned only once every worker held` and `no worker published` failing
+together is C63 back: `AsyncDirector::SetLockstep` no longer waits
+(`Manager::WaitPaused`). `comes back paused` failing is `Manager::Restart`
+clearing `paused` again.
 
 **Timing checks are loose on purpose** (the governor ones use 0.7x / 0.6x
 margins) because these are real threads on a shared machine. A flaky check gets

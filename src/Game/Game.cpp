@@ -477,7 +477,7 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 			"help", "clear", "echo", "profile", "quit", "exit", "fps", "framecap",
 			"lang", "quality", "fonts", "font", "ver", "loadstats", "allocguard",
 			"allocpoke", "crashpoke", "health", "throttle", "governor",
-			"threadspawn", "threadwedge", "threadprio", "threadaffinity",
+			"threads", "threadspawn", "threadwedge", "threadprio", "threadaffinity",
 			"threadreap", "uitree", "uioverlap", "logecho", "timescale", "state",
 			"worlds", "newgame", "reset", "newparty", "partypage",
 		};

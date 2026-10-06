@@ -38,6 +38,11 @@
 // DELIBERATELY drives bucket 0 past the 500 ms line to exercise that path and
 // asserts the worker reboots cleanly (restart counter climbs, never quarantined,
 // no "FORCE-TERMINATED" warning) — it would have risked the deadlock before.
+//
+// Phase G enters LOCKSTEP while bucket 0 is caught mid-tick (code-review C63):
+// SetLockstep must return only once every worker holds at its pause point, no
+// worker may publish after it, and a worker rebooted under lockstep must come
+// back still paused.
 // ============================================================================
 #include "Common/Verdict.h"
 #include "Game/MonsterAI.h"
@@ -784,6 +789,153 @@ int main(int argc, char** argv) {
 		Check(bothCounted, "F: both ticked again and their restart counters climbed");
 		CheckBatches(pa, "F: every bucket's batches planned each of its monsters exactly once");
 		CheckReached(pa, "F: every plan engaged, with a real path to the party");
+		std::printf("\n");
+	}
+
+	// Phase G - LOCKSTEP BEGINS WHILE A WORKER IS MID-TICK (code-review C63).
+	// SetLockstep(true) used to Pause the workers and return at once, and Pause
+	// only sets a flag: a worker in the middle of a tick finished it and published
+	// AFTER the first inline compute - a plan from the wall-clock side, in a run
+	// that promises its seed's decisions. So: load bucket 0 until a tick lasts tens
+	// of milliseconds, catch it just after a tick begins, enter lockstep, and
+	// demand that the call returned only with every worker holding at its pause
+	// point (the in-flight tick already out), that nothing a worker thought was
+	// published after it, that the inline compute's batch then stands, that a
+	// worker the supervisor or a `boot` reboots meanwhile comes back STILL paused,
+	// and that leaving lockstep sets them all running again.
+	{
+		std::printf("--- G lockstep entered while bucket0 is mid-tick (96x96, full-BFS) ---\n");
+		const int W = 96, H = 96;
+		// Sized on THIS machine: a tick near 40 ms is long enough to be caught in
+		// the middle of and far short of the supervisor's 500 ms reboot line. The
+		// last tick's time (not the average, which still remembers the ramp).
+		constexpr double kTargetMs = 40.0;
+		int n = 10;
+		double tickMs = 0.0;
+		for (int i = 0; i < 4; ++i) {
+			int c[4] = {n, 0, 0, 0};
+			auto probe = BuildSnapshot(W, H, c, false);
+			const u64 it0 = mgr.Inspect(ids[0]).iterations;
+			const auto t0 = Clock::now();
+			while (SinceMs(t0) < 3000.0 && mgr.Inspect(ids[0]).iterations < it0 + 3) {
+				dir.Publish(probe);
+				std::this_thread::sleep_for(std::chrono::milliseconds(5));
+			}
+			tickMs = mgr.Inspect(ids[0]).lastMs;
+			std::printf("  sizing: %d monsters -> a %.1f ms tick\n", n, tickMs);
+			if (tickMs > kTargetMs * 0.6 && tickMs < kTargetMs * 2.0) break;
+			n = std::clamp(static_cast<int>(n * kTargetMs / std::max(tickMs, 0.5)), 4, 600);
+		}
+		int c[4] = {n, 0, 0, 0};
+		auto snap = BuildSnapshot(W, H, c, false);
+		dir.Publish(snap);
+		// The inline compute sized for this map and these monsters, as level load
+		// sizes it in the game (ReserveAIPools), so it has no growth to report.
+		dir.ReserveInline(static_cast<size_t>(W) * H,
+						  {static_cast<size_t>(n) + 2, 2, 2, 2});
+
+		// Catch bucket 0 just after a tick BEGINS (Running - or Stalled, Inspect's
+		// overlay on a long Running tick - with its heartbeat younger than half a
+		// tick), so most of that tick is still to run when lockstep is asked for.
+		bool caught = false;
+		u64 itBefore = 0;
+		{
+			const auto t0 = Clock::now();
+			while (SinceMs(t0) < 5000.0) {
+				const auto info = mgr.Inspect(ids[0]);
+				const bool running = info.state == threads::State::Running ||
+									 info.state == threads::State::Stalled;
+				if (running && info.heartbeatAgeMs < tickMs * 0.5) {
+					itBefore = info.iterations;
+					caught = true;
+					break;
+				}
+				std::this_thread::yield();
+			}
+		}
+		const auto tLock = Clock::now();
+		dir.SetLockstep(true);
+		const double lockMs = SinceMs(tLock);
+		// What stood the moment SetLockstep returned.
+		uint64_t seqAtReturn[4];
+		bool allPaused = true;
+		for (int b = 0; b < 4; ++b) {
+			seqAtReturn[b] = dir.PlanSeq(b);
+			if (mgr.Inspect(ids[b]).state != threads::State::Paused) allPaused = false;
+		}
+		const u64 itAtReturn = mgr.Inspect(ids[0]).iterations;
+		// Longer than the in-flight tick: a worker that was not quiet publishes
+		// within this.
+		std::this_thread::sleep_for(std::chrono::milliseconds(700));
+		uint64_t seqLater[4];
+		bool latePublish = false;
+		for (int b = 0; b < 4; ++b) {
+			seqLater[b] = dir.PlanSeq(b);
+			if (seqLater[b] != seqAtReturn[b]) latePublish = true;
+		}
+		const u64 itLater = mgr.Inspect(ids[0]).iterations;
+		std::printf("  caught=%d at tick %llu; SetLockstep took %.1f ms; bucket0 ticks %llu -> "
+					"%llu at return -> %llu later; seq b0 %llu -> %llu\n",
+					caught ? 1 : 0, static_cast<unsigned long long>(itBefore), lockMs,
+					static_cast<unsigned long long>(itBefore),
+					static_cast<unsigned long long>(itAtReturn),
+					static_cast<unsigned long long>(itLater),
+					static_cast<unsigned long long>(seqAtReturn[0]),
+					static_cast<unsigned long long>(seqLater[0]));
+		// The setup, held to account: a lockstep that began between ticks proves
+		// nothing about one that begins inside one.
+		Check(caught && itLater == itBefore + 1,
+			  "G: lockstep began while bucket0 was mid-tick, and that tick finished");
+		Check(allPaused && itAtReturn == itBefore + 1,
+			  "G: entering lockstep returned only once every worker held at its pause point");
+		Check(!latePublish, "G: no worker published anything after lockstep began");
+
+		// The inline compute's batch for this snapshot is the one that stands: each
+		// bucket publishes exactly one more, and bucket 0's plans each of its
+		// monsters once - a fresh batch, not one the audit may skip as stale.
+		PathAudit pa;
+		for (int b = 0; b < 4; ++b) {
+			pa.Baseline(b, seqLater[b]);
+			pa.mayBeStale[b] = false;
+		}
+		bool onePerCompute = true;
+		for (int b = 0; b < 4; ++b) {
+			dir.ComputeInline(b);
+			if (dir.PlanSeq(b) != seqLater[b] + 1) onePerCompute = false;
+			AuditBatch(*snap, b, dir.TakePlans(b), pa);
+		}
+		ReportAudit(pa, "inline paths");
+		Check(onePerCompute, "G: each inline compute published exactly one batch");
+		CheckBatches(pa, "G: the inline batches planned each of bucket0's monsters exactly once");
+		CheckNoPath(pa, "G: every inline plan engaged and found no path to the walled-off party");
+
+		// A reboot while lockstep holds the workers: it must come back paused. A
+		// rebooted worker used to have its pause cleared, so the supervisor
+		// recovering a stalled bucket set it thinking beside the inline compute.
+		const u32 reBefore = mgr.Inspect(ids[1]).restarts;
+		const uint64_t seq1 = dir.PlanSeq(1);
+		mgr.Restart(ids[1]);
+		std::this_thread::sleep_for(std::chrono::milliseconds(600)); // past its 499 ms cadence
+		const auto rebooted = mgr.Inspect(ids[1]);
+		std::printf("  bucket1 after a reboot under lockstep: %s%s re=%u, seq %llu -> %llu\n",
+					threads::StateName(rebooted.state), rebooted.paused ? " (paused)" : "",
+					rebooted.restarts, static_cast<unsigned long long>(seq1),
+					static_cast<unsigned long long>(dir.PlanSeq(1)));
+		Check(rebooted.restarts > reBefore && rebooted.state == threads::State::Paused &&
+				  rebooted.paused && dir.PlanSeq(1) == seq1,
+			  "G: a worker rebooted during lockstep comes back paused and publishes nothing");
+
+		// And out again: every worker runs.
+		u64 itOut[4];
+		for (int b = 0; b < 4; ++b) itOut[b] = mgr.Inspect(ids[b]).iterations;
+		dir.SetLockstep(false);
+		std::this_thread::sleep_for(std::chrono::milliseconds(600));
+		bool allRan = true;
+		for (int b = 0; b < 4; ++b) {
+			const auto info = mgr.Inspect(ids[b]);
+			if (info.paused || info.iterations <= itOut[b]) allRan = false;
+		}
+		Check(allRan, "G: leaving lockstep set every worker running again");
 		std::printf("\n");
 	}
 

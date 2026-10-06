@@ -3,7 +3,8 @@
 //
 // Split out of Game_DevCommands.cpp by concern (docs/eval-harness.md): the
 // primitives that make a measurement mean anything (timescale/logecho/seed/
-// lockstep/step/state), getting into a world without a mouse (newgame/reset),
+// lockstep/aiwait/step/state), getting into a world and out of it without a
+// mouse (newgame/reset/title),
 // and staging and reading an encounter (arena/forward/freeze/blast/spawn/
 // autoattack/tally).
 // ============================================================================
@@ -11,6 +12,7 @@
 
 #include "Game/DevCommandArgs.h"
 
+#include <algorithm>
 #include <cctype>
 #include <chrono>
 #include <cstdlib>
@@ -18,6 +20,7 @@
 #include <format>
 #include <string>
 #include <string_view>
+#include <thread>
 
 namespace dungeon::game {
 
@@ -96,6 +99,28 @@ void Game::RegisterEvalCommands() {
 						   // disabled, so a script's next line waits for the
 						   // world by itself.
 						   m_console.Print("starting a new game");
+					   });
+
+	// THE TRIP A WIPE MAKES, taken on purpose: back to the title with the world
+	// left resident, so the title's Continue / Load / Start New Game reset it in
+	// place. Through the pause menu's own Return to Main Menu callback, for the
+	// reason `newgame` goes through the title's. What it exists to reach is the
+	// frozen stretch between a game and the next one, where the AI workers keep
+	// thinking from the last fight (code-review C52; tools/AITest.py).
+	m_console.Register({.name = "title",
+						.group = CmdGroup::SaveLoad,
+						.summary = "return to the title screen, as the pause menu's entry does"},
+					   [this](const std::vector<std::string>&) {
+						   if (!m_gameLoaded || !m_ui.onReturnToMain) {
+							   m_console.Refuse("title: no game to leave");
+							   return;
+						   }
+						   if (m_state == AppState::Menu) {
+							   m_console.Print("title: already there");
+							   return;
+						   }
+						   m_ui.onReturnToMain();
+						   m_console.Print("back to the title");
 					   });
 
 	// RECYCLE THE WORLD instead of reloading it (docs/eval-harness.md). A level
@@ -591,6 +616,69 @@ void Game::RegisterEvalCommands() {
 						   const bool on = args[0] == "on" || args[0] == "1";
 						   m_world->SetLockstepAI(on);
 						   m_console.Print(std::format("lockstep {}", on ? "on" : "off"));
+					   });
+
+	// THE ONE WALL-CLOCK WAIT, and it is the point: with lockstep off the bucket
+	// workers think on the wall clock, and some defects live exactly there - a
+	// worker still thinking while the world is frozen on the title (code-review
+	// C52). Blocks the main thread until every bucket has published `batches`
+	// more plan batches (default 2, so at least one whole tick BEGAN after the
+	// call) and refuses rather than wait for nothing: under lockstep the workers
+	// are paused and publish nothing.
+	m_console.Register({.name = "aiwait",
+						.group = CmdGroup::Monsters,
+						.params = "[batches]",
+						.summary = "block until every AI worker has published more plans (wall clock)"},
+					   [this](const std::vector<std::string>& args) {
+						   if (!m_world) {
+							   m_console.Refuse("aiwait: no world");
+							   return;
+						   }
+						   if (m_world->LockstepAI()) {
+							   m_console.Refuse("aiwait: lockstep is on - its workers are "
+												"paused and publish nothing");
+							   return;
+						   }
+						   const int want =
+							   args.empty() ? 2 : std::max(1, std::atoi(args[0].c_str()));
+						   constexpr int kBuckets = ai::Scheduler::kBucketCount;
+						   static_assert(kBuckets == 4, "the readout below names four buckets");
+						   uint64_t from[kBuckets], now[kBuckets];
+						   for (int b = 0; b < kBuckets; ++b) from[b] = m_world->AIPlanSeq(b);
+						   // The slowest bucket ticks every 2 s, so two batches
+						   // need about 4; the limit leaves room for a loaded
+						   // machine and the governor.
+						   constexpr double kLimitMs = 12000.0;
+						   const auto t0 = std::chrono::steady_clock::now();
+						   double ms = 0.0;
+						   for (;;) {
+							   bool all = true;
+							   for (int b = 0; b < kBuckets; ++b) {
+								   now[b] = m_world->AIPlanSeq(b);
+								   if (now[b] - from[b] < static_cast<uint64_t>(want)) all = false;
+							   }
+							   ms = std::chrono::duration<double, std::milli>(
+										std::chrono::steady_clock::now() - t0)
+										.count();
+							   if (all || ms > kLimitMs) break;
+							   std::this_thread::sleep_for(std::chrono::milliseconds(5));
+						   }
+						   const std::string seqs =
+							   std::format("{}/{}/{}/{}", now[0] - from[0], now[1] - from[1],
+										   now[2] - from[2], now[3] - from[3]);
+						   bool all = true;
+						   for (int b = 0; b < kBuckets; ++b)
+							   if (now[b] - from[b] < static_cast<uint64_t>(want)) all = false;
+						   if (!all) {
+							   m_console.Refuse(std::format(
+								   "aiwait: not every bucket published {} batch(es) in {:.0f} ms "
+								   "(published {})",
+								   want, ms, seqs));
+							   return;
+						   }
+						   m_console.Print(std::format(
+							   "aiwait: every bucket published {}+ batch(es) in {:.0f} ms ({})",
+							   want, ms, seqs));
 					   });
 
 	// Advance the world by sim seconds, now, in fixed ticks. Reports what it
