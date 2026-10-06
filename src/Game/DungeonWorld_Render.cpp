@@ -95,6 +95,7 @@ bool DungeonWorld::ViewCull::TestAABB(const Vec3& lo, const Vec3& hi) const {
 
 void DungeonWorld::NewFrame(u32 frameIndex) {
 	if (m_particleBatch) m_particleBatch->NewFrame(frameIndex);
+	++m_drawFrame; // what this frame's DrawPart calls stamp a part with
 }
 
 bool DungeonWorld::MovingCasterNear(const gfx::PointLight& light) const {
@@ -228,7 +229,16 @@ void DungeonWorld::RenderScene(ID3D12GraphicsCommandList* list) {
 void DungeonWorld::DrawMultiMaterial(ID3D12GraphicsCommandList* list,
 									const MultiMaterialModel& model, const Mat4& world) {
 	for (const MultiMaterialModel::Sub& sub : model.subs)
-		m_renderer.DrawMesh(list, *sub.mesh, world, sub.material);
+		DrawPart(list, sub, world, PartMaterial(sub));
+}
+
+void DungeonWorld::DrawPart(ID3D12GraphicsCommandList* list, const MultiMaterialModel::Sub& sub,
+							const Mat4& world, const gfx::MaterialParams& mat) {
+	// Stamped from the very material the renderer is handed, so `modelfile`'s
+	// drawn= is what this draw passed (code-review C301).
+	sub.drewAlbedo = mat.albedo;
+	sub.drewFrame = m_drawFrame;
+	m_renderer.DrawMesh(list, *sub.mesh, world, mat);
 }
 
 // ----------------------------------------------------------------------------
@@ -774,11 +784,11 @@ void DungeonWorld::DrawLightStones(ID3D12GraphicsCommandList* list, const ViewCu
 		constexpr float kGlow = 0.5f;
 		const Vec3& col = profile.color;
 		for (const MultiMaterialModel::Sub& sub : mm.subs) {
-			gfx::MaterialParams mat = sub.material;
+			gfx::MaterialParams mat = PartMaterial(sub);
 			mat.baseColor = {mat.baseColor.x * col.x, mat.baseColor.y * col.y,
 							 mat.baseColor.z * col.z, mat.baseColor.w};
 			mat.emissive = {col.x * glow * kGlow, col.y * glow * kGlow, col.z * glow * kGlow};
-			m_renderer.DrawMesh(list, *sub.mesh, world, mat);
+			DrawPart(list, sub, world, mat);
 		}
 	}
 }

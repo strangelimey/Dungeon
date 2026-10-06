@@ -13,7 +13,8 @@
 #               LoadModelOrDie that takes the process down at level load,
 #               possibly on a level nobody has visited in weeks. Then its
 #               MUTATIONS ($levelcheckMutations below), each of which must FAIL
-#               naming the file it planted.
+#               naming the file it planted, and its CONTROLS ($levelcheckControls),
+#               each an entry that loads, which must not.
 #
 #   uioverlap   CLAUDE.md says RUN IT AFTER TOUCHING ANY SCREEN, and the one
 #               manual sweep found four defects nobody had reported. The command
@@ -627,13 +628,20 @@ $selfTestExpected = @('sweep_gencomplexity: status', 'sweep_worlds: label')
 # run: each plants one fault in what the check reads - never in the files - and
 # must come back FAIL with exactly one more model missing than the real run, the
 # planted file named. Each is a shape the old stem match passed: a fixture's
-# missing empty_model and part2_model, a .glb-only model named by a type whose
-# loader opens .gltf, an entry with no `model` (its loader opens the id), a
-# door's `trim` naming no doors.cat entry (its loader opens the name), and a
-# worn block tier the session did not load - chosen by the command apart from
-# the check's own walk, so a check that skips that tier comes back PASSED here
-# rather than refused.
-$levelcheckMutations = @('empty_model', 'part2_model', 'glb', 'id', 'trim', 'worn')
+# missing empty_model and part2_model, an entry with no `model` (its loader
+# opens the id), a door's `trim` naming no doors.cat entry (its loader opens the
+# name), and a worn block tier the session did not load - chosen by the command
+# apart from the check's own walk, so a check that skips that tier comes back
+# PASSED here rather than refused.
+$levelcheckMutations = @('empty_model', 'part2_model', 'id', 'trim', 'worn')
+# ...and its CONTROLS (code-review C301): each plants an entry that LOADS - a
+# model installed only under the extension its loader does not prefer (glb: a
+# decoration naming a .glb-only model; gltf: an item naming a .gltf-only one),
+# which the loader now opens - and must come back as the real run did, no model
+# more missing, with the planted file the one the check's walk RESOLVED. Batch
+# 13's `glb` was a mutation that had to FAIL: C301 made that entry a good one,
+# and a check still on the old one-extension rule fails this control instead.
+$levelcheckControls = @('glb', 'gltf')
 
 # Every screen must say how it is known to have OPENED. One with no `status`
 # would be judged on its label, state and audit alone - "the command ran", the
@@ -716,8 +724,9 @@ try {
 	if (-not (Wait-ConsoleReady)) { throw 'the console never accepted a command after the new game' }
 	# Retried until it answers, counting only a NEW report.
 	Wait-ConsoleReady 'levelcheck' 'levelcheck RESULT=' 10 4000 | Out-Null
-	# Then the check's own mutations, each awaited by its own verdict line.
-	foreach ($m in $levelcheckMutations) {
+	# Then the check's own mutations and controls, each awaited by its own
+	# verdict line.
+	foreach ($m in @($levelcheckMutations) + @($levelcheckControls)) {
 		Wait-ConsoleReady "levelcheck mutate $m" "^\[info \] levelcheck RESULT=\S+ .* mutate=$m " 5 4000 | Out-Null
 	}
 
@@ -943,6 +952,28 @@ if ($null -eq $lcReal) {
 			Fail-Global "levelcheck mutate ${m}: failed without naming the planted $planted"
 		} else {
 			Write-Host "  [ok  ] levelcheck mutate ${m}: FAIL, naming the planted $planted"
+		}
+	}
+	# The controls: as the real run, nothing more missing, the planted file the
+	# one the walk resolved.
+	$lcResult = if ($lcLine -match 'RESULT=(\S+)') { $Matches[1] } else { '' }
+	foreach ($m in $levelcheckControls) {
+		$at = @($lcAt | Where-Object { $_ -gt $lcReal -and $lines[$_] -match " mutate=$m " }) |
+			Select-Object -Last 1
+		if ($null -eq $at) { Fail-Global "levelcheck control ${m}: never reported (refused?)"; continue }
+		$v = $lines[$at]
+		$planted = if ($v -match ' planted=(\S+)') { $Matches[1] } else { '' }
+		$resolved = if ($v -match ' resolved=(\S+)') { $Matches[1] } else { '' }
+		$result = if ($v -match 'RESULT=(\S+)') { $Matches[1] } else { '' }
+		$got = Get-LcMissing $v
+		if (-not $planted) {
+			Fail-Global "levelcheck control ${m}: its verdict names no planted file"
+		} elseif ($resolved -ne $planted) {
+			Fail-Global "levelcheck control ${m}: the check resolved '$resolved', not the planted $planted - it does not open the file the loader opens"
+		} elseif ($got -ne $lcBase -or $result -ne $lcResult) {
+			Fail-Global "levelcheck control ${m}: RESULT=$result with $got missing, expected the real run's RESULT=$lcResult and $lcBase - the planted $planted loads"
+		} else {
+			Write-Host "  [ok  ] levelcheck control ${m}: as the real run, resolving the planted $planted"
 		}
 	}
 }

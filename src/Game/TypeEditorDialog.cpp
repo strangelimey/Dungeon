@@ -634,14 +634,33 @@ void TypeEditorDialog::BuildUI() {
 			   [this] { m_helpOpen = true; });
 }
 
-void TypeEditorDialog::ClickSave() {
+bool TypeEditorDialog::ClickSave() {
 	// A touched field that invalidates baked geometry tells the owner to
 	// re-run AssetBaker (it keeps the dialog up, busy, meanwhile).
 	m_cfg.rebake = false;
 	for (const FieldSpec& spec : m_schema)
 		if (spec.rebakes && Touched(spec.key)) m_cfg.rebake = true;
-	if (onSave) onSave(m_cfg);
+	if (onSave) {
+		if (std::string refused = onSave(m_cfg); !refused.empty()) {
+			// Nothing was written: the form stays up saying why, to be fixed.
+			m_notice = std::move(refused);
+			m_uiRebuild = true; // deferred - this fires inside the tree walk
+			return false;
+		}
+	}
 	if (!m_busy) Close(); // a launched re-bake closes us on completion
+	return true;
+}
+
+bool TypeEditorDialog::PickAsset(std::string_view key, const std::string& value) {
+	for (const FieldSpec& spec : m_schema)
+		if (std::string_view(spec.key) == key &&
+			(spec.kind == FieldKind::TextureSet || spec.kind == FieldKind::Model)) {
+			SetValue(spec, value);
+			m_uiRebuild = true; // the button's face is its value
+			return true;
+		}
+	return false;
 }
 
 void TypeEditorDialog::SelectTab(int tab) {

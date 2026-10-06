@@ -203,6 +203,8 @@ std::string AssetDialog::Validate() const {
 		break;
 	case Source::Duplicate:
 		if (m_asset.empty()) return loc::Tr("newasset.err.nosourcetype");
+		// A source whose model would not load (code-review C301).
+		if (!m_assetRefusal.empty()) return m_assetRefusal;
 		break;
 	}
 	return {};
@@ -210,10 +212,17 @@ std::string AssetDialog::Validate() const {
 
 void AssetDialog::CheckAsset() {
 	// Asked when the pick changes, not in Validate: Validate runs every frame,
-	// and the answer reads every world's surface catalogs off disk.
+	// and the answers read every world's surface catalogs, or the pool, off disk.
 	m_assetRefusal.clear();
-	if (m_source == Source::Installed && m_textureSet && !m_asset.empty() && installedRefusal)
-		m_assetRefusal = installedRefusal(m_catalogKey, m_asset);
+	if (m_asset.empty()) return;
+	if (m_textureSet) {
+		if (m_source == Source::Installed && installedRefusal)
+			m_assetRefusal = installedRefusal(m_catalogKey, m_asset);
+	} else if (m_source != Source::Import && modelRefusal) {
+		// The type a pick makes must load its model; an import's model is made
+		// by its bake, and the owner asks of what it made.
+		m_assetRefusal = modelRefusal(m_catalogKey, m_source, m_asset);
+	}
 }
 
 void AssetDialog::TypeName(const std::string& id) {
@@ -342,12 +351,14 @@ void AssetDialog::Rebuild(const ui::Theme& theme) {
 							   [this, items](int i) {
 								   if (i >= 0 && i < static_cast<int>(items.size())) {
 									   m_asset = items[static_cast<size_t>(i)];
+									   CheckAsset();
 									   RefreshPreview();
 								   }
 							   });
 		// Seed the pick so a single-entry list isn't silently "unset".
 		if (m_asset.empty() && !items.empty()) {
 			m_asset = items.front();
+			CheckAsset();
 			RefreshPreview();
 		}
 	}
@@ -524,11 +535,12 @@ void AssetDialog::RefreshPreview() {
 	std::string modelPath;
 	if (m_source == Source::Import) modelPath = m_sourcePath;
 	else if (!pool.empty()) {
-		// A pool model is named without its extension (InstalledModels strips it)
-		// and the bought/authored ones are .glb, so try both rather than assuming.
-		modelPath = paths::Asset("models\\" + pool + ".gltf");
-		if (!std::filesystem::exists(modelPath))
-			modelPath = paths::Asset("models\\" + pool + ".glb");
+		// A pool model is named without its extension (InstalledModels strips it):
+		// the file this category's loader would open for it, by the one resolver
+		// (code-review C301) - the category's own extension first.
+		const std::optional<ModelFamily> family = ModelFamilyOf(m_catalogKey);
+		modelPath = paths::Asset(
+			"models\\" + ResolveModelFile(pool, family == ModelFamily::Item));
 	}
 	if (modelPath.empty()) return;
 	auto model = assets::LoadModel(modelPath);

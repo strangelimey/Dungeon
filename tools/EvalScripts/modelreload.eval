@@ -1,0 +1,55 @@
+; modelreload.eval - the reload after modelfiles.eval (code-review C301).
+; Judged by tools/EditorTest.py phase 50, in a SECOND process on the same
+; scratch world and WITH ITS WINDOW - drawn= is what a rendered frame's draw
+; handed the weapon's part, and a headless run renders none. The world load
+; builds every item kind, the weapon on its .gltf among them, and eval_arena's
+; load the decoration on its .glb - each of which aborted the load before.
+;
+;   --- reload ---  `modelfile` for both (the weapon's set on its part; the
+;                   decoration's model opened by the level, nothing else in this
+;                   world naming it), the decoration standing on 5,5 (`editor
+;                   inspect`), and `levelcheck` passing a world with both in it.
+;                   Then the inspector and the editor shut (each replaces the
+;                   scene) and the weapon laid on the floor ahead of the party.
+;   --- drawn ---   the albedo the weapon's part was HANDED by the last frame's
+;                   draws (DrawPart's stamp) and by the details dialog's preview,
+;                   beside the set's own at this tier (`textures load`);
+;   --- low ---     the same after `quality 0` (1k), and
+;   --- ultra ---   after `quality 3` (4k): a part looks the set's maps up as it
+;                   draws and a swap frees and reloads them, so a draw handed a
+;                   map kept from before reads "stale".
+;
+; A `quality` applies on the frame after it, so an `echo frame` sits between
+; it and the readout - as after the drop, so a frame has drawn the weapon.
+; `lang en` because the judge rebuilds the inspect line from en.lang; the judge
+; puts settings.ini back (quality and language both save).
+
+logecho on
+reset
+lang en
+editor
+echo --- reload ---
+modelfile weapons et_gltf_weapon
+modelfile decorations et_glb_deco
+editor inspect 5 5
+levelcheck
+editor inspect off
+editor off
+tp 14 12
+face n
+drop et_gltf_weapon 14 11
+echo frame
+echo --- drawn ---
+modelfile weapons et_gltf_weapon
+textures load cobblestone_wall
+quality 0
+echo frame
+echo --- low ---
+modelfile weapons et_gltf_weapon
+textures load cobblestone_wall
+quality 3
+echo frame
+echo --- ultra ---
+modelfile weapons et_gltf_weapon
+textures load cobblestone_wall
+echo --- end ---

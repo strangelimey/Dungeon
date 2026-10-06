@@ -302,8 +302,17 @@ private:
 	// Writes a newly created type's catalog entry (its shape seeded from the
 	// category's schema defaults) and makes it reachable — a surface type joins
 	// the viewed level's palette. Shared by the bake path and the no-bake
-	// sources (Installed / Duplicate), which have nothing to bake.
-	void CreateCatalogEntry(const AssetDialog::CreateRequest& req);
+	// sources (Installed / Duplicate), which have nothing to bake. Returns ""
+	// when it wrote the entry, else why it REFUSED: an entry whose model its
+	// category could not load (UnloadableModelReason) is never written.
+	std::string CreateCatalogEntry(const AssetDialog::CreateRequest& req);
+	// Why a `catalogKey` type built from entry `e` could not load its model -
+	// every field its loader reads one from, under either extension (AssetUtil's
+	// FirstUnloadableModel), and a door's `trim` naming no doors.cat entry, which
+	// SpawnDoor opens as a file - or "" when it could, or the catalog loads no
+	// model. The create dialog and the type editor's Save refuse on it
+	// (code-review C301): the load is a LoadModelOrDie.
+	std::string UnloadableModelReason(const std::string& catalogKey, const CatalogEntry& e) const;
 	// What "Use installed" does with pool texture set `set` adopted as a surface
 	// of `catalogKey` (walls / floors / ceilings) - code-review C407. A set's worn
 	// meshes are ONE file per set in the shared pool, kind baked into the
@@ -327,6 +336,9 @@ private:
 	// and persist. Starts from the EXISTING entry, so fields the dialog doesn't
 	// know (hand-authored, or MonsterConfigDialog's animation rows) survive.
 	void WriteTypeFields(const TypeEditorDialog::Config& cfg);
+	// The entry WriteTypeFields would write, unwritten - what the Save's model
+	// check judges before anything reaches the catalog.
+	CatalogEntry MergedTypeEntry(const TypeEditorDialog::Config& cfg) const;
 	// Re-bakes a surface type's worn block meshes (its `texture` set at the
 	// type's relief/wear) and, on success, reloads the dungeon blocks in place.
 	// Launches the async wornblock bake; the caller freezes its dialog

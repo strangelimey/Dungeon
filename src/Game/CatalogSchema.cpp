@@ -33,7 +33,8 @@ namespace {
 			 "any tag; never excluded."}
 #define PROP_MODEL                                                        \
 	{.key = "model", .kind = FieldKind::Model, .sectionKey = kSectionLook, \
-	 .help = "The mesh in assets/models (without the extension)."}
+	 .help = "The mesh in assets/models, named without its extension (.gltf or .glb, "  \
+			 "whichever is installed)."}
 #define PROP_TEXTURE                                                             \
 	{.key = "texture", .kind = FieldKind::TextureSet, .sectionKey = kSectionLook, \
 	 .help = "PBR set bound by name; empty keeps the model's own glTF material."}

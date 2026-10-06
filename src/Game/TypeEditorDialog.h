@@ -121,8 +121,10 @@ public:
 					   std::function<void(const std::string&)> apply)>
 		onPickAsset;
 	// Save: commit the working copy (the owner writes the catalog, then reloads
-	// or re-bakes per Config::rebake).
-	std::function<void(const Config&)> onSave;
+	// or re-bakes per Config::rebake). Returns "" when it saved, else why it
+	// REFUSED - a model the category could not load (code-review C301) - which
+	// the form shows in its notice, staying open to fix it; nothing is written.
+	std::function<std::string(const Config&)> onSave;
 	// Optional extra footer button — the per-category escape hatch to a
 	// specialised dialog (Monsters: animations + behaviour). No label = no button.
 	std::function<void(const Config&)> onExtra;
@@ -174,8 +176,12 @@ public:
 	void ApplyPending();
 	bool Confirming() const { return m_confirming; }
 	const std::string& Notice() const { return m_notice; }
-	// The footer Save's click (`typeset dialog save`).
-	void ClickSave();
+	// The footer Save's click (`typeset dialog save`). False = the owner refused
+	// it (onSave's reason is now the notice, and the form stays open).
+	bool ClickSave();
+	// The asset picker's pick handed back to the TextureSet / Model row `key`, as
+	// its callback writes it (`typeset dialog pick`). False = no such row.
+	bool PickAsset(std::string_view key, const std::string& value);
 	// Brings tab `tab` (0-based, schema order) to the front, as its strip does.
 	void SelectTab(int tab);
 	// One keystroke batch into a quest stage's id field (`stage`, 0-based):

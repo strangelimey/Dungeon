@@ -1797,7 +1797,7 @@ void Game::RegisterWorldCommands() {
 				   "rename <category> <id> <new>\n"
 				   "delete <category> <id>\n"
 				   "dialog [status] | <category> <id> | off | rows [all] | fields | derived | "
-				   "tab <n> | stage <n> <id> | stage add | delete | save",
+				   "tab <n> | stage <n> <id> | stage add | pick <field> <asset> | delete | save",
 		 .summary = "the type editor's Save, Rename or Delete (no value removes a field), "
 					"or the editor itself step by step"},
 		[this](const std::vector<std::string>& args) {
@@ -1842,7 +1842,15 @@ void Game::RegisterWorldCommands() {
 			field.key = args[2];
 			field.value = value;
 			cfg.fields.push_back(std::move(field));
-			if (m_typeDialog.onSave) m_typeDialog.onSave(cfg);
+			// The Save's own refusal (a model the category could not load, C301)
+			// REFUSES here too: nothing was written.
+			if (const std::string refused =
+					m_typeDialog.onSave ? m_typeDialog.onSave(cfg) : std::string();
+				!refused.empty()) {
+				m_console.Refuse(std::format("typeset {} '{}': {} refused - {}", args[0],
+											 args[1], args[2], refused));
+				return;
+			}
 			m_console.Print(std::format("typeset {} '{}': {} = {}", args[0], args[1], args[2],
 										value.empty() ? "(removed)" : value));
 		});
@@ -1991,7 +1999,8 @@ void Game::TypesetDialog(const std::vector<std::string>& args) {
 	}
 	const bool open = m_typeDialog.IsOpen();
 	const bool needsOpen = verb == "rows" || verb == "fields" || verb == "derived" ||
-						   verb == "tab" || verb == "stage" || verb == "delete" || verb == "save";
+						   verb == "tab" || verb == "stage" || verb == "pick" ||
+						   verb == "delete" || verb == "save";
 	if (needsOpen && !open) {
 		m_console.Refuse("typeset dialog: no type editor is open");
 		return;
@@ -2025,13 +2034,27 @@ void Game::TypesetDialog(const std::vector<std::string>& args) {
 			m_console.Refuse(std::format("typeset dialog: no stage {}", args[2]));
 			return;
 		}
+	} else if (verb == "pick" && args.size() >= 4) {
+		// What the asset picker hands back to a texture / model row: the row's
+		// value, as a pick writes it (no picker is opened).
+		if (!m_typeDialog.PickAsset(args[2], args[3])) {
+			m_console.Refuse(std::format("typeset dialog: no texture or model row '{}'", args[2]));
+			return;
+		}
+	} else if (verb == "save") {
+		// The footer Save's click. A refusal (a model the category could not
+		// load, C301) leaves the form open with the reason in its notice and
+		// REFUSES here, since nothing was saved.
+		if (!m_typeDialog.ClickSave()) {
+			m_typeDialog.ApplyPending();
+			m_console.Refuse(std::format("typeset dialog: save refused - {}", m_typeDialog.Notice()));
+			return;
+		}
 	} else if (verb == "delete") {
 		// The footer Delete's click - the FIRST of two for every category but a
 		// dungeon, so it only arms (and says so in the notice). The notice is
 		// another owner's, which a stage id typed after it must leave standing.
 		m_typeDialog.ClickDelete();
-	} else if (verb == "save") {
-		m_typeDialog.ClickSave();
 	} else if (verb.empty() || verb == "status") {
 		// Just where it stands (below) - and, run from a script, a frame drawn
 		// with the dialog as it is.

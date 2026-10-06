@@ -488,7 +488,7 @@ void AssetPicker::RefreshPreview() {
 	// whatever it does not texture itself. It used to be meshes[0] alone with a
 	// blank material - a bought skeleton came out as one white shoulder plate.
 	const auto it = std::ranges::find(m_items, m_selected, &AssetInfo::name);
-	const std::string file = it == m_items.end() ? m_selected + ".gltf" : it->file;
+	const std::string file = it == m_items.end() ? ResolveModelFile(m_selected) : it->file;
 	m_previewLook = LoadLook(m_selected, file, 0);
 	if (!m_previewLook) {
 		log::Warn("asset picker: could not load {}", file);

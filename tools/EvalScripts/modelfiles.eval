@@ -1,0 +1,63 @@
+; modelfiles.eval - a type's model loads under whichever of .gltf / .glb is
+; installed, and the editor refuses a model its category could not load
+; (code-review C301). Judged by tools/EditorTest.py phase 50, on its scratch
+; world; modelreload.eval is the reload that follows it in a second process.
+;
+; A catalog `model` is a bare NAME, and the pool holds both extensions. Each
+; loader used to append its own - items .glb, everything else .gltf - so a
+; weapon made from a .gltf (every editor import writes one) aborted the next
+; launch, and a decoration on a .glb the next level that placed it. A weapon's
+; `texture` was never read either, so an imported one drew white.
+;
+;   --- create ---  "Use installed": a weapon from lever_handle (installed only
+;                   as .gltf, where an item's loader prefers .glb) dressed in
+;                   cobblestone_wall, and a decoration from moonstone_amulet
+;                   (only as .glb, where a decoration's prefers .gltf; the judge
+;                   takes the one item on it out of its scratch world, so
+;                   nothing else opens it) - which `modelfile` finds not yet
+;                   opened - placed on eval_arena's empty 5,5 and saved.
+;   --- files ---   `modelfile`: the file each resolves to, whether it is
+;                   installed and whether the world has opened it (the place
+;                   has), and the weapon's set on its one part - the albedo the
+;                   details dialog's preview is handed, against the set's own
+;                   (`textures load`); a headless run draws nothing, so drawn=
+;                   says "undrawn" (modelreload.eval draws it).
+;   --- refuse ---  what could not load is refused, and nothing written: the
+;                   create dialog's pick of a model installed as neither (the
+;                   FORM refuses, before Create); `typeset` of such a model, and
+;                   of NO model on the decoration (it would fall back to its id,
+;                   which is no file); and the type editor's own Save after the
+;                   picker hands it such a model - the form stays open, saying
+;                   why.
+;
+; `lang en` because the judge rebuilds each refusal from en.lang; it puts
+; settings.ini back (the language saves).
+
+logecho on
+reset
+lang en
+; The editor open, as "+ New..." needs it.
+editor
+echo --- create ---
+newasset weapons installed lever_handle et_gltf_weapon
+newasset decorations installed moonstone_amulet et_glb_deco
+typeset weapons et_gltf_weapon texture cobblestone_wall
+modelfile decorations et_glb_deco
+editor place decorations et_glb_deco 5 5
+savemap
+echo --- files ---
+modelfile weapons et_gltf_weapon
+modelfile decorations et_glb_deco
+textures load cobblestone_wall
+echo --- refuse ---
+newasset decorations installed et_no_such_model et_bad_deco
+newasset status
+newasset off
+expect-refuse typeset decorations et_glb_deco model et_no_such_model
+expect-refuse typeset decorations et_glb_deco model
+typeset dialog decorations et_glb_deco
+typeset dialog pick model et_no_such_model
+expect-refuse typeset dialog save
+typeset dialog status
+typeset dialog off
+echo --- end ---

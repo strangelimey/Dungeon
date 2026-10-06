@@ -224,6 +224,20 @@
 #      console is followed there - an exit's question goes up and holds the
 #      world, a stair down lands the party on crypt2 with the console still up
 #      (the console used to leave either latched).
+#  50. A MODEL LOADS AS .gltf OR .glb (code-review C301): a weapon made from a
+#      model installed only as .gltf (an item's loader opened .glb) and a
+#      decoration from one only as .glb (a decoration's opened .gltf; no other
+#      type of the scratch world names it, so its file is first opened by the
+#      place) resolve, the decoration placed and saved; the weapon wears its
+#      `texture` (an item's was never read - an imported one drew white); the
+#      create dialog's form, `typeset` and the type editor's own Save refuse a
+#      model installed as neither - and taking a decoration's model away, which
+#      falls back to its id - writing nothing. Then a RELOAD in a second
+#      process, WINDOWED: the world load (every item kind) and the level load
+#      (the decoration) both open their files, levelcheck passes, and with the
+#      weapon on the floor, at the tier in force and through two quality swaps,
+#      the albedo its part's DRAWS were handed (DrawPart's stamp, not a material
+#      worked out for the readout) and the details preview's is its set's own.
 #  55. A LEVER'S REVEAL SWAPS IN PRE-BUILT WALLS (code-review C211; phases 28-54
 #      are other lanes'): eval_arena's lever wired to nothing moves no wall; the
 #      one naming the hidden niche opens it, shuts it, and shuts it again after
@@ -3265,6 +3279,188 @@ try:
         check(c[1]["level"] == "crypt2" and c[1]["console"] == "open" and c[1]["state"] == "playing",
               "the stair taken under the console was followed: crypt2, the console still open (it stayed "
               "latched on crypt1 until the console shut)", brief(c[1:]))
+finally:
+    drop()
+    if settings_before is not None:
+        io.open(SETTINGS, "wb").write(settings_before)
+    elif os.path.isfile(SETTINGS):
+        os.remove(SETTINGS)
+
+
+# --- phase 50: a model loads under whichever extension is installed --------------
+print("50 - a type's model loads as .gltf or .glb, an item wears its texture, and what "
+      "cannot load is refused")
+# The premise, read off the pool: each model is installed under the extension its
+# type's loader does NOT prefer, and only that one (an item prefers .glb, a
+# decoration .gltf) - so both loads and the check below fail on the old rule.
+MODEL_FILE = re.compile(r"modelfile (\S+) '([^']*)' (\S+): (\S+) installed=(\d) loaded=(\d)$")
+ITEM_LOOK = re.compile(r"modelfile (\S+) '([^']*)' set=(\S+) parts=(\d+) wears=(\d+) drawn=(\S+) "
+                       r"previewed=(\S+)$")
+PROBE = re.compile(r"textures: prop (\S+) tier=(\S+) albedo=(\S+)")
+LEVELCHECK = re.compile(r"levelcheck RESULT=(\S+) .*\bmissing_models=(\d+)")
+# What came of a `newasset ... installed`: phase 27's line (MADE is a name two
+# phases use, so this one is its own).
+CREATED = re.compile(r"newasset (\S+) '([^']*)' from (\S+): (\w+)(?: - (.*))?$")
+SET = "cobblestone_wall"
+# The decoration's model: a .glb-only one whose one shipped type (the amulet, in
+# armor.cat) the run takes out of its scratch world first, so nothing else there
+# opens the file - every item kind is built at world load, and an item on the
+# decoration's model (rock.glb, which two items name) would have the file open
+# before the place did anything.
+DECO_MODEL = "moonstone_amulet"
+
+
+def model_files(lines):
+    """{(category, id): (file, installed, loaded)} from a section's `modelfile` lines."""
+    return {(c, i): (f, inst == "1", ld == "1")
+            for c, i, field, f, inst, ld in answers(lines, MODEL_FILE) if field == "model"}
+
+
+def item_looks(lines):
+    """[(set, parts, wears, drawn, previewed)] from a section's item `modelfile` lines."""
+    return [(s, int(p), int(w), d, pv) for _, _, s, p, w, d, pv in answers(lines, ITEM_LOOK)]
+
+
+def probed(lines):
+    """[(tier, albedo)] of the set's `textures load` lines in a section."""
+    return [(t, a) for s, t, a in answers(lines, PROBE) if s == SET]
+
+
+def naming(catalogs, model):
+    """Every block in a world's catalogs that could open `model`: one whose `model`
+    names it, or whose id is it (a type with no `model` loads its id)."""
+    out = []
+    for name in sorted(os.listdir(catalogs)):
+        if name.endswith(".cat"):
+            text = io.open(os.path.join(catalogs, name), encoding="utf-8").read()
+            out += [f"{name}:{b}" for b in block_ids(text)
+                    if b == model or (cat_block(text, b) or {}).get("model") == model]
+    return out
+
+
+have = lambda f: os.path.isfile(os.path.join(MODELS, f))
+check(have("lever_handle.gltf") and not have("lever_handle.glb") and have(DECO_MODEL + ".glb")
+      and not have(DECO_MODEL + ".gltf"),
+      "THE PREMISE: lever_handle is installed only as .gltf (where an item's loader prefers .glb), "
+      f"{DECO_MODEL} only as .glb (where a decoration's prefers .gltf)")
+en = lang_table("en")
+nomodel = lambda name, field: say(en, "map.type.nomodel", name, field)
+# `lang` and `quality` both save to settings.ini: the developer's copy goes back.
+settings_before = io.open(SETTINGS, "rb").read() if os.path.isfile(SETTINGS) else None
+fresh()
+try:
+    catalogs = os.path.join(PROJ, "catalog")
+    drop_block(os.path.join(catalogs, "armor.cat"), DECO_MODEL)
+    arena_ent = io.open(os.path.join(PROJ, r"levels\eval_arena.ent"), encoding="utf-8").read()
+    check(not naming(catalogs, DECO_MODEL) and not re.search(r"\blever\b", arena_ent),
+          f"...and in the scratch world no type names {DECO_MODEL} once the amulet is out (so only "
+          "the decoration can open it), and eval_arena has no lever (whose handle is lever_handle)",
+          str(naming(catalogs, DECO_MODEL)))
+    log = run("modelfiles.eval")
+    check(passed(log), "the first run ran clean (the place and every refusal as the script expects)")
+    sec = console_sections(log)
+    check("end" in sec, "...to its end")
+    made = {tid: (key, src, outcome, why or "") for key, tid, src, outcome, why
+            in answers(sec.get("create", []) + sec.get("refuse", []), CREATED)}
+    check(made.get("et_gltf_weapon", ("",) * 4)[2] == "created"
+          and made.get("et_glb_deco", ("",) * 4)[2] == "created",
+          f"\"Use installed\" makes a weapon on lever_handle and a decoration on {DECO_MODEL}",
+          str(made))
+    deco_file = DECO_MODEL + ".glb"
+    unplaced = model_files(sec.get("create", [])).get(("decorations", "et_glb_deco"))
+    check(unplaced == (deco_file, True, False),
+          f"before the place, the decoration's {deco_file} is installed and NOT yet opened",
+          str(unplaced))
+    files = model_files(sec.get("files", []))
+    check(files.get(("weapons", "et_gltf_weapon"), ("",))[0] == "lever_handle.gltf"
+          and files[("weapons", "et_gltf_weapon")][1],
+          "the weapon's model resolves to lever_handle.gltf, installed (an item used to open .glb)",
+          str(files.get(("weapons", "et_gltf_weapon"))))
+    check(files.get(("decorations", "et_glb_deco")) == (deco_file, True, True),
+          f"...and the place OPENED it (it used to open {DECO_MODEL}.gltf and abort)",
+          str(files.get(("decorations", "et_glb_deco"))))
+    looks, probe = item_looks(sec.get("files", [])), probed(sec.get("files", []))
+    check(len(looks) == 1 and looks[0][:3] == (SET, 1, 1) and len(probe) == 1
+          and looks[0][4] == probe[0][1],
+          f"the weapon's one part wears its texture, {SET}: the details preview is handed the set's "
+          "own albedo (an item's texture was never read: an imported one drew white)",
+          f"looks {looks} | set {probe}")
+    check(len(looks) == 1 and looks[0][3] == "undrawn",
+          "...and drawn= says the headless run never drew it - it is a draw's record, not a "
+          "material worked out for the readout", str(looks))
+    bad = made.get("et_bad_deco", ("",) * 4)
+    check(bad[2] == "refused" and bad[3] == nomodel("et_no_such_model", "model")
+          and not warned("decorations", "et_bad_deco", "et_no_such_model", log),
+          "the create dialog's FORM refuses a model installed as neither, saying why (Create "
+          "never reached)", str(bad))
+    refused = sec.get("refuse", [])
+    check(f"typeset decorations 'et_glb_deco': model refused - {nomodel('et_no_such_model', 'model')}"
+          in refused,
+          "the type editor's Save (typeset) refuses a model installed as neither")
+    check(f"typeset decorations 'et_glb_deco': model refused - {nomodel('et_glb_deco', 'model')}"
+          in refused,
+          "...and refuses taking the model away, since the id it falls back to is no file")
+    want_note = nomodel("et_no_such_model", "model")
+    check(f"typeset dialog: save refused - {want_note}" in refused
+          and f"typeset dialog: open decorations 'et_glb_deco' - {want_note}" in refused,
+          "the type editor's own Save, after the picker hands it such a model, refuses and stays "
+          "open with the reason in its notice")
+    decos = io.open(os.path.join(PROJ, r"catalog\decorations.cat"), encoding="utf-8").read()
+    weapons = io.open(os.path.join(PROJ, r"catalog\weapons.cat"), encoding="utf-8").read()
+    deco, weapon = cat_block(decos, "et_glb_deco") or {}, cat_block(weapons, "et_gltf_weapon") or {}
+    check(deco.get("model") == DECO_MODEL and cat_block(decos, "et_bad_deco") is None
+          and weapon.get("model") == "lever_handle" and weapon.get("texture") == SET,
+          f"on disk: et_glb_deco still names {DECO_MODEL}, et_gltf_weapon lever_handle in " + SET
+          + ", and the refused type was never written", f"{deco} | {weapon}")
+    arena_map = io.open(os.path.join(PROJ, r"levels\eval_arena.map"), encoding="utf-8").read()
+    check(re.search(r"^decoration et_glb_deco 5 5\b", arena_map, re.M) is not None,
+          "the decoration is saved on eval_arena's 5,5")
+
+    # THE RELOAD: a second process on the same world, WITH ITS WINDOW - drawn=
+    # is a rendered frame's record, and a headless run renders none. Its load
+    # builds every item kind - the weapon among them - and eval_arena's the
+    # decoration.
+    log = run("modelreload.eval", headless=False)
+    check("crash: unattended" in log, "the windowed run is unattended (a fatal error exits)")
+    check(passed(log), "the reload ran clean (the old rule aborted it at the world load)")
+    sec = console_sections(log)
+    check("end" in sec, "...to its end")
+    files = model_files(sec.get("reload", []))
+    check(files.get(("weapons", "et_gltf_weapon")) == ("lever_handle.gltf", True, True),
+          "after the reload the weapon's lever_handle.gltf is installed and OPENED (no lever in "
+          "eval_arena: its item kind opened it)", str(files.get(("weapons", "et_gltf_weapon"))))
+    check(files.get(("decorations", "et_glb_deco")) == (deco_file, True, True),
+          f"...and the decoration's {deco_file} OPENED, by eval_arena's load (no other type here "
+          "names it)", str(files.get(("decorations", "et_glb_deco"))))
+    said = editor_said(log).get("reload", [])
+    on_square = say(en, "map.select.contents", 5, 5,
+                    say(en, "map.joined", say(en, "map.select.floor"), say(en, "map.select.props.one")))
+    check(on_square in said, "the decoration stands on 5,5, loaded with its level", str(said))
+    lc = answers(sec.get("reload", []), LEVELCHECK)
+    check(lc == [("PASS", "0")] and "levelcheck: missing model" not in log,
+          "levelcheck passes the world with both: it resolves each as its loader does", str(lc))
+    looks = item_looks(sec.get("reload", []))
+    check(len(looks) == 1 and looks[0][:3] == (SET, 1, 1),
+          "the reloaded weapon still wears its set on its one part", str(looks))
+    check("drop et_gltf_weapon at 14,11: laid" in sec.get("reload", []),
+          "the weapon is laid on the floor ahead of the party, where the scene draws it")
+    # What the draws HANDED the part (DrawPart's stamp from the last rendered
+    # frame: the floor item, its icon) and what the details preview is handed,
+    # each against the set's own albedo at the tier in force. A quality swap
+    # frees and reloads the set's maps: 1k, then 4k - and a draw handed a map
+    # kept from before would read "stale", one handed none "none".
+    for name, tier, size in (("drawn", None, None), ("low", "1k", "1024x1024"),
+                             ("ultra", "4k", "4096x4096")):
+        looks, probe = item_looks(sec.get(name, [])), probed(sec.get(name, []))
+        want = probe[0][1] if len(probe) == 1 else None
+        check(len(looks) == 1 and want is not None and (tier is None or probe[0] == (tier, size))
+              and looks[0][3] == want and looks[0][4] == want,
+              f"{'at the tier in force' if tier is None else f'after quality -> {name}'}, the "
+              f"weapon's part is DRAWN and previewed with {SET}'s own "
+              f"{'albedo' if tier is None else tier + ' albedo'}",
+              f"looks {looks} | set {probe}")
+    reloads = [int(n) for n in re.findall(r"Quality switched to .*?(\d+) prop set\(s\) reloaded", log)]
+    check(any(n > 0 for n in reloads), "...and the swaps really reloaded the prop sets", str(reloads))
 finally:
     drop()
     if settings_before is not None:

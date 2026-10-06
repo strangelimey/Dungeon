@@ -13,6 +13,10 @@
 //                (installedRefusal; one worn mesh per set - code-review C407).
 //   * Duplicate— copy an existing catalog entry of this category under a new id.
 //
+// A type whose MODEL its category could not load is refused in the form too
+// (modelRefusal, code-review C301): the load is a LoadModelOrDie, so writing
+// one would abort the next level that uses it.
+//
 // The id is validated as you type (record files are whitespace-tokenised, and
 // Catalog::Add REPLACES by id — an unchecked name silently overwrote a type
 // every level used). The panel refuses to Create until the form is valid and
@@ -172,6 +176,13 @@ public:
 	// type renamed onto the set after it was judged), which is why the owner's
 	// onCreate asks the rule again and refuses through SetError.
 	std::function<std::string(const std::string&, const std::string&)> installedRefusal;
+	// Why the type a MODEL pick makes could not load its model - (catalogKey,
+	// source, asset) -> "" when it could (code-review C301). Asked once per pick
+	// for an Installed or Duplicate model, and answered like installedRefusal:
+	// it refuses Create, and the owner asks again of the entry it builds
+	// (Game::CreateCatalogEntry), for a pick gone stale and for an import, whose
+	// model its bake makes.
+	std::function<std::string(const std::string&, Source, const std::string&)> modelRefusal;
 
 private:
 	void Rebuild(const ui::Theme& theme); // (re)builds the form widgets
@@ -179,7 +190,8 @@ private:
 	// The footer's Create: gathers the form into a CreateRequest for onCreate,
 	// unless Validate refuses. Stays open on a bake or on an error onCreate set.
 	void Create();
-	// Re-asks installedRefusal for the current pick (m_assetRefusal).
+	// Re-asks installedRefusal or modelRefusal for the current pick
+	// (m_assetRefusal).
 	void CheckAsset();
 	// Loads the preview for the current source (a model mesh, or the shared
 	// block mesh wearing the picked/imported texture set). Drains the GPU first:
@@ -207,7 +219,7 @@ private:
 	std::string m_group;
 	std::string m_sourcePath;
 	std::string m_asset;     // Installed: pool asset; Duplicate: source catalog id
-	std::string m_assetRefusal; // installedRefusal's answer for m_asset ("" = none)
+	std::string m_assetRefusal; // CheckAsset's answer for m_asset ("" = none)
 	bool m_flipGreen = false;
 	std::vector<std::string> m_existing; // this catalog's ids
 	// (no pool listing here any more — "Use installed" browses it in AssetPicker)

@@ -39,11 +39,41 @@ std::optional<assets::ModelData> LoadModelIfPresent(const std::string& name) {
 }
 
 // --- which model FILE a type loads ------------------------------------------
+std::span<const ModelCatalog> ModelCatalogs() {
+	// DecorationKindFor is handed the decorations, doors, stairs and buttons
+	// catalogs; every other model catalog is one loader's.
+	static constexpr ModelCatalog kCatalogs[] = {
+		{"decorations", ModelFamily::Prop},     {"doors", ModelFamily::Prop},
+		{"stairs", ModelFamily::Prop},          {"buttons", ModelFamily::Prop},
+		{"monsters", ModelFamily::Monster},     {"fixtures", ModelFamily::Fixture},
+		{"wallfeatures", ModelFamily::Feature}, {"surfacefeatures", ModelFamily::Feature},
+		{"items", ModelFamily::Item},           {"weapons", ModelFamily::Item},
+		{"armor", ModelFamily::Item},
+	};
+	return kCatalogs;
+}
+
+std::optional<ModelFamily> ModelFamilyOf(std::string_view key) {
+	for (const ModelCatalog& c : ModelCatalogs())
+		if (c.key == key) return c.family;
+	return std::nullopt;
+}
+
 std::span<const std::string_view> ModelFields(ModelFamily family) {
 	static constexpr std::string_view kMain[] = {"model"};
 	static constexpr std::string_view kFixture[] = {"model", "empty_model", "part2_model"};
 	if (family == ModelFamily::Fixture) return kFixture;
 	return kMain;
+}
+
+std::string ResolveModelFile(std::string_view name, bool preferGlb) {
+	if (name.empty()) return {};
+	const std::string preferred = std::string(name) + (preferGlb ? ".glb" : ".gltf");
+	const std::string other = std::string(name) + (preferGlb ? ".gltf" : ".glb");
+	// The other extension only when it is there and the preferred one is not:
+	// with both installed the family's own wins, and with neither the load
+	// aborts naming the family's own.
+	return !ModelFileInstalled(preferred) && ModelFileInstalled(other) ? other : preferred;
 }
 
 std::string ModelFileOf(ModelFamily family, const CatalogEntry* e, const std::string& id,
@@ -57,13 +87,27 @@ std::string ModelFileOf(ModelFamily family, const CatalogEntry* e, const std::st
 	if (name.empty() && !fallsBack) return {};
 	const bool glb = family == ModelFamily::Item ||
 					 (family == ModelFamily::Prop && CatalogBool(e, "multimaterial", false));
-	return name + (glb ? ".glb" : ".gltf");
+	// An empty name that falls back still names a file - the bare extension,
+	// which no install has - so the load (and levelcheck) report it, as before.
+	return name.empty() ? std::string(glb ? ".glb" : ".gltf") : ResolveModelFile(name, glb);
 }
 
 bool ModelFileInstalled(const std::string& file) {
 	if (file.empty()) return false; // "models\" is the directory itself
 	std::error_code ec;
 	return std::filesystem::is_regular_file(paths::Asset("models\\" + file), ec);
+}
+
+std::optional<UnloadableModel> FirstUnloadableModel(ModelFamily family, const CatalogEntry& e) {
+	for (std::string_view field : ModelFields(family)) {
+		const std::string file = ModelFileOf(family, &e, e.id, field);
+		if (file.empty() || ModelFileInstalled(file)) continue;
+		// The name, as the entry gives it: the file less the extension the
+		// resolver put on it.
+		const size_t dot = file.rfind('.');
+		return UnloadableModel{std::string(field), file.substr(0, dot), file};
+	}
+	return std::nullopt;
 }
 
 std::string SurfaceSetOf(const CatalogEntry* e, const std::string& id) {

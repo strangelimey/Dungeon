@@ -6,12 +6,15 @@
 // self-checks (code-review C441) and took that file past two thousand lines.
 // The rules themselves are not here: which FILE a type or a palette loads is
 // AssetUtil's (ModelFileOf / WornBlockFile), the one resolver the loaders in
-// DungeonWorld_Load.cpp ask too. This file only walks the project with it.
+// DungeonWorld_Load.cpp ask too. This file only walks the project with it -
+// and `modelfile`, which says which file one type's loader resolves and whether
+// it has opened it.
 // ============================================================================
 #include "Game/Game.h"
 
 #include "Core/Log.h"
 #include "Game/AssetUtil.h"
+#include "Game/DevCommandArgs.h" // Need
 #include "Game/Serialize.h"
 
 #include <algorithm>
@@ -19,6 +22,7 @@
 #include <filesystem>
 #include <format>
 #include <iterator>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -30,7 +34,7 @@ void Game::RegisterLevelCheckCommands() {
 	m_console.Register(
 		{.name = "levelcheck",
 		 .group = CmdGroup::Levels,
-		 .params = "\nmutate empty_model|part2_model|glb|id|trim|worn",
+		 .params = "\nmutate empty_model|part2_model|glb|gltf|id|trim|worn",
 		 .summary = "check level files, every model a type or palette loads, and the pool's "
 					"normal maps"},
 		[this](const std::vector<std::string>& a) {
@@ -45,11 +49,14 @@ void Game::RegisterLevelCheckCommands() {
 			// A model is checked as the FILE its loader opens, through the one
 			// resolver the loaders use (AssetUtil's ModelFileOf / WornBlockFile).
 			// It used to compare the `model` field with the installed STEMS, which
-			// passed four kinds of entry that abort (code-review C441): a .glb
-			// named where the loader opens .gltf, an entry with no `model` (the
+			// passed four kinds of entry that abort (code-review C441): a name
+			// installed under neither extension, an entry with no `model` (the
 			// loader opens the id), a fixture's empty_model / part2_model, and a
 			// palette's worn block meshes. A fifth is the same id fallback met
-			// through another type: a door's `trim` naming no doors.cat entry.
+			// through another type: a door's `trim` naming no doors.cat entry. A
+			// name installed under the OTHER extension than its loader's own is no
+			// fault since C301 - the loader opens whichever is there - and the
+			// check, asking the same resolver, passes it.
 			//
 			// It does NOT re-validate records against the map (bounds, walkability,
 			// a button facing a wall) - the loader already does that, and a second
@@ -59,9 +66,16 @@ void Game::RegisterLevelCheckCommands() {
 			// `mutate <case>` checks the CHECK: it plants one of those faults in
 			// what this reads - a copy of one entry, or one file it is told is
 			// absent - never in the files, and the verdict must come back FAIL
-			// naming the planted file (tools\InGameTest.ps1 runs every case).
-			static constexpr std::string_view kMutations[] = {"empty_model", "part2_model",
-															  "glb", "id", "trim", "worn"};
+			// naming the planted file (tools\InGameTest.ps1 runs every case). Two
+			// cases are CONTROLS instead (kControls): each plants an entry that
+			// LOADS - a model named where its loader prefers the other extension
+			// (glb: a decoration naming a .glb-only model; gltf: an item naming a
+			// .gltf-only one) - and the verdict must come back as the real run's,
+			// with the planted file the one the walk RESOLVED (`resolved=`). Batch
+			// 13's `glb` case expected a FAIL; C301 made that entry a good one.
+			static constexpr std::string_view kMutations[] = {
+				"empty_model", "part2_model", "glb", "gltf", "id", "trim", "worn"};
+			static constexpr std::string_view kControls[] = {"glb", "gltf"};
 			// The project and the world load together (Game::LoadWorld): with none
 			// resident there is nothing to check, and a PASS over nothing is not one.
 			// The console's gate refuses first on the title screen; this keeps the
@@ -113,25 +127,35 @@ void Game::RegisterLevelCheckCommands() {
 					planted =
 						ModelFileOf(ModelFamily::Fixture, &mutant, mutant.id, mutation);
 				}
-			} else if (mutation == "glb") {
-				// A decoration (its loader opens .gltf) naming a model installed only
-				// as .glb: present by STEM, which is all the old check asked, and
-				// absent as the file the loader opens.
-				std::string glbOnly;
+			} else if (mutation == "glb" || mutation == "gltf") {
+				// CONTROLS (code-review C301): a type naming a model installed ONLY
+				// under the extension its loader does NOT prefer - a decoration
+				// (.gltf first) naming a .glb-only model, an item (.glb first) a
+				// .gltf-only one. It LOADS, so the check must not count it, and must
+				// resolve it to that very file. The planted file is named here from
+				// the pool, never by asking the resolver, so a check that falls back
+				// to the preferred extension resolves something else and says so.
+				const bool glb = mutation == "glb";
+				const std::string_view ext = glb ? ".glb" : ".gltf";
+				std::string lone;
 				for (const AssetInfo& m : InstalledModelInfo())
-					if (m.file.ends_with(".glb") && !ModelFileInstalled(m.name + ".gltf")) {
-						glbOnly = m.name;
+					if (m.file.ends_with(ext) &&
+						!ModelFileInstalled(m.name + (glb ? ".gltf" : ".glb"))) {
+						lone = m.name;
 						break;
 					}
-				for (const CatalogEntry& e : m_project.decorations.Entries())
-					if (!CatalogBool(&e, "multimaterial", false)) {
+				// The first decoration that is not `multimaterial` (which prefers
+				// .glb itself), or the first item.
+				const Catalog& host = glb ? m_project.decorations : m_project.items;
+				for (const CatalogEntry& e : host.Entries())
+					if (!glb || !CatalogBool(&e, "multimaterial", false)) {
 						target = &e;
 						break;
 					}
-				if (target && !glbOnly.empty()) {
+				if (target && !lone.empty()) {
 					mutant = *target;
-					mutant.Set("model", glbOnly);
-					planted = ModelFileOf(ModelFamily::Prop, &mutant, mutant.id);
+					mutant.Set("model", lone);
+					planted = lone + std::string(ext);
 				}
 			} else if (mutation == "id") {
 				// A decoration that names its model, with the name taken away: its
@@ -190,17 +214,20 @@ void Game::RegisterLevelCheckCommands() {
 				hidden = planted;
 			}
 			// A catalog case plants a file that is NOT installed; the worn case
-			// hides one that IS. Either way round, a planted file already in the
-			// state the mutation puts it in would change nothing.
+			// hides one that IS, and a control names one that is. Either way round,
+			// a planted file not in the state the case needs would test nothing.
 			const bool hides = mutation == "worn";
-			if (!mutation.empty() && (planted.empty() || ModelFileInstalled(planted) != hides)) {
+			const bool control = std::ranges::find(kControls, mutation) != std::end(kControls);
+			const bool wantInstalled = hides || control;
+			if (!mutation.empty() &&
+				(planted.empty() || ModelFileInstalled(planted) != wantInstalled)) {
 				if (planted.empty())
 					m_console.Refuse(std::format(
 						"levelcheck mutate {}: nothing in this world to plant it in", mutation));
 				else
 					m_console.Refuse(std::format(
-						"levelcheck mutate {}: {} is {} installed, so planting it changes nothing",
-						mutation, planted, hides ? "not" : "already"));
+						"levelcheck mutate {}: {} is {} installed, so planting it tests nothing",
+						mutation, planted, wantInstalled ? "not" : "already"));
 				return;
 			}
 			const auto installed = [&hidden](const std::string& file) {
@@ -217,28 +244,22 @@ void Game::RegisterLevelCheckCommands() {
 			};
 
 			// THE TYPES, each by its loader's rules. Which catalog a loader reads is
-			// this table's knowledge: DecorationKindFor is handed the decorations,
-			// doors, stairs and buttons catalogs, and the rest are one loader each.
-			const std::pair<const Catalog*, ModelFamily> families[] = {
-				{&m_project.decorations, ModelFamily::Prop},
-				{&m_project.doors, ModelFamily::Prop},
-				{&m_project.stairs, ModelFamily::Prop},
-				{&m_project.buttons, ModelFamily::Prop},
-				{&m_project.monsters, ModelFamily::Monster},
-				{&m_project.fixtures, ModelFamily::Fixture},
-				{&m_project.wallfeatures, ModelFamily::Feature},
-				{&m_project.surfacefeatures, ModelFamily::Feature},
-				{&m_project.items, ModelFamily::Item},
-				{&m_project.weapons, ModelFamily::Item},
-				{&m_project.armor, ModelFamily::Item},
-			};
+			// AssetUtil's table (ModelCatalogs): DecorationKindFor is handed the
+			// decorations, doors, stairs and buttons catalogs, and the rest are one
+			// loader each - the same table the editor's create and Save checks ask.
+			std::vector<std::pair<const Catalog*, ModelFamily>> families;
+			for (const ModelCatalog& c : ModelCatalogs())
+				if (const Catalog* cat = m_project.CatalogForKey(std::string(c.key)))
+					families.emplace_back(cat, c.family);
+			// The file the walk resolved the mutant's model to (a control's verdict).
+			std::string resolved;
 			for (const Catalog* cat : m_project.AllCatalogs()) {
 				const auto family = std::ranges::find_if(
 					families, [cat](const auto& f) { return f.first == cat; });
 				for (const CatalogEntry& real : cat->Entries()) {
 					++types;
 					const CatalogEntry& e = &real == target ? mutant : real;
-					if (family == std::end(families)) {
+					if (family == families.end()) {
 						// A model field where no loader reads one: either a loader
 						// this table lacks, or a field that does nothing. Either way
 						// it cannot be checked, so it is not passed. (The fixture's
@@ -255,6 +276,7 @@ void Game::RegisterLevelCheckCommands() {
 					}
 					for (std::string_view field : ModelFields(family->second)) {
 						const std::string file = ModelFileOf(family->second, &e, e.id, field);
+						if (&real == target && field == "model") resolved = file;
 						if (!file.empty() && !installed(file)) missingModel(file, field, e.id);
 					}
 					// A model reached through ANOTHER type's id. A door's `trim` is
@@ -344,8 +366,60 @@ void Game::RegisterLevelCheckCommands() {
 				noRule, missingFiles, InstalledModels().size(), checkedWorn.size(), flat.size());
 			if (!mutation.empty())
 				verdict += std::format(" mutate={} planted={}", mutation, planted);
+			if (control) verdict += std::format(" resolved={}", resolved.empty() ? "-" : resolved);
 			m_console.Print(verdict);
 			log::Info("{}", verdict); // the harness reads this from dungeon.log
+		});
+
+	m_console.Register(
+		{.name = "modelfile",
+		 .group = CmdGroup::Types,
+		 .params = "<category> <id>",
+		 .summary = "the model file each of a type's fields loads, whether it is installed and "
+					"opened, and an item's texture set"},
+		[this](const std::vector<std::string>& args) {
+			// THE RESOLVER'S ANSWER FOR ONE TYPE (code-review C301): the file each
+			// field's loader opens - whichever extension is installed - whether the
+			// pool holds it, and whether the world has OPENED it (its model cache:
+			// a kind built on it). An item reports how its `texture` dresses its
+			// model too: the parts that wear the set, the albedo the last frame's
+			// draws HANDED the first of them and the one the details dialog's
+			// preview is handed (DungeonWorld::DescribeItemModel, which builds the
+			// item's kind).
+			if (!devargs::Need(m_console, args, 2)) return;
+			if (!m_world) {
+				m_console.Refuse("modelfile: no world loaded");
+				return;
+			}
+			const std::optional<ModelFamily> family = ModelFamilyOf(args[0]);
+			const Catalog* cat = m_project.CatalogForKey(args[0]);
+			if (!family || !cat) {
+				m_console.Refuse(std::format("modelfile: '{}' is no catalog whose types load a model",
+											 args[0]));
+				return;
+			}
+			const CatalogEntry* e = cat->Find(args[1]);
+			if (!e) {
+				m_console.Refuse(std::format("modelfile: no {} '{}'", args[0], args[1]));
+				return;
+			}
+			const bool item = *family == ModelFamily::Item;
+			// An item's kind is built first, so `loaded` says what its build opened.
+			const std::optional<DungeonWorld::ItemModelLook> look =
+				item ? m_world->DescribeItemModel(e->id) : std::nullopt;
+			for (std::string_view field : ModelFields(*family)) {
+				const std::string file = ModelFileOf(*family, e, e->id, field);
+				if (file.empty()) continue; // the field loads nothing
+				m_console.Print(std::format("modelfile {} '{}' {}: {} installed={} loaded={}",
+											args[0], e->id, field, file,
+											ModelFileInstalled(file) ? 1 : 0,
+											m_world->ModelFileLoaded(file) ? 1 : 0));
+			}
+			if (look)
+				m_console.Print(std::format(
+					"modelfile {} '{}' set={} parts={} wears={} drawn={} previewed={}", args[0],
+					e->id, look->set.empty() ? "none" : look->set, look->parts, look->wears,
+					look->drawn, look->previewed));
 		});
 }
 

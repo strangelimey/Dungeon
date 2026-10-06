@@ -1324,6 +1324,7 @@ map.type.deleted='{}' eliminato.
 map.type.renamed='{}' rinominato in '{}' ({} record aggiornati) — salva la mappa.
 map.type.inuse=Ancora usato da {} record in: {}
 map.type.inuse.catalog=Ancora referenziato da {} voce/voci di catalogo.
+map.type.nomodel=Nessun modello '{}' è installato (.gltf o .glb) per {} - questo tipo non si potrebbe caricare.
 map.type.frommap=: dalla mappa della texture
 map.type.derived=(calcolato {})
 map.type.stalesaves=Salvataggi che contengono ancora '{}': {} — ciò che vi è collocato si carica non configurato.

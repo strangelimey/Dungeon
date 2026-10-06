@@ -2484,7 +2484,10 @@ ASKS for it and Game::Update loads a couple a frame (LoadWantedSwatches). NO
 live apply (a type is referenced by every placement
 and, for surfaces, by baked geometry): Save writes the .cat and, when a touched
 field is `rebakes` (a surface's texture/relief/wear), re-runs the wornblock bake
-behind the busy overlay. A surface's PER-DRAW knobs are the exception —
+behind the busy overlay - and REFUSES, writing nothing, an entry whose model its
+category could not load (code-review C301: the reason becomes the form's notice;
+`typeset` refuses with it; `typeset dialog pick <field> <asset>` is the picker's
+hand-back for a script). A surface's PER-DRAW knobs are the exception —
 `height_scale`, `metallic` and `roughness` are per-variant values the draw reads
 (Surface::heightScale / ::factors, filled by ResolveSurfacePalettes →
 ApplySurfaceFactors), so saving them pushes at the live scene through
@@ -2741,18 +2744,40 @@ adds CatalogGet/CatalogBool (null-safe). Project.* loads/saves the manifest +
 catalogs and maps a key→Catalog (CatalogForKey). DungeonWorld resolves catalog ids
 to model+texture at load. The model FILE comes from ONE resolver, AssetUtil's
 `ModelFileOf(family, entry, id, field)` (+ `WornBlockFile` for a palette's worn
-blocks): per family - prop / monster / fixture / feature / item, each a loader -
-the `model` field else the id (an item: none = the tablet), the extension its
-loader opens (.glb for items and `multimaterial` props, else .gltf), and a
-fixture's `empty_model` / `part2_model`. The loaders and the dev console's
-`levelcheck` both ask it, so the check cannot pass an entry the load would abort
-on (it compared stems, and passed four such shapes - code-review C441); levelcheck
-also checks a door type's `trim` that names no doors.cat entry (SpawnDoor opens
-that name as a file; `frame` / `opener` / `mount` are looked up only when the
-catalog has them), every level palette's worn blocks at EVERY mesh tier (a
-quality swap loads another tier's), and its `levelcheck mutate <case>` cases, run
-by InGameTest, plant each shape - chosen apart from the check's own walk, so a
-check that stops reading one comes back PASS, not refused - and must FAIL. A NEW
+blocks; `ResolveModelFile(name)` for a bare name, `ModelCatalogs()` /
+`ModelFamilyOf(key)` the catalog -> family table): per family - prop / monster /
+fixture / feature / item, each a loader - the `model` field else the id (an item:
+none = the tablet), WHICHEVER of .gltf / .glb is installed (the family's own
+first - .glb for items and `multimaterial` props, else .gltf - and that one when
+neither is, so the abort names it), and a fixture's `empty_model` /
+`part2_model`. It used to be one extension per loader, so an editor-imported
+weapon (the import writes .gltf) aborted every launch and a picked .glb did the
+same to a decoration (code-review C301). The loaders, the previews and the dev
+console's `levelcheck` all ask it, so the check cannot pass an entry the load
+would abort on (it compared stems, and passed four such shapes - code-review
+C441); levelcheck also checks a door type's `trim` that names no doors.cat entry
+(SpawnDoor opens that name as a file; `frame` / `opener` / `mount` are looked up
+only when the catalog has them), every level palette's worn blocks at EVERY mesh
+tier (a quality swap loads another tier's), and its `levelcheck mutate <case>`
+cases, run by InGameTest, plant each shape - chosen apart from the check's own
+walk, so a check that stops reading one comes back PASS, not refused - and must
+FAIL, while its two CONTROLS (`glb`, `gltf`: a model installed only under the
+extension its loader does not prefer) must pass, resolved to the planted file.
+`modelfile <category> <id>` prints what one type resolves and whether the world
+opened it. The editor REFUSES what cannot load, writing nothing: the create
+dialog (its form, `AssetDialog::modelRefusal`, then `CreateCatalogEntry` of the
+entry it builds) and the type editor's Save (`onSave` returns the reason; the
+form stays open with it as its notice) both ask `Game::UnloadableModelReason`
+(`FirstUnloadableModel` + the trim rule). An item's `texture` DRESSES its model
+(`DungeonWorld::WearModelSet`, the asset picker's rule: every part of a
+single-primitive .gltf, else only the parts the file leaves untextured); a
+dressed part keeps the SET (`MultiMaterialModel::Sub::set`) and looks its maps up
+as it draws (`PartMaterial`), since a quality swap frees them. A part DRAWS
+through `DungeonWorld::DrawPart`, which stamps it with the albedo it was handed
+and the frame: `modelfile`'s `drawn=` is that stamp from the last rendered frame
+("undrawn" in a headless run) and `previewed=` what FillItemPreview hands the
+details dialog, so a draw site that stops passing PartMaterial reads "none" or
+"stale" there - never a material re-derived for the readout. A NEW
 loader path that opens a model by ANOTHER type's id with no `Contains` guard
 needs a levelcheck rule too. Game owns the active Project, passes
 it to DungeonWorld; MapView reads it for the palette. NOTE: editor/asset/
@@ -3404,7 +3429,7 @@ docs/ui-panels-notes.md / -plan.md. What exists, and the rules it rests on:
   to hang, so it bursts at the first OPEN square (walkable, no shut door), a
   pit's included, not pulled back toward the thrower. The rock is script-built
   (tools/BuildRock.py -> assets/models/rock.glb, committed by a .gitignore
-  exception: an item loads only .glb). Dev: `throw [item]`, `drop <item> <x>
+  exception; an item's loader takes .glb first). Dev: `throw [item]`, `drop <item> <x>
   <z>` (DropItemAt aimed at a square's centre), `castsvc floor [x z]`,
   `flooritems [x z|all]` (floor items with their charge, and each throw in the
   air: `at` where it is, in squares, `over` the square a save made now writes

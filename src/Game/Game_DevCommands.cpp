@@ -8,7 +8,6 @@
 // ============================================================================
 #include "Game/Game.h"
 
-#include "Assets/File.h"
 #include "Game/Serialize.h"
 #include "Core/Loc.h"
 #include "Core/Log.h"
@@ -1206,11 +1205,14 @@ void Game::RegisterDevCommands() {
 						   }
 						   if (!Need(m_console, args, 1)) return;
 						   const std::string name = JoinArgs(args);
-						   if (!assets::ReadBinaryFile(paths::Asset("models\\" + name + ".gltf"))) {
+						   // A bare NAME, as a catalog's `model` is: whichever of
+						   // .gltf / .glb is installed (code-review C301).
+						   const std::string file = ResolveModelFile(name);
+						   if (!ModelFileInstalled(file)) {
 							   m_console.Refuse("no model: " + name);
 							   return;
 						   }
-						   m_previewModel = LoadModelOrDie(name + ".gltf");
+						   m_previewModel = LoadModelOrDie(file);
 						   // Replacing frees the old mesh — drain in-flight frames
 						   if (m_previewMesh) m_device.WaitIdle();
 						   m_previewMesh = std::make_unique<gfx::Mesh>(

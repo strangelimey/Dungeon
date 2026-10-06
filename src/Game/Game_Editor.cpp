@@ -517,7 +517,13 @@ bool Game::RenameLevel(const std::string& oldStem, const std::string& newStem,
 // (so the type is usable — model kinds load lazily on first placement). Writes go
 // to the asset copy next to the exe, not the git source tree.
 void Game::FinishBake() {
-	CreateCatalogEntry(m_bakeReq);
+	// The bake made the model; the entry is still refused if its category could
+	// not load what it made - and the form stays up saying so (SetError ends the
+	// busy state too).
+	if (const std::string refused = CreateCatalogEntry(m_bakeReq); !refused.empty()) {
+		m_assetDialog.SetError(refused);
+		return;
+	}
 	m_assetDialog.SetBusy(false);
 	m_assetDialog.Close();
 }
@@ -527,11 +533,11 @@ void Game::FinishBake() {
 // seeded, so a new stair gets its up/pair/hole rows and a new item its
 // weight/holdable — where the old one-shape-fits-all writer stamped
 // authored=1/solid=1 on everything and left doors, stairs and items broken.
-void Game::CreateCatalogEntry(const AssetDialog::CreateRequest& req) {
+std::string Game::CreateCatalogEntry(const AssetDialog::CreateRequest& req) {
 	Catalog* cat = m_project.CatalogForKey(req.catalogKey);
 	if (!cat) {
 		log::Warn("asset create: unknown catalog '{}'", req.catalogKey);
-		return;
+		return loc::Format("map.type.unknown", req.catalogKey);
 	}
 	CatalogEntry e;
 	// Duplicate starts from the source entry, so everything hand-authored on it
@@ -587,6 +593,16 @@ void Game::CreateCatalogEntry(const AssetDialog::CreateRequest& req) {
 		e.Set("color", std::format("{:.3f},{:.3f},{:.3f}", m.baseColor.x, m.baseColor.y,
 								   m.baseColor.z));
 
+	// THE ENTRY AS IT WOULD BE WRITTEN must load its model (code-review C301):
+	// the form judged the pick when it was made, but a pick can go stale, a
+	// duplicate's source may name none (its new id is then the model's name),
+	// and an import's model is whatever its bake made. Nothing is written.
+	if (const std::string why = UnloadableModelReason(req.catalogKey, e); !why.empty()) {
+		log::Warn("create {} '{}' from '{}' refused: {}", req.catalogKey, req.name, req.asset,
+				  why);
+		return why;
+	}
+
 	cat->Add(std::move(e));
 	// An IMPORT brought a new asset into the pool; the pool is gitignored, so
 	// record where it came from before saving (both ride the same Save).
@@ -601,6 +617,24 @@ void Game::CreateCatalogEntry(const AssetDialog::CreateRequest& req) {
 	if (MapEditor::SurfaceCat(pcat)) m_mapEditor.AddToPalette(pcat, req.name);
 	else if (m_world->onMessage)
 		m_world->onMessage(loc::FormatLine("newasset.created", req.name));
+	return {};
+}
+
+std::string Game::UnloadableModelReason(const std::string& catalogKey,
+										const CatalogEntry& e) const {
+	const std::optional<ModelFamily> family = ModelFamilyOf(catalogKey);
+	if (!family) return {}; // this catalog's types load no model
+	if (const std::optional<UnloadableModel> miss = FirstUnloadableModel(*family, e))
+		return loc::Format("map.type.nomodel", miss->name, miss->field);
+	// A door's trim naming no doors.cat entry: SpawnDoor draws it through
+	// DecorationKindFor, which opens the NAME as a model file (levelcheck's rule
+	// for it). One that is an entry is that entry's own business.
+	if (catalogKey == "doors")
+		if (const std::string trim = e.Get("trim", "");
+			!trim.empty() && !m_project.doors.Contains(trim) &&
+			!ModelFileInstalled(ModelFileOf(ModelFamily::Prop, nullptr, trim)))
+			return loc::Format("map.type.nomodel", trim, "trim");
+	return {};
 }
 
 // Opens the per-type catalog editor for a palette row. The dialog edits a COPY
@@ -732,7 +766,7 @@ void Game::OpenBalanceDialog() {
 // button). It owns the states/anim_*/archetype/threat_* rows and rewrites them
 // authoritatively, which is why the schema leaves them out.
 void Game::OpenMonsterConfig(const std::string& id) {
-	// Guard the force-load: a catalog id whose <model>.gltf is missing would
+	// Guard the force-load: a catalog id whose model file is missing would
 	// abort in LoadModelOrDie. Warn and skip instead of crashing the editor.
 	if (!m_world->MonsterModelAvailable(id)) {
 		log::Warn("monster config: '{}' has no loadable model — skipped", id);
@@ -1322,8 +1356,15 @@ void Game::WriteTypeFields(const TypeEditorDialog::Config& cfg) {
 		log::Warn("type editor: unknown catalog '{}'", cfg.catalogKey);
 		return;
 	}
+	cat->Add(MergedTypeEntry(cfg)); // add-or-replace by id
+	if (!m_project.Save())
+		log::Warn("type editor: failed to save project catalogs");
+}
+
+CatalogEntry Game::MergedTypeEntry(const TypeEditorDialog::Config& cfg) const {
 	CatalogEntry entry;
-	if (const CatalogEntry* e = cat->Find(cfg.id)) entry = *e;
+	const Catalog* cat = m_project.CatalogForKey(cfg.catalogKey);
+	if (const CatalogEntry* e = cat ? cat->Find(cfg.id) : nullptr) entry = *e;
 	else entry.id = cfg.id;
 	for (const serialize::Field& f : cfg.fields) {
 		if (f.value.empty()) {
@@ -1334,9 +1375,7 @@ void Game::WriteTypeFields(const TypeEditorDialog::Config& cfg) {
 		}
 		entry.Set(f.key, f.value);
 	}
-	cat->Add(std::move(entry)); // add-or-replace by id
-	if (!m_project.Save())
-		log::Warn("type editor: failed to save project catalogs");
+	return entry;
 }
 
 // Kicks the async worn-mesh rebake for a Surface Style Save: reuses the

@@ -20,15 +20,20 @@ or a stale worktree provision has entries whose assets are absent. Scoped to
 missing model is a `LoadModelOrDie` that takes the process down at level load -
 possibly on a level nobody has visited in weeks. A model is checked as the FILE
 its loader opens, through the loaders' own resolver (`ModelFileOf` /
-`WornBlockFile` in AssetUtil): the per-category extension, the id when an entry
-names no `model`, a fixture's `empty_model` / `part2_model`, a door's `trim`
-naming no doors.cat entry (its loader opens the name as a file), and every
-palette's worn blocks at every mesh tier (code-review C441). Then six MUTATIONS
-(`levelcheck mutate empty_model|part2_model|glb|id|trim|worn`) each plant one of
-those faults in what the check reads - never in the files - and each must FAIL
-with exactly one more model missing, naming the planted file. The command picks
-what it plants on its own, apart from the check's walk, so a check that stops
-reading a field or a tier comes back PASSED rather than refused. It also NAMES every
+`WornBlockFile` in AssetUtil): whichever of .gltf / .glb is installed (the
+category's own first - code-review C301), the id when an entry names no `model`,
+a fixture's `empty_model` / `part2_model`, a door's `trim` naming no doors.cat
+entry (its loader opens the name as a file), and every palette's worn blocks at
+every mesh tier (code-review C441). Then five MUTATIONS (`levelcheck mutate
+empty_model|part2_model|id|trim|worn`) each plant one of those faults in what
+the check reads - never in the files - and each must FAIL with exactly one more
+model missing, naming the planted file. The command picks what it plants on its
+own, apart from the check's walk, so a check that stops reading a field or a
+tier comes back PASSED rather than refused. Two CONTROLS (`levelcheck mutate
+glb|gltf`) plant an entry that LOADS - a decoration naming a .glb-only model, an
+item a .gltf-only one, each under the extension its loader does not prefer - and
+must come back as the real run did, with the planted file the one the walk
+resolved (`resolved=`). It also NAMES every
 albedo in the pool with no `_n` normal map at its resolution (`missing_normals=`
 on the verdict line): such a set draws flat with one warning, so it is counted,
 not failed.
@@ -74,25 +79,32 @@ still loads every tile in view by evicting what is off screen.
 '<file>'`** - the pool is incomplete. Usually means a worktree was provisioned
 from a stale file list; re-run `tools\FetchModels.ps1`, or robocopy
 `assets\models` from a populated sibling. A missing worn mesh is the texture
-import's bake (`AssetBaker models`). When the file's STEM is installed with the
-other extension, it is the catalog entry that is wrong, not the pool. So is a
-`(trim)` miss, usually: the door type's `trim` names no doors.cat entry (a typo,
-or a trim entry renamed away), and the loader opens the name as a file.
+import's bake (`AssetBaker models`). The name is missing under BOTH extensions
+(the loader takes either, so the file named is only the one it would try
+first). A `(trim)` miss is usually the catalog entry, not the pool: the door
+type's `trim` names no doors.cat entry (a typo, or a trim entry renamed away),
+and the loader opens the name as a file.
 
 **`NO LOADER RULE for '<field>' of type '<y>'`** - a catalog no loader reads a
 model from carries a model field: a new loader the check's table lacks (add it,
 with its family), or a field that does nothing.
 
 **`levelcheck mutate <case>: PASSED`** - the check no longer reads what that
-mutation planted (a field, an extension rule, the id fallback, a door's trim, a
-tier), so the kind of entry it stands for would pass and then abort a load. The
-command chooses what to plant BEFORE the check walks and apart from it, so a
-check that stops reading a field, a tier or the worn pass lands here, never in
-the refusal below. **`never reported (refused?)`** - the world had nothing to
-plant it in (no fixture with that field, no door with a trim, no .glb-only
-model, no level palette, no tier other than the live one), or the file it chose
-is already as the mutation would leave it (a catalog case's file installed, the
-worn case's file not installed); the refusal says which.
+mutation planted (a field, the id fallback, a door's trim, a tier), so the kind
+of entry it stands for would pass and then abort a load. The command chooses
+what to plant BEFORE the check walks and apart from it, so a check that stops
+reading a field, a tier or the worn pass lands here, never in the refusal below.
+**`never reported (refused?)`** - the world had nothing to plant it in (no
+fixture with that field, no door with a trim, no .glb-only or .gltf-only model,
+no level palette, no tier other than the live one), or the file it chose is not
+as the case needs it (a catalog case's file installed, a control's or the worn
+case's file not installed); the refusal says which.
+
+**`levelcheck control <case>: the check resolved '<x>', not the planted <y>`**
+or **`... the planted <y> loads`** - the check no longer opens a model under the
+extension its loader does not prefer, the rule C301 brought in: it would fail a
+type the game loads (an editor-imported weapon is a .gltf). The check and the
+loaders share `ModelFileOf`, so this usually means that resolver changed.
 
 **`NO NORMAL MAP <set>_<res> - it loads flat`** (not a failure) - the set was
 copied or imported without its `_n` maps, so it draws with no relief or

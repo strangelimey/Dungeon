@@ -1324,6 +1324,7 @@ map.type.deleted='{}' gelöscht.
 map.type.renamed='{}' in '{}' umbenannt ({} Einträge aktualisiert) — Karte speichern.
 map.type.inuse=Noch von {} Eintrag/Einträgen benutzt in: {}
 map.type.inuse.catalog=Noch von {} anderen Katalogeinträgen referenziert.
+map.type.nomodel=Kein Modell '{}' ist installiert (.gltf oder .glb) für {} - dieser Typ ließe sich nicht laden.
 map.type.frommap=: aus der Textur-Map
 map.type.derived=(abgeleitet {})
 map.type.stalesaves=Spielstand/Spielstände mit '{}': {} — dort Platziertes lädt ohne Konfiguration.

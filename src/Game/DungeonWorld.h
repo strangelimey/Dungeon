@@ -1595,7 +1595,7 @@ public:
 	// the geometry drawn came from there. False for an empty model.
 	static bool PosedBounds(const assets::ModelData& model, std::span<const Mat4> palette,
 							bool nodeBaked, Vec3& lo, Vec3& hi);
-	// Whether a monster type's <model>.gltf exists (so the editor can guard the
+	// Whether a monster type's model file exists (so the editor can guard the
 	// right-click force-load and warn instead of aborting on a missing asset).
 	bool MonsterModelAvailable(const std::string& type) const;
 
@@ -1636,6 +1636,26 @@ public:
 	// What the details dialog says about an item type (Game/ItemDetails.h).
 	// False for a type no catalog defines.
 	bool ItemDetailsFor(const std::string& type, ItemDetails& out);
+	// Whether the model cache holds `file` - a kind built on it has opened it
+	// (`modelfile`, which says which file a type's loader really opened).
+	bool ModelFileLoaded(const std::string& file) const { return m_modelCache.contains(file); }
+	// An item type's MODEL as it draws (`modelfile`; code-review C301): the set
+	// its entry's `texture` dresses it in ("" = none), how many parts the model
+	// has and how many wear that set, and for the first of those the albedo it
+	// was HANDED - `drawn` by the last rendered frame's draws (Sub::drewAlbedo,
+	// stamped by DrawPart: a floor item, a thrown one, its icon bake), `previewed`
+	// by FillItemPreview (the details dialog's parts) - each one word: "WxH" (its
+	// set's albedo as it is now, at that size), "none" (no albedo: the flat look
+	// C301 was about), "stale" (an albedo that is not its set's now), and for
+	// `drawn` "undrawn" (no draw on the last frame - a headless run never draws).
+	// Builds the kind, like ItemPreviewForType; nullopt for a type no catalog
+	// defines or one with no model of its own (the tablet).
+	struct ItemModelLook {
+		std::string set;
+		size_t parts = 0, wears = 0;
+		std::string drawn = "undrawn", previewed = "none";
+	};
+	std::optional<ItemModelLook> DescribeItemModel(const std::string& type);
 
 	// --- level transitions (P6 multi-level) ---------------------------------
 	// Swaps the active level to `stem` and resets all per-level state (map,
@@ -3021,6 +3041,21 @@ private:
 		struct Sub {
 			std::shared_ptr<gfx::Mesh> mesh;
 			gfx::MaterialParams material;
+			// The catalog SET this part wears (an item's `texture`, code-review
+			// C301: WearModelSet), else null for the file's own material. Its maps
+			// are LOOKED UP each time the part draws (PartMaterial) and never kept
+			// in `material`: a quality swap frees and reloads every prop set's
+			// maps (ReloadPropTextures), and a pointer kept from before would draw
+			// freed textures.
+			const PropTextures* set = nullptr;
+			// What the part was last DRAWN with: the albedo its draw handed the
+			// renderer, and the frame (DungeonWorld::m_drawFrame) it did so -
+			// stamped by DrawPart at the draw itself, so `modelfile`'s drawn= reads
+			// what a draw site really passed, never a material re-derived for the
+			// readout. Mutable: a draw is const. Only compared, never dereferenced
+			// (the texture may since have been freed).
+			mutable const gfx::Texture* drewAlbedo = nullptr;
+			mutable u64 drewFrame = 0;
 		};
 		std::vector<Sub> subs; // one per model.meshes
 		Vec3 boundsMin{}, boundsMax{}; // world-space AABB of the baked geometry
@@ -3183,6 +3218,10 @@ private:
 		// as this on the floor and its baked 3D thumbnail is the icon/cursor. null =
 		// the tablet+tint placeholder above.
 		std::unique_ptr<MultiMaterialModel> model;
+		// The set `model` wears (items.cat `texture`, code-review C301), "" = only
+		// the file's own materials. Which parts wear it is WearModelSet's rule;
+		// each such part carries the set itself (MultiMaterialModel::Sub::set).
+		std::string modelSet;
 		// Baked 3D icon render-target (one per type, owned here; reused by every
 		// slot/grid/cursor instance via the icon bank). Null for placeholder items;
 		// transparent until UpdateItemIcons renders into it.
@@ -3738,9 +3777,17 @@ private:
 						   const gfx::Texture& target);
 	void EndItemIconBake(ID3D12GraphicsCommandList* list, const gfx::Texture& target);
 	// Draws every submesh of an authored multi-material model at `world`, each with
-	// its own glTF material. Shared by decorations, floor items, and the icon bake.
+	// its own glTF material - or the catalog set it wears, as PartMaterial looks it
+	// up. Shared by decorations, floor items, and the icon bake.
 	void DrawMultiMaterial(ID3D12GraphicsCommandList* list,
 						   const MultiMaterialModel& model, const Mat4& world);
+	// THE ONE DRAW OF A MODEL'S PART: hands the renderer `mat` and stamps the
+	// part with what it was handed (Sub::drewAlbedo / drewFrame), which is what
+	// `modelfile` reports as drawn= (code-review C301). DrawMultiMaterial and the
+	// light stones draw their parts through it; a part drawn any other way would
+	// read "undrawn".
+	void DrawPart(ID3D12GraphicsCommandList* list, const MultiMaterialModel::Sub& sub,
+				  const Mat4& world, const gfx::MaterialParams& mat);
 	// Builds one monster instance (kind/id/cell/facing → stats + animator) ready
 	// to push into m_monsters. Shared by the initial .ent load, live editor
 	// placement, and save restore of editor-placed monsters. The caller pushes.
@@ -3846,6 +3893,23 @@ private:
 	// ApplyPropMaterial overload).
 	static void BakeCatalogMaterial(MultiMaterialModel& model,
 									const CatalogEntry* def);
+	// WHICH PARTS OF A MODEL A CATALOG SET DRESSES (code-review C301): every part
+	// of a single-primitive .gltf - the set REPLACES the file's material, as the
+	// world's single-mesh prop draw binds it - else only the parts the file leaves
+	// untextured. The one rule an item's `texture` (WearModelSet) and the asset
+	// picker's look (LoadPoolModelLook) both follow; `file` is the model's file
+	// or path.
+	static bool SetDressesWholeModel(size_t parts, std::string_view file);
+	// Dresses `model` in prop set `set` by that rule: each part it reaches is
+	// marked (Sub::set) and given the factors a prop draw gives the set. Null =
+	// nothing to wear. The maps themselves are looked up as each part draws.
+	static void WearModelSet(MultiMaterialModel& model, const PropTextures* set,
+							 std::string_view file);
+	// A part's material as it draws NOW: its own, with the maps of the set it
+	// wears (Sub::set) looked up afresh - never kept, since a quality swap frees
+	// and reloads them. Every draw of an item's parts goes through this
+	// (DrawMultiMaterial, the item preview, a light stone).
+	static gfx::MaterialParams PartMaterial(const MultiMaterialModel::Sub& sub);
 	// THE MODEL CACHE (DungeonWorld_Models.cpp). The kind caches are keyed by
 	// CATALOG ID, and many ids share one file - six monster kinds on
 	// skeleton.gltf, five armours on leather_armor.glb, each enchanted blade on
@@ -4917,20 +4981,20 @@ private:
 		bool operator==(const BlockSetKey&) const = default;
 	};
 	std::optional<BlockSetKey> m_loadedBlocks;
-	// Feature meshes by MODEL FILE (a feature type's `model`.gltf). Features are
+	// Feature meshes by MODEL FILE (a feature type's `model`, ModelFileOf). Features are
 	// project-wide, not per level, so each file is read once per world and the
 	// per-type maps below point into this. Node-based on purpose: the maps hold
 	// pointers, which a flat_map would invalidate on insert.
 	std::unordered_map<std::string, assets::MeshData> m_featureMeshCache;
-	// Niche panels by wallfeatures.cat type (each entry's `model`.gltf); the mesh
+	// Niche panels by wallfeatures.cat type (each entry's `model`); the mesh
 	// builder stamps the one matching a niche's type. NicheMeshFor resolves it.
 	std::flat_map<std::string, const assets::MeshData*> m_nicheMeshes;
 	const assets::MeshData* NicheMeshFor(const std::string& type) const;
-	// See-through bore panels by wallfeatures.cat type (its `model`.gltf); stamped
+	// See-through bore panels by wallfeatures.cat type (its `model`); stamped
 	// on the two flanking faces of a bored wall block. BoreMeshFor resolves it.
 	std::flat_map<std::string, const assets::MeshData*> m_boreMeshes;
 	const assets::MeshData* BoreMeshFor(const std::string& type) const;
-	// Surface-feature tiles by surfacefeatures.cat type (its `model`.gltf), split
+	// Surface-feature tiles by surfacefeatures.cat type (its `model`), split
 	// by the type's `surface` so each resolver answers only for its own side -
 	// which is what lets the builder ask "is there a floor feature here?" and
 	// "is there a ceiling one?" independently, without knowing the catalog.
@@ -4955,6 +5019,10 @@ private:
 	gfx::ComPtr<ID3D12DescriptorHeap> m_iconDsvHeap;
 	std::unique_ptr<gfx::Texture> m_iconHalo; // soft round disc, white w/ radial alpha
 	bool m_itemIconsBaked = false;
+	// Rendered frames so far (NewFrame counts them; 0 = none yet, as in a
+	// headless run): what DrawPart stamps a part with, so a readout can tell a
+	// draw on the last frame from an older one.
+	u64 m_drawFrame = 0;
 	// Monster head-shot + decoration whole-model map icons (each kind's
 	// iconTarget), sharing the item bakes' depth/halo. A flag resets when a new
 	// kind loads so it bakes next frame; the two fixture icons gate on their

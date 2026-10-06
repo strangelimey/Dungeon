@@ -341,13 +341,14 @@ std::unique_ptr<DungeonWorld::PoolModelLook> DungeonWorld::LoadPoolModelLook(
 						   : 0.5f * (look->lo.y + look->hi.y);
 	}
 
-	// Which material wins, by the world's own split: a single-primitive .gltf is
-	// drawn by its catalog set (MonsterKindFor takes the multi-material path only
-	// past one primitive, which is why the giant spider is orange in play and
-	// its embedded map is pale), while a .glb or a many-part model wears its own
-	// materials (the item and decoration loaders' .glb path) and the set only
-	// fills a part with no image. Loaded only if something will wear it.
-	const bool setWins = multi->subs.size() == 1 && modelPath.ends_with(".gltf");
+	// Which material wins, by the world's own split (SetDressesWholeModel, the
+	// rule an item's `texture` follows too): a single-primitive .gltf is drawn by
+	// its catalog set (MonsterKindFor takes the multi-material path only past one
+	// primitive, which is why the giant spider is orange in play and its embedded
+	// map is pale), while a .glb or a many-part model wears its own materials and
+	// the set only fills a part with no image. Loaded only if something will
+	// wear it.
+	const bool setWins = SetDressesWholeModel(multi->subs.size(), modelPath);
 	std::shared_ptr<gfx::Texture> albedo, normal, mr;
 	const bool wantsSet = !setStem.empty() &&
 						  (setWins || std::ranges::any_of(multi->subs,

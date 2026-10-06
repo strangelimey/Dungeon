@@ -314,7 +314,7 @@ void DungeonWorld::LoadFeatureMeshes() {
 		return &it->second;
 	};
 
-	// Wall-feature niche panels, one per wallfeatures.cat type (its `model`.gltf),
+	// Wall-feature niche panels, one per wallfeatures.cat type (its `model`),
 	// stamped per niche edge into the wall's variant bucket so they take the wall
 	// texture (see DungeonMeshBuilder). A level references types.
 	m_nicheMeshes.clear();
@@ -648,7 +648,7 @@ DungeonWorld::MonsterKind& DungeonWorld::MonsterKindFor(const std::string& type)
 	auto it = m_monsterKinds.find(type);
 	if (it == m_monsterKinds.end()) {
 		// Resolve model + texture set through the monsters catalog; an unlisted
-		// type falls back to the old name convention (<type>.gltf).
+		// type falls back to the old name convention (<type>, as .gltf or .glb).
 		const CatalogEntry* def = m_project.monsters.Find(type);
 		const std::string file = ModelFileOf(ModelFamily::Monster, def, type);
 		const std::string tex = TextureOf(def, type);
@@ -873,7 +873,8 @@ std::vector<std::string> DungeonWorld::SpellIds() const {
 
 // Whether a monster type's model file exists on disk — the editor guards the
 // force-load (right-click → config dialog) with this so a catalog id whose
-// <model>.gltf is missing shows a warning instead of aborting in LoadModelOrDie.
+// model is installed as neither .gltf nor .glb shows a warning instead of
+// aborting in LoadModelOrDie.
 bool DungeonWorld::MonsterModelAvailable(const std::string& type) const {
 	if (m_monsterKinds.contains(type)) return true; // already loaded => present
 	return ModelFileInstalled(
@@ -1001,8 +1002,11 @@ size_t DungeonWorld::FillItemPreview(const ItemKind& kind,
 									 Vec3& fitMax, Mat4* pose) const {
 	size_t n = 0;
 	if (kind.model) { // authored model item (weapon, ...)
+		// PartMaterial: a part dressed in the item's set takes its maps as they
+		// are now. (The dialog showing these closes on a quality swap - Game::
+		// SetQuality - so a filled buffer never outlives the maps it names.)
 		for (const auto& s : kind.model->subs)
-			if (n < out.size()) out[n++] = {s.mesh.get(), s.material};
+			if (n < out.size()) out[n++] = {s.mesh.get(), PartMaterial(s)};
 		fitMin = kind.model->boundsMin;
 		fitMax = kind.model->boundsMax;
 	} else if (m_runeMesh && !out.empty()) { // rune / placeholder: the carved tablet
@@ -1056,6 +1060,41 @@ size_t DungeonWorld::ItemPreviewForType(const std::string& type,
 	// Only a type a catalog defines: ItemKindFor would mint a kind for anything.
 	if (!m_project.FindItem(type)) return 0;
 	return FillItemPreview(ItemKindFor(type), out, fitMin, fitMax, &pose);
+}
+
+std::optional<DungeonWorld::ItemModelLook> DungeonWorld::DescribeItemModel(
+	const std::string& type) {
+	// Only a type a catalog defines: ItemKindFor would mint a kind for anything.
+	if (!m_project.FindItem(type)) return std::nullopt;
+	const ItemKind& kind = ItemKindFor(type);
+	if (!kind.model) return std::nullopt;
+	ItemModelLook look;
+	look.set = kind.modelSet;
+	look.parts = kind.model->subs.size();
+	// One word for an albedo a part was HANDED, against its set's as it is now.
+	// The handed pointer is only compared - it may name a texture a quality swap
+	// has freed - and the size is read off the set's own, live one.
+	auto word = [](const gfx::Texture* handed, const PropTextures& set) {
+		const gfx::Texture* now = set.albedo.get();
+		if (!handed) return std::string("none");
+		if (handed != now) return std::string("stale");
+		return std::format("{}x{}", now->Width(), now->Height());
+	};
+	// What FillItemPreview hands the details dialog, part for part.
+	std::array<gfx::PreviewSubmesh, 16> preview{};
+	Vec3 fitMin, fitMax;
+	const size_t previewed = FillItemPreview(kind, preview, fitMin, fitMax);
+	for (size_t i = 0; i < kind.model->subs.size(); ++i) {
+		const MultiMaterialModel::Sub& sub = kind.model->subs[i];
+		if (!sub.set || look.wears++ > 0) continue; // the first dressed part speaks
+		// What the last rendered frame's draws handed it (DrawPart's stamp) -
+		// never a material worked out here, which would agree with PartMaterial
+		// whatever a draw site passed.
+		if (m_drawFrame != 0 && sub.drewFrame == m_drawFrame)
+			look.drawn = word(sub.drewAlbedo, *sub.set);
+		if (i < previewed) look.previewed = word(preview[i].material.albedo, *sub.set);
+	}
+	return look;
 }
 
 bool DungeonWorld::ItemDetailsFor(const std::string& type, ItemDetails& out) {
@@ -1551,12 +1590,23 @@ DungeonWorld::ItemKind& DungeonWorld::ItemKindFor(const std::string& type) {
 		if (const Vec3* tint = FlameTintOf(*kind)) kind->throwPayload.tint = *tint;
 		// Authored model (catalog `model`): the item draws as this 3D model on the
 		// floor and its baked render becomes the icon/cursor. null = the tablet+tint
-		// placeholder. Items ship as embedded-texture multi-material .glb.
+		// placeholder. The bought items are embedded-texture multi-material .glb; an
+		// editor import is a .gltf, which loads as well (ModelFileOf takes the
+		// extension that is installed - code-review C301).
 		if (const std::string file = ModelFileOf(ModelFamily::Item, def, type); !file.empty()) {
 			// The file's meshes + textures are shared (an enchanted blade and its
 			// plain twin, five armours on one model); the materials are this
 			// kind's own copy, so its overrides touch nothing else.
 			kind->model = ModelMulti(file);
+			// THE ENTRY'S OWN SET (`texture`, which an import writes beside the
+			// model it made): bound by the rule the asset picker shows it with.
+			// It was never read, so an imported weapon - a mesh with no image of
+			// its own - drew WHITE. Before the material overrides, which apply on
+			// top of it as they do on a prop; before the liquid, which is no part
+			// of the file and wears no set.
+			kind->modelSet = CatalogGet(def, "texture", "");
+			if (!kind->modelSet.empty())
+				WearModelSet(*kind->model, LoadPropTextures(kind->modelSet), file);
 			BakeCatalogMaterial(*kind->model, def); // dialog material overrides
 			if (def) AddLiquid(*kind, *def, file);
 		}
@@ -1994,6 +2044,53 @@ void DungeonWorld::BakeCatalogMaterial(MultiMaterialModel& model,
 	}
 }
 
+// --- a catalog set on a multi-material model (code-review C301) --------------
+bool DungeonWorld::SetDressesWholeModel(size_t parts, std::string_view file) {
+	// A single-primitive .gltf is what an editor import writes - one merged mesh
+	// whose look IS the set imported beside it - and what the world's single-mesh
+	// prop draw binds a set over outright. A .glb, or a model of many parts, wears
+	// its own materials (the bought packs) and the set only fills a bare part.
+	return parts == 1 && file.ends_with(".gltf");
+}
+
+void DungeonWorld::WearModelSet(MultiMaterialModel& model, const PropTextures* set,
+								std::string_view file) {
+	if (!set) return; // a set not installed (warned by LoadPropTextures), or "none"
+	const bool whole = SetDressesWholeModel(model.subs.size(), file);
+	for (MultiMaterialModel::Sub& sub : model.subs) {
+		if (whole) {
+			// A fresh material, as the single-mesh draw builds it: the set and
+			// none of the file's factors. The culling stays the file's.
+			gfx::MaterialParams m;
+			m.doubleSided = sub.material.doubleSided;
+			ApplyPropMaterial(m, set, {1.0f, 1.0f, 1.0f, 1.0f}, 0.9f);
+			sub.material = m;
+		} else if (!sub.material.albedo) {
+			ApplyPropMaterial(sub.material, set, sub.material.baseColor, sub.material.roughness);
+		} else {
+			continue; // painted by the file itself
+		}
+		// The maps are looked up as the part draws (PartMaterial), never kept
+		// here: a quality swap frees them, and one left here would outlive them.
+		sub.material.albedo = nullptr;
+		sub.material.normalMap = nullptr;
+		sub.material.metalRough = nullptr;
+		sub.set = set;
+	}
+}
+
+gfx::MaterialParams DungeonWorld::PartMaterial(const MultiMaterialModel::Sub& sub) {
+	gfx::MaterialParams m = sub.material;
+	if (sub.set) {
+		// The set's maps as they are NOW - after a quality swap, the reloaded
+		// ones. Null (the files vanished) leaves the part its flat colour.
+		m.albedo = sub.set->albedo.get();
+		m.normalMap = sub.set->normal.get();
+		m.metalRough = sub.set->mr.get();
+	}
+	return m;
+}
+
 // Builds an authored model's own GPU resources: one texture per embedded glTF
 // image (base-color maps sRGB, normal/MR linear) and one submesh per primitive,
 // each with a MaterialParams resolved from its glTF material. Lets a bought
@@ -2107,17 +2204,19 @@ static float ModelOriginRadius(const assets::ModelData& model) {
 }
 
 // Each decoration type resolves through the decorations catalog: its model
-// (assets/models/<model>.gltf), its texture set (procedural props share a
-// dungeon-stone/wood-plank set, authored imports carry their own), whether it is
-// back-face culled (authored), and whether a floor-standing instance blocks the
-// party (passages like the archway don't). An unlisted type falls back to the
-// old convention: same-named model + set, authored, solid.
+// (assets/models/<model>, as .gltf or .glb - ModelFileOf), its texture set
+// (procedural props share a dungeon-stone/wood-plank set, authored imports carry
+// their own), whether it is back-face culled (authored), and whether a
+// floor-standing instance blocks the party (passages like the archway don't). An
+// unlisted type falls back to the old convention: same-named model + set,
+// authored, solid.
 DungeonWorld::DecorationKind& DungeonWorld::DecorationKindFor(const std::string& type,
 															 const Catalog& catalog) {
 	auto it = m_decorationKinds.find(type);
 	if (it == m_decorationKinds.end()) {
 		const CatalogEntry* def = catalog.Find(type);
-		// .glb for a `multimaterial` entry, .gltf otherwise - ModelFileOf's rule.
+		// Whichever of .gltf / .glb is installed, the .glb first for a
+		// `multimaterial` entry - ModelFileOf's rule (code-review C301).
 		const std::string file = ModelFileOf(ModelFamily::Prop, def, type);
 		const std::string tex = TextureOf(def, type);
 		auto kind = std::make_unique<DecorationKind>();

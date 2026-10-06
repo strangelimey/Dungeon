@@ -452,6 +452,24 @@ void Game::WireModuleCallbacks() {
 	m_assetDialog.installedRefusal = [this](const std::string& key, const std::string& asset) {
 		return AdoptSurfaceSet(key, asset).refusal;
 	};
+	// A MODEL pick, judged by what the type it makes would load (code-review
+	// C301): "Use installed" binds the picked name, a Duplicate copies its source
+	// whole. The rule is UnloadableModelReason's; CreateCatalogEntry asks it
+	// again of the entry it builds.
+	m_assetDialog.modelRefusal = [this](const std::string& key, AssetDialog::Source source,
+										const std::string& asset) {
+		CatalogEntry e;
+		if (source == AssetDialog::Source::Duplicate) {
+			const Catalog* cat = m_project.CatalogForKey(key);
+			const CatalogEntry* src = cat ? cat->Find(asset) : nullptr;
+			if (!src) return std::string(); // Validate already says there is no source
+			e = *src;
+		} else {
+			e.id = asset;
+			e.Set("model", asset);
+		}
+		return UnloadableModelReason(key, e);
+	};
 	// Create runs AssetBaker on the picked source (P4c); the dialog stays open in
 	// a "baking…" state until Update sees the subprocess finish.
 	m_assetDialog.onCreate = [this](const AssetDialog::CreateRequest& req) {
@@ -478,7 +496,10 @@ void Game::WireModuleCallbacks() {
 			needsWornBake = adopt.bake;
 		}
 		if (!req.NeedsBake() && !needsWornBake) {
-			CreateCatalogEntry(req);
+			// Refused (a model the category could not load, C301): the form
+			// stays open saying why, as for the surface check above.
+			if (const std::string refused = CreateCatalogEntry(req); !refused.empty())
+				m_assetDialog.SetError(refused);
 			return;
 		}
 		m_bakeReq = req;
@@ -604,7 +625,16 @@ void Game::WireModuleCallbacks() {
 	};
 	// Save: merge the touched fields into the catalog, then apply. A surface
 	// whose look changed needs its worn meshes re-baked before it shows.
-	m_typeDialog.onSave = [this](const TypeEditorDialog::Config& cfg) {
+	m_typeDialog.onSave = [this](const TypeEditorDialog::Config& cfg) -> std::string {
+		// A MODEL THE CATEGORY CANNOT LOAD is refused before anything is written
+		// (code-review C301): the reload below - or the next level load - opens
+		// it through LoadModelOrDie. The entry is judged as the Save would write
+		// it, so a model cleared back to the id, or never fixed, counts as well.
+		if (const std::string why = UnloadableModelReason(cfg.catalogKey, MergedTypeEntry(cfg));
+			!why.empty()) {
+			log::Warn("type editor: save of {} '{}' refused: {}", cfg.catalogKey, cfg.id, why);
+			return why;
+		}
 		WriteTypeFields(cfg);
 		if (!cfg.rebake) {
 			// Nothing BAKED is stale, so the change can just take effect. A
@@ -640,7 +670,7 @@ void Game::WireModuleCallbacks() {
 			}
 			if (m_world->onMessage)
 				m_world->onMessage(loc::FormatLine("map.type.saved", cfg.id));
-			return;
+			return std::string();
 		}
 		const CatalogEntry* e = m_project.CatalogForKey(cfg.catalogKey)
 									? m_project.CatalogForKey(cfg.catalogKey)->Find(cfg.id)
@@ -652,6 +682,7 @@ void Game::WireModuleCallbacks() {
 						 e ? e->GetFloat("wear", 1.0f) : 1.0f,
 						 e ? e->GetFloat("relief", -1.0f) : -1.0f);
 		if (m_restyleBake) m_typeDialog.SetBusy(true); // bake launched
+		return std::string();
 	};
 	// A `texture` / `model` field opens the POOL BROWSER rather than a dropdown.
 	// The picker knows nothing about catalogs: it is handed the current value and
