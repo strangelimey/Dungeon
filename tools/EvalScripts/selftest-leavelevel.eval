@@ -1,0 +1,41 @@
+; selftest-leavelevel.eval - handed to the runner by `Eval.ps1 -SelfTest`, FIRST
+; in a batch with resettest.eval; must PASS, and must leave the party OFF the
+; harness level for the reset that follows it.
+;
+; THE RESET HAD NO LEVEL TO COME BACK FROM (code-review C300). `reset` re-read
+; whatever level the party stood on, so a suite batched after this one ran on
+; whatever this one left - and an ambush leaves "~encounter", which has no file:
+; the re-read hit the map loader's assert and the run died on a CRT dialog. It
+; now goes back to the harness level by a real load, and resettest.eval's blocks
+; after it must match its solo run's line for line.
+;
+; Every way off the level the harness has, in one walk: `goto` (a real level
+; change, which STASHES the level left behind), out of that dungeon onto the
+; world map (which PARKS the one walked out of), and an ambush on the road (which
+; REPLACES the level under the world map with a generated one). Then out of the
+; ambush too, so the current level is "~encounter" and the party is on the world
+; map - the exact shape the issue reproduced. The reset must forget all of it:
+; the stash, the parked level, the encounter.
+;
+; THE HARNESS LEVEL IS CARVED BEFORE IT IS LEFT, so its stash is NOT its file. A
+; level load takes a stash over the file, and the switch back is a level load:
+; if the reset kept the stashes, resettest.eval's first baseline would come up
+; in this arena (its `mapinfo` line differs) instead of the authored level. Left
+; uncarved, the stash equals the file and that leak would read as identical.
+; The `stashed` line of the last `transients` below names every level held, and
+; the self-test demands the harness level among them - something to forget.
+logecho on
+reset
+seed 3
+arena open 9 9
+goto crypt1
+transients
+leave
+worldpos 6 6
+encounter
+leave
+state
+; The level this leaves behind, named - the self-test reads this line to know
+; the batch really did start resettest.eval somewhere else, and its `stashed`
+; line to know there was something for the reset to forget.
+transients

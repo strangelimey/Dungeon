@@ -567,8 +567,18 @@ Key conventions (memorize, they bite):
   calls — a specific test opens with it, a PROGRESSION series deliberately does
   not and inherits the last one's party. Its definition is "where a new game
   would leave it" BECAUSE that can be tested: `Eval.ps1 -SelfTest` diffs a
-  baseline taken after a real load against one after a reset, and also checks a
-  batched suite matches a solo one. TRAPS, all found the hard way: the first
+  baseline taken after a real load against one after a reset (both print
+  `transients`: blasts, breaks, the fall, the cursor, undo, other levels'
+  stashes, rest, the throw and kindle clocks - what a reset must clear that no
+  other readout shows), and also checks a batched suite matches a solo one. A
+  reset goes back to the HARNESS LEVEL (`eval_level`, else the first level:
+  `Game::HarnessLevel`), by a real staged load when the party is anywhere else
+  (a `goto`, the world map, an ambush's `~encounter`, which has no file and used
+  to assert), and forgets every other level's stash and the undo history
+  (code-review C300; the self-test batches selftest-leavelevel.eval - which
+  CARVES the harness level before leaving, so a kept stash would differ from
+  the file - ahead of resettest.eval and demands the solo run's blocks). TRAPS,
+  all found the hard way: the first
   reset skipped the MAP and the equivalence test passed anyway (nothing it
   printed showed geometry — `mapinfo`'s walkable count is now the only readout
   that can see an arena); `ReadEvalLines` APPENDS, so a batch re-ran every
@@ -594,7 +604,8 @@ Key conventions (memorize, they bite):
   the party's own swings - -Swing, -OnHitTypo; `fumble` loads the next party
   swing to fumble without a roll, PartyAttack's one branch; wholeSteps is
   `frames ... whole`, a frame's dt taken as ONE step), each reading
-  `m_harness.x` so it says what it is; `ResetForEval` is `m_harness = {}`. The
+  `m_harness.x` so it says what it is; a reset is `m_harness = {}` (in
+  `ResetEvalTransients`, which both of `reset`'s paths call). The
   script runner is its own TU, `Game_Eval.cpp`. Headless is one branch in Main.
   NOT harness machinery despite appearances: lockstep AI (SetResting uses it —
   rest runs the world at 60x and lockstep makes the fast-forward honest), the dev

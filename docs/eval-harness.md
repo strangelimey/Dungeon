@@ -712,6 +712,48 @@ This harness lost twelve ladder rungs to that exact shape once already.
 last two are the ones that keep the speedup honest — mutation-checked by dropping
 the map restore, which they catch.
 
+### A reset goes back to the harness level (code-review C300)
+
+The fourth defect, and the same shape as the first: `reset` re-read the level
+the party stood ON. Every suite in `Eval.ps1`'s own list stays on the harness
+level, so nothing there could see it; but a suite batched after one that moved
+(levelplay.eval plays a generated level and goes to crypt1) ran the next suite on
+crypt1 and measured another world, and after an ambush the current level is
+`~encounter`, which exists only in memory - the re-read hit the map loader's
+assert and the run died. worldpersist.eval's "loaded over another level" case was
+quietly loading over the same one.
+
+A reset now goes where a new game goes: the manifest's `eval_level`, else the
+first level (`Game::HarnessLevel`, which `StartNewGame`'s harness branch asks
+too). On that level it recycles in place as before. Anywhere else it clears what
+no level file puts back (`DungeonWorld::ResetEvalTransients`: blasts, the fixture
+damage table, a fall mid-plunge, the harness's modes, rest, the throw and kindle
+clocks) and starts a new game through the menu callback, whose staged load takes
+the party there - `reset: switched in N ms (from X to Y, by a level load)`. The
+console stays gated until the load lands, so the script's next line waits for
+free. Either way it forgets every other level's stash and the undo history. A
+harness level with no file (a `~` stem, a typo in the manifest) is REFUSED with a
+log line rather than handed to the loader.
+
+Two checks hold it. `-SelfTest` runs resettest.eval batched after
+selftest-leavelevel.eval, which CARVES the harness level (`arena`) and then walks
+off it every way there is (a `goto`, the world map, an ambush), ending above
+`~encounter`; both of resettest's blocks must match its solo run's. The carve is
+what makes the stash half checkable: a level load takes a stash over the file,
+so a reset that kept the stashes would bring the arena back into baseline A's
+`mapinfo` - where an uncarved stash equals the file and the leak reads as
+identical (a review caught exactly that). The self-test also demands the first
+script's last `transients` NAME the harness level among the stashes, so there
+was something to forget. And both blocks now print **`transients`**: live
+blasts and monster effects, broken fixtures / decorations / doors, the pending
+fall and the cursor's item, undo depth, the other levels still held (`stashed
+maps= ents= states= levels=`), rest and lockstep, the throw cooldowns and the
+kindle clock - what a reset must clear and no other readout shows. It is the
+judge for the reset leaks code-review batches 77-79 close, each of which injects
+its leak into the wrecking. Its first run caught one with nothing injected: the
+kindle clock runs every frame, so a reset handed the next test whatever phase
+the last one ended on (0.100 against a new game's 0.250).
+
 ## What the harness costs the shipping code (audited 2026-08-15)
 
 Michael's review question was the right one: *is this magic flags and special
@@ -738,7 +780,8 @@ repel` does, for `AllocTest.ps1 -Burst`), the shot-at-the-party counts in
 queued steps, and one test in `AdvanceSimulation` (`wholeSteps`: `frames ...
 whole` takes each frame's dt as one step, code-review C48). Every one of them
 reads `m_harness.something` and says what it is.
-`ResetForEval` is `m_harness = {}`, so a field added to the struct is reset for
+A reset is `m_harness = {}` (in `ResetEvalTransients`, which both of its paths
+call), so a field added to the struct is reset for
 free — the four loose bools this replaced were four chances to forget one.
 
 **The script runner is its own TU**, `Game_Eval.cpp`: `PumpEvalScript`,

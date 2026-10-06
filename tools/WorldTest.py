@@ -1171,6 +1171,15 @@ try:
     for name in ("loaded over the same level", "loaded over another level"):
         check("state worldmap" in sections.get(name, ""),
               f"a save made on the world map loads ONTO the world map ({name})")
+    # THE OTHER LEVEL REALLY IS ANOTHER ONE (code-review C300). The party is in
+    # crypt1 when the script resets, and `reset` used to re-read the level it
+    # found - so the second load ran over crypt1 again and took the same-level
+    # branch twice. The reset goes back to the harness level now; its
+    # `transients` readout names where it landed.
+    landed = re.search(r"transients on (\S+)", sections.get("reset onto another level", ""))
+    check(landed is not None and landed.group(1) != "crypt1",
+          "the reset before the second load left crypt1 for another level",
+          f"reset onto {landed.group(1) if landed else None}")
     check("one-pipeline violation" not in log,
           "and no monster's health moved outside the pipeline on the way")
     check("eval RESULT=PASS script=worldpersist.eval" in log, "the script ran clean")

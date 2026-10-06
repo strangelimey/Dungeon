@@ -148,25 +148,81 @@ void Game::RegisterEvalCommands() {
 						.group = CmdGroup::Simulation,
 						.summary = "recycle the world to a new-game baseline without a reload"},
 					   [this](const std::vector<std::string>&) {
-						   const bool fresh = !m_gameLoaded;
 						   // TIMED, because the whole justification is the number:
 						   // a level load is ~12000 ms and a run of hundreds of
 						   // tests cannot pay it each time. If this ever creeps
 						   // toward that, the recycling has stopped being worth
 						   // its own risk and the reader should be able to see so.
+						   // (A cold load and a switch only STAGE their load here;
+						   // their time is the load table's, not this line's.)
 						   const auto t0 = std::chrono::steady_clock::now();
-						   if (!ResetForEval()) {
-							   m_console.Refuse("reset: not wired yet");
+						   std::string detail;
+						   const EvalReset how = ResetForEval(detail);
+						   if (how == EvalReset::Refused) {
+							   m_console.Refuse("reset: " + detail);
 							   return;
 						   }
 						   const double ms =
 							   std::chrono::duration<double, std::milli>(
 								   std::chrono::steady_clock::now() - t0)
 								   .count();
-						   m_console.Print(
-							   fresh ? std::format("reset: loaded in {:.0f} ms "
-												   "(nothing to recycle yet)", ms)
-									 : std::format("reset: recycled in {:.0f} ms", ms));
+						   switch (how) {
+						   case EvalReset::Loaded:
+							   m_console.Print(std::format(
+								   "reset: loaded in {:.0f} ms (nothing to recycle yet)", ms));
+							   break;
+						   case EvalReset::Switched:
+							   // SAID, because a batch whose next suite silently
+							   // moved level is the defect this path exists for
+							   // (C300); Eval.ps1 -SelfTest looks for this line.
+							   m_console.Print(std::format(
+								   "reset: switched in {:.0f} ms (from {} to {}, by a "
+								   "level load)", ms, detail, HarnessLevel()));
+							   break;
+						   default:
+							   m_console.Print(std::format("reset: recycled in {:.0f} ms", ms));
+							   break;
+						   }
+					   });
+
+	// WHAT A RESET IS SUPPOSED TO HAVE CLEARED, counted (code-review batch 12).
+	// resettest.eval prints it in both baselines, so a leak shows up as a line
+	// that differs between them; batches 77-79 each inject one and close it.
+	// Nothing here is a measurement - a number that is not zero after `reset`
+	// is a reset bug, not a balance figure.
+	m_console.Register({.name = "transients",
+						.group = CmdGroup::Simulation,
+						.summary = "print the transient state a reset must clear"},
+					   [this](const std::vector<std::string>&) {
+						   const DungeonWorld::TransientReport t = m_world->Transients();
+						   m_console.Print(std::format("transients on {}", m_world->CurrentLevel()));
+						   m_console.Print(std::format(
+							   "  blasts={} monster_effects={} on {} monster(s)", t.blasts,
+							   t.monsterEffects, t.monstersAffected));
+						   m_console.Print(std::format(
+							   "  broken fixtures={} decorations={} doors={}  hurt={} "
+							   "piece_effects={}",
+							   t.brokenFixtures, t.brokenDecorations, t.brokenDoors,
+							   t.hurtPieces, t.pieceEffects));
+						   m_console.Print(std::format(
+							   "  fall={} fell={} fallT={:.2f} cursor={}",
+							   t.fallPending ? "pending" : "none", t.fellPending ? 1 : 0,
+							   t.fallT,
+							   m_heldItem ? ItemToken(*m_heldItem, m_heldItem.Charge())
+										  : std::string("none")));
+						   m_console.Print(std::format(
+							   "  undo={} redo={} resting={} lockstep={}", t.undo, t.redo,
+							   t.resting ? "on" : "off", t.lockstep ? "on" : "off"));
+						   // Other levels' stashes (C300: a reset forgets them).
+						   // Eval.ps1 -SelfTest reads this line BEFORE a reset too,
+						   // to know the batch left something to forget.
+						   m_console.Print(std::format(
+							   "  stashed maps={} ents={} states={} levels={}", t.stashedMaps,
+							   t.stashedEnts, t.stashedStates, t.stashedLevels));
+						   m_console.Print(std::format(
+							   "  throw={:.2f},{:.2f},{:.2f},{:.2f} kindle={:.3f}",
+							   t.throwCooldown[0], t.throwCooldown[1], t.throwCooldown[2],
+							   t.throwCooldown[3], t.kindleClock));
 					   });
 
 	// --- the arena (docs/eval-harness.md) -----------------------------------

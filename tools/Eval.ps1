@@ -57,7 +57,12 @@
 # each fail on exactly its own counter while a refused probe passes. A second
 # batch, with an unreadable script in the middle, must count that gap once, and
 # its two scripts must show a step stopping at a party wipe (the tally's clock
-# with it) and a console-thrown torch landing with the charge it had.
+# with it) and a console-thrown torch landing with the charge it had. A reset
+# must equal a new game twice over: resettest.eval's two baselines (each with the
+# `transients` readout) match each other alone, and match again when the script
+# runs batched after selftest-leavelevel.eval, which carves the harness level and
+# leaves the party off it - the reset must come back to it and forget the carved
+# stash, which that script must be seen holding (code-review C300).
 #
 # ASCII ONLY: PS 5.1 reads a BOM-less .ps1 as ANSI.
 # ============================================================================
@@ -124,6 +129,34 @@ function SaveTranscript {
 function ReadLog {
 	if (-not (Test-Path $log)) { return @() }
 	@(Get-Content $log -Encoding UTF8)
+}
+
+# resettest.eval's two baselines out of a log: every console readout between
+# its `=== BASELINE A` / `=== BASELINE B` markers, never the echoed commands that
+# produced them, and nothing from the wrecking in between. Lists, so a block of
+# one line is still a list (PowerShell unrolls a bare array on the way out).
+function Get-ResetBlocks([string[]]$lines) {
+	$a = New-Object System.Collections.Generic.List[string]
+	$b = New-Object System.Collections.Generic.List[string]
+	$which = $null
+	foreach ($line in $lines) {
+		if ($line -match 'console: === BASELINE A') { $which = $a; continue }
+		if ($line -match 'console: === BASELINE B') { $which = $b; continue }
+		if ($line -match 'console: === wrecking')   { $which = $null; continue }
+		if ($null -ne $which -and $line -match '^\[info \] console: (?!> )(.+)$') {
+			$which.Add($Matches[1])
+		}
+	}
+	return @{ A = $a; B = $b }
+}
+
+# '' when two blocks match line for line, else what differs first.
+function Compare-Blocks($want, $got) {
+	if ($want.Count -eq 0) { return 'no baseline captured' }
+	if ($want.Count -ne $got.Count) { return "line counts differ ($($want.Count) vs $($got.Count))" }
+	$bad = @(0..($want.Count - 1) | Where-Object { $want[$_] -cne $got[$_] })
+	if ($bad.Count) { return "$($bad.Count) line(s) differ, first: '$($want[$bad[0]])' vs '$($got[$bad[0]])'" }
+	return ''
 }
 
 # One game run for the self-test's comparisons, with the log DELETED first: a
@@ -400,27 +433,89 @@ if ($SelfTest) {
 	Write-Host ''
 	Write-Host '=== reset must equal a new game ==='
 	$resetRan = Invoke-EvalRun @('-eval', (Join-Path $scripts 'resettest.eval'))
-	$rt = ReadLog
-	$blocks = @(@(), @())
-	$which = -1
-	foreach ($line in $rt) {
-		if ($line -match 'console: === BASELINE A') { $which = 0; continue }
-		if ($line -match 'console: === BASELINE B') { $which = 1; continue }
-		if ($line -match 'console: === wrecking')   { $which = -1; continue }
-		# Only the readouts, never the echoed commands that produced them.
-		if ($which -ge 0 -and $line -match '^\[info \] console: (?!> )(.+)$') {
-			$blocks[$which] += $Matches[1]
+	$solo = Get-ResetBlocks @(ReadLog)
+	$diff = Compare-Blocks $solo.A $solo.B
+	# Both baselines carry the `transients` readout (code-review batch 12): what a
+	# reset must clear that no other line shows. Demanded, so a resettest.eval
+	# that lost it cannot go on comparing blocks blind to the leaks it is for.
+	$hasTransients = [bool](@($solo.A | Where-Object { $_ -cmatch '^transients on \S+$' }).Count)
+	if ($diff -eq '' -and -not $hasTransients) { $diff = 'no transients readout in the baseline' }
+	$resetOk = $resetRan -and ($diff -eq '')
+	Write-Host ("  {0} baseline lines compared - {1}" -f $solo.A.Count,
+		$(if ($resetOk) { 'identical' } else { $diff }))
+
+	# --- ...and a reset from ANOTHER LEVEL is the same reset ------------------
+	# code-review C300. `reset` re-read whatever level it found, so a suite
+	# batched after one that left the harness level ran somewhere else - and an
+	# ambush leaves "~encounter", which has no file: the re-read hit the map
+	# loader's assert and the run died. selftest-leavelevel.eval walks off the
+	# level every way the harness can (a goto, the world map, an ambush) and
+	# ends on the world map above the encounter; resettest.eval after it in ONE
+	# batch must then print the solo run's blocks line for line - BOTH of them,
+	# since its first reset is now the switch back and its second a recycle.
+	# HEADLESS, because the defect this exists for is an ASSERT: a windowed debug
+	# game parks on its CRT dialog and the self-test waits forever, where a
+	# headless one records the FATAL, dumps and exits (crash::SetUnattended), and
+	# the run reads as not finished. (Headless against windowed changes nothing;
+	# the check below that says so runs every time.)
+	Write-Host ''
+	Write-Host '=== a reset from another level must match a solo run ==='
+	$awayRan = Invoke-EvalRun @('-headless', '-eval', (Join-Path $scripts 'selftest-leavelevel.eval'),
+		(Join-Path $scripts 'resettest.eval'))
+	$al = @(ReadLog)
+	$al | Where-Object { $_ -cmatch 'FATAL' } | Select-Object -First 1 |
+		ForEach-Object { Write-Host ("  {0}" -f $_) -ForegroundColor Red }
+	$away = Get-ResetBlocks $al
+	$awayA = Compare-Blocks $solo.A $away.A
+	$awayB = Compare-Blocks $solo.B $away.B
+	$switchLine = @($al | Where-Object { $_ -cmatch '^\[info \] console: reset: switched in \d+ ms \(from ~encounter to ' })
+	# WHAT THE RESET HAD TO FORGET. The first script carves the harness level
+	# before it leaves, and its last `transients` names every level still held
+	# in memory; the harness level must be among them. A level load takes a
+	# stash over the file, so a reset that kept the stashes would bring the
+	# carved arena back into baseline A (and its `stashed` line would not read
+	# none) - but only if there WAS a stash, which is what this demands.
+	$ground = ''
+	if ($switchLine.Count -and $switchLine[0] -cmatch ' to (\S+), by a level load\)$') { $ground = $Matches[1] }
+	$endIdx = -1
+	for ($i = 0; $i -lt $al.Count; $i++) {
+		if ($al[$i] -cmatch '^\[info \] console: transients on ~encounter$') { $endIdx = $i }
+	}
+	$leftLine = ''
+	if ($endIdx -ge 0) {
+		for ($i = $endIdx + 1; $i -lt $al.Count; $i++) {
+			if ($al[$i] -cmatch '^\[info \] console:   stashed maps=') { $leftLine = $al[$i]; break }
 		}
 	}
-	$diff = if ($blocks[0].Count -eq 0) { 'no baseline captured' }
-			elseif ($blocks[0].Count -ne $blocks[1].Count) { "line counts differ ($($blocks[0].Count) vs $($blocks[1].Count))" }
-			else {
-				$bad = @(0..($blocks[0].Count - 1) | Where-Object { $blocks[0][$_] -cne $blocks[1][$_] })
-				if ($bad.Count) { "$($bad.Count) line(s) differ, first: '$($blocks[0][$bad[0]])' vs '$($blocks[1][$bad[0]])'" } else { '' }
-			}
-	$resetOk = $resetRan -and ($diff -eq '')
-	Write-Host ("  {0} baseline lines compared - {1}" -f $blocks[0].Count,
-		$(if ($resetOk) { 'identical' } else { $diff }))
+	$leftLevels = @()
+	if ($leftLine -cmatch ' levels=(.+)$') { $leftLevels = @($Matches[1] -split ' ') }
+	$awayChecks = @(
+		@{ what = 'the first script ended off the level'
+		   ok = [bool](@($al | Where-Object { $_ -cmatch '^\[info \] console: transients on ~encounter$' }).Count) -and
+				[bool](@($al | Where-Object { $_ -cmatch 'eval RESULT=PASS script=selftest-leavelevel\.eval ' }).Count)
+		   got = 'no PASS ending on ~encounter' },
+		@{ what = '...holding the harness level stashed'
+		   ok = ($ground -ne '') -and ($leftLevels -ccontains $ground)
+		   got = "harness level '$ground', $(if ($leftLine) { "'$($leftLine -replace '^\[info \] console:\s+', '')'" } else { 'no stashed line' })" },
+		@{ what = 'the reset after it went back by a load'
+		   ok = [bool]$switchLine.Count
+		   got = 'no "reset: switched ... from ~encounter" line' },
+		@{ what = 'its baseline A matches the solo run'
+		   ok = ($awayA -eq '')
+		   got = $awayA },
+		@{ what = 'its baseline B matches the solo run'
+		   ok = ($awayB -eq '')
+		   got = $awayB },
+		@{ what = 'the batch counts scripts=2 failed=0'
+		   ok = [bool](@($al | Where-Object { $_ -cmatch 'eval BATCH RESULT=PASS scripts=2 failed=0$' }).Count)
+		   got = "$(@($al | Where-Object { $_ -match 'eval BATCH RESULT=' }) -join ' | ')" }
+	)
+	$awayOk = $awayRan
+	foreach ($c in $awayChecks) {
+		Write-Host ("  {0,-42} {1}" -f $c.what, $(if ($c.ok) { 'ok' } else { "FAIL - $($c.got)" })) `
+			-ForegroundColor $(if ($c.ok) { 'Gray' } else { 'Red' })
+		if (-not $c.ok) { $awayOk = $false }
+	}
 
 	# --- and BATCHING changes nothing ----------------------------------------
 	# A suite must measure the same thing whether it ran alone or after another.
@@ -645,10 +740,10 @@ if ($SelfTest) {
 		else { [IO.File]::WriteAllText($ini, $iniBefore) }
 	}
 
-	$ok = ($p.ExitCode -eq 1) -and ($q.ExitCode -eq 2) -and $declineOk -and $gapOk -and $resetOk -and $batchOk -and $headOk -and $respondOk -and $guardOk -and $hiddenOk
+	$ok = ($p.ExitCode -eq 1) -and ($q.ExitCode -eq 2) -and $declineOk -and $gapOk -and $resetOk -and $awayOk -and $batchOk -and $headOk -and $respondOk -and $guardOk -and $hiddenOk
 	Write-Host ''
 	Write-Host ("eval RESULT={0} self_test=1" -f $(if ($ok) { 'PASS' } else { 'FAIL' }))
-	if ($ok) { Write-Host 'the runner reports both failures, counts a declined line and holds a probe to its refusal, stops the clock at a wipe, counts a gap in a batch once, recycling and headless change nothing, the numbers still move, and a second or killed run does not count' }
+	if ($ok) { Write-Host 'the runner reports both failures, counts a declined line and holds a probe to its refusal, stops the clock at a wipe, counts a gap in a batch once, recycling (from any level) and headless change nothing, the numbers still move, and a second or killed run does not count' }
 	else { Write-Host 'A RUNNER THAT CANNOT FAIL MEANS NOTHING' -ForegroundColor Red }
 	exit $(if ($ok) { 0 } else { 1 })
 }

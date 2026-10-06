@@ -92,13 +92,15 @@ castsvc floor
 ; Leave crypt1 with its torch still out (splash-walltorch), so the level is
 ; STASHED doused; a new game must find it lit again (it once came back out - the
 ; stash kept the flag). Before any save or load: this exact order is the one that
-; showed it.
+; showed it. A real `newgame`, not `reset`: a reset forgets every stash
+; (code-review C300), so it would read crypt1 from its file and never reach the
+; stash this guards - a new game in a running world keeps it.
 echo === newgame-relights ===
 tp 4 3
 face n
 castsvc fire
 goto eval_arena
-reset
+newgame
 goto crypt1
 tp 4 3
 face n
@@ -130,7 +132,7 @@ cast 2 0 air
 monsters
 
 ; --- MEMORIZE: offered only for a rune its holder does not know ----------------
-; The reset above handed Maren her kit: Ingwaz in pack slot 0, Hagalaz in 1. The
+; The new game above handed Maren her kit: Ingwaz in pack slot 0, Hagalaz in 1. The
 ; details dialog's button learns Ingwaz and spends it; a second Ingwaz then offers
 ; no button and stays in the pack; the dialog opened on no one's item has none.
 
@@ -151,7 +153,7 @@ itemdetails off
 
 ; --- THE GRAMMAR: school, form, then one modifier ------------------------------
 
-; The reset above forgot every rune Maren learned, so the rest relearn them.
+; The new game above forgot every rune Maren learned, so the rest relearn them.
 echo === grammar ===
 learn 2 fire
 learn 2 earth

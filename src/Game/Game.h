@@ -894,8 +894,15 @@ private:
 	// Put the game where `newgame` would, WITHOUT the level load — the eval
 	// harness's world recycling (docs/eval-harness.md). Falls back to a real new
 	// game when nothing is loaded yet, so a batch's FIRST script pays the twelve
-	// seconds and none of the rest do.
-	bool ResetForEval();
+	// seconds and none of the rest do. A party left on ANOTHER level (a `goto`, a
+	// world-map trip, an encounter) goes back to the harness level by a real
+	// staged load, as a new game would take it there (code-review C300).
+	// `detail` is the refusal's reason, or which level a switch came from.
+	enum class EvalReset { Refused, Loaded, Recycled, Switched };
+	EvalReset ResetForEval(std::string& detail);
+	// The level a harness new game opens in: the manifest's eval_level, else the
+	// first level - StartNewGame's harness branch and `reset` both ask this.
+	std::string HarnessLevel() const;
 	// Pushes the settings' per-slot identity colors (member_<n>=, Settings →
 	// UI pickers) onto the roster; call whenever the roster is (re)filled.
 	// The pickers also write the live roster directly while playing.

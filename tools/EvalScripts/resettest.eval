@@ -19,6 +19,12 @@
 ; something `reset` failed to put back. (The RNG seed is deliberately NOT reset —
 ; it is how a run is DRIVEN, not what the world contains — so the script reseeds
 ; either side, exactly as a real suite would.)
+;
+; `Eval.ps1 -SelfTest` runs it twice: alone, and BATCHED after
+; selftest-leavelevel.eval, which leaves the party on another level entirely (an
+; ambush's "~encounter", off the world map). Its first `reset` then has a level
+; to come BACK from, and both of its blocks must match the solo run's line for
+; line (code-review C300: the reset used to re-read whatever level it found).
 
 logecho on
 ; FROZEN BEFORE THE LOAD, not after it. Block B's reset happens at timescale 0
@@ -49,6 +55,13 @@ char 0
 ; probes above would show any of that. `mapinfo` prints the counts, and a
 ; walkability sample proves the CELLS came back and not just the records.
 mapinfo
+; WHAT A RESET MUST CLEAR AND NO OTHER READOUT SHOWS (code-review batch 12): a
+; blast still spreading, a smashed door, a fall mid-plunge, the cursor's item,
+; the undo history, other levels' stashes, rest, the throw and kindle clocks -
+; and the level it was taken on, which is how the batched run below proves it
+; came back to the harness level. Batches 77-79 inject each leak in the
+; wrecking below.
+transients
 
 ; --- now wreck it, every way the harness can ---------------------------------
 echo === wrecking the world ===
@@ -77,6 +90,7 @@ party
 supplies
 monsters
 tally
+transients
 
 ; --- and put it back ----------------------------------------------------------
 reset
@@ -94,6 +108,7 @@ char 0
 ; probes above would show any of that. `mapinfo` prints the counts, and a
 ; walkability sample proves the CELLS came back and not just the records.
 mapinfo
+transients
 ; NOTHING after this line. The two baselines are compared line for line, so a
 ; trailing readout here would make block B one longer than block A and fail the
 ; check for a reason that has nothing to do with the reset.

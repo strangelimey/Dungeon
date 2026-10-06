@@ -614,8 +614,48 @@ public:
 	// m_partyWiped latch survived a heal and twelve rungs measured nothing.
 	//
 	// ResetForNewGame does most of it. This adds what a new game gets from the
-	// LOAD rather than from that call, plus the harness's own modes.
+	// LOAD rather than from that call, plus the harness's own modes. It re-reads
+	// the CURRENT level, so the caller (Game::ResetForEval) first makes sure the
+	// party stands on the harness level: a reset from anywhere else goes there by
+	// a real load instead (code-review C300).
 	void ResetForEval();
+	// The part of a reset NO LEVEL FILE PUTS BACK: a blast still spreading, the
+	// fixture damage table, a pit fall mid-plunge, the harness's modes, rest, the
+	// other levels' stashes and the undo history. ONE list, shared by both ways
+	// a reset goes - ResetForEval (the same level, re-read in place) and Game's
+	// switch to the harness level, where a staged level load does the rest - so
+	// the two cannot drift apart the way the level-reset paths did (C292).
+	void ResetEvalTransients();
+	// What a reset is supposed to have cleared, counted (the console's
+	// `transients`; code-review batch 12). resettest.eval prints it in both of
+	// its baselines, so each leak batches 77-79 close shows as a line that
+	// differs - and a leak nobody has injected yet reads the same either side.
+	struct TransientReport {
+		int blasts = 0;            // live blast wavefronts (m_activeBlasts)
+		int monsterEffects = 0;    // effects riding monsters, all told...
+		int monstersAffected = 0;  // ...and on how many of them
+		int brokenFixtures = 0;    // smashed sconces / braziers (m_fixtureBreaks)
+		int brokenDecorations = 0;
+		int brokenDoors = 0;
+		int hurtPieces = 0;        // breakables damaged but still standing
+		int pieceEffects = 0;      // effects riding a piece of dungeon (a door burning)
+		bool fallPending = false;  // a pit fall under way (m_pendingFall)
+		bool fellPending = false;  // the landing's bruise, latched apart from it
+		float fallT = -1.0f;       // the plunge's clock (< 0 = not plunging)
+		int undo = 0, redo = 0;    // the editor's history depth
+		// OTHER LEVELS still held in memory: static maps (m_levelMaps), .ent
+		// records (m_levelEnts) and dynamic states (m_levelStates), plus every
+		// stem any of them names, sorted. A reset forgets all three, so after
+		// one these read 0 and "none"; a leftover is a level the next script
+		// would find as the last one left it rather than as its file says.
+		int stashedMaps = 0, stashedEnts = 0, stashedStates = 0;
+		std::string stashedLevels;
+		bool resting = false;
+		bool lockstep = false;     // AI driven by sim time (rest forces it on)
+		std::array<float, 4> throwCooldown{};
+		float kindleClock = 0.0f;  // the firelight's kindling check (6d)
+	};
+	TransientReport Transients() const;
 	// --- rest (docs/health-and-healing.md "Rest is a STATE") ------------------
 	// A STATE you enter and leave, not a command with a duration (Michael's
 	// call): time runs fast until you stop it, so you watch the meters fill and

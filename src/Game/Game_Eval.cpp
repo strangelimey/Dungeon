@@ -29,12 +29,20 @@
 
 namespace dungeon::game {
 
+std::string Game::HarnessLevel() const {
+	if (!m_project.evalLevel.empty()) return m_project.evalLevel;
+	// The same fallback DungeonWorld::FirstLevel and StartNewGame's last branch
+	// use, so a world naming no harness level opens where it always did.
+	return m_project.levels.empty() ? std::string("level1") : m_project.levels.front();
+}
+
 // PUT THE GAME WHERE `newgame` WOULD, WITHOUT THE LEVEL LOAD — the world
 // recycling a long run rests on (~340 ms against ~12 s). With nothing loaded
 // yet it falls back to a REAL new game, which is what lets every script open
-// with `reset` and only the first in a batch pay. False only when it could not
-// get to a playing state at all.
-bool Game::ResetForEval() {
+// with `reset` and only the first in a batch pay. Refused only when it could
+// not get to a playing state at all.
+Game::EvalReset Game::ResetForEval(std::string& detail) {
+	detail.clear();
 	// A suite starts from the DEFAULT four, whatever a previous one built with
 	// `newparty` and never started (party creation).
 	m_startParty.reset();
@@ -47,7 +55,10 @@ bool Game::ResetForEval() {
 		// (This function reached for StartNewGame first and re-introduced it; the
 		// lesson is docs/eval-harness.md P2's — a dev path that duplicates a UI
 		// action drifts from it.)
-		if (!m_ui.onStartNewGame) return false;
+		if (!m_ui.onStartNewGame) {
+			detail = "not wired yet";
+			return EvalReset::Refused;
+		}
 		// SAY WHAT THE HARNESS WANTS BEFORE ASKING FOR IT. A new game now opens
 		// on the WORLD MAP (P4), and ten suites measure combat in a level.
 		//
@@ -61,7 +72,44 @@ bool Game::ResetForEval() {
 		// different clothes.
 		m_harnessOpensInLevel = true;
 		m_ui.onStartNewGame();
-		return true;
+		return EvalReset::Loaded;
+	}
+
+	// WHERE A NEW GAME WOULD BE, which is the harness level and not wherever the
+	// last script left the party (code-review C300). This used to re-read the
+	// CURRENT level: after levelplay.eval the next suite in the batch ran on
+	// crypt1 and measured a different world from its solo run, and after an
+	// ambush the current level is "~encounter", which has no file - the re-read
+	// hit the DungeonMap constructor's assert and the run died on a CRT dialog.
+	const std::string ground = HarnessLevel();
+	// Refused, never re-read: a '~' stem exists only in memory (kEncounterStem),
+	// and the map loader aborts on a missing file rather than failing. Only a
+	// manifest naming such a level reaches this now, but a refusal with a reason
+	// costs one line and the abort costs the run.
+	if (ground.starts_with('~') ||
+		!std::filesystem::exists(m_project.LevelMapPath(ground))) {
+		detail = std::format("the harness level '{}' has no file to reload ({}) - "
+							 "set the world's eval level",
+							 ground, m_project.LevelMapPath(ground));
+		log::Warn("eval reset refused: {}", detail);
+		return EvalReset::Refused;
+	}
+	if (m_world->CurrentLevel() != ground) {
+		// ANOTHER LEVEL: back to the harness level by the very load a new game
+		// takes there (StartNewGame -> OpenInLevel stages it; the console stays
+		// gated until it lands, so the script's next line waits for free).
+		// Recycling in place would mean loading another level's textures, models
+		// and fires by hand - a second level-entry path, and the load is cheap
+		// by now (everything it needs is cached). Through the UI callback like
+		// the cold start above, so there is one way in: with a game loaded it
+		// is StartNewGame. The flag is set again because the game may have been
+		// started by `newgame` rather than by a first `reset`, and without it a
+		// new game opens in the starter dungeon, not on the harness level.
+		detail = m_world->CurrentLevel();
+		m_world->ResetEvalTransients(); // what the load itself does not put back
+		m_harnessOpensInLevel = true;
+		m_ui.onStartNewGame();
+		return EvalReset::Switched;
 	}
 	m_world->ResetForEval();
 	ResetRoster();  // fresh members, default portraits (reloaded only if changed)
@@ -79,7 +127,7 @@ bool Game::ResetForEval() {
 	// that is what makes a reset 340 ms instead of a 12 s reload — so there is
 	// nothing to enter: the party is already in a dungeon.
 	ResetWorldState();
-	return true;
+	return EvalReset::Recycled;
 }
 
 

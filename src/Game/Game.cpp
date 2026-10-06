@@ -1085,6 +1085,8 @@ void Game::StartNewGame() {
 	//   1. THE HARNESS asks for a level, and the manifest says which one — not
 	//      "whichever is first", so the suites do not move when the level list
 	//      is reordered, and so more harness levels can join the one there is.
+	//      (A manifest naming none falls back to the first: HarnessLevel, which
+	//      `reset` asks too, so a recycled world lands where a fresh one does.)
 	//   2. A STARTER DUNGEON named in the manifest, with its level and cell.
 	//      The game's opening is just another way IN, carrying its own
 	//      destination exactly as a world-map doorway does, because a dungeon
@@ -1096,11 +1098,11 @@ void Game::StartNewGame() {
 	m_worldState.atLocation.clear(); // begun here, not entered from anywhere
 	m_worldState.onWorldMap = false;
 
-	if (m_harnessOpensInLevel && !m_project.evalLevel.empty()) {
-		if (OpenInLevel(m_project.evalLevel, -1, -1)) return;
-		log::Info("New game started on the harness ground ({})",
-				  m_project.evalLevel);
-	} else if (!m_project.startDungeon.empty() && !m_harnessOpensInLevel) {
+	if (m_harnessOpensInLevel) {
+		const std::string ground = HarnessLevel();
+		if (OpenInLevel(ground, -1, -1)) return;
+		log::Info("New game started on the harness ground ({})", ground);
+	} else if (!m_project.startDungeon.empty()) {
 		const std::string level =
 			m_project.startLevel.empty()
 				? (m_project.levels.empty() ? std::string("level1")
@@ -1109,7 +1111,7 @@ void Game::StartNewGame() {
 		if (OpenInLevel(level, m_project.startX, m_project.startZ)) return;
 		log::Info("New game started in {} ({} at {},{})", m_project.startDungeon,
 				  level, m_project.startX, m_project.startZ);
-	} else if (m_worldMap && !m_harnessOpensInLevel) {
+	} else if (m_worldMap) {
 		// Reveal what the party can see from where it stands — which discovers
 		// a location only if one is right there. Everything else has to be
 		// FOUND, and that is the design, not an oversight: a new game opens on

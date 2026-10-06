@@ -56,7 +56,13 @@ echo --- persist: loaded over the same level ---
 state
 enter crypt_gate
 monsters
+; ONTO ANOTHER LEVEL FIRST, and said: the party stands in crypt1 here, and
+; `reset` used to re-read that very level (code-review C300), so this "another
+; level" case quietly loaded over the same one. The reset now goes back to the
+; harness level, and WorldTest reads which level that was.
 reset
+echo --- persist: reset onto another level ---
+transients
 load worldpersist
 echo --- persist: loaded over another level ---
 state

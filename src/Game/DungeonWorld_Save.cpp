@@ -134,6 +134,12 @@ void DungeonWorld::ResetForNewGame() {
 // rather than from ResetForNewGame — plus the harness's own modes, which no
 // player path has any reason to touch.
 void DungeonWorld::ResetForEval() {
+	// --- 0. what no level file puts back -----------------------------------
+	// FIRST, so the fixture table is empty before the seed below: seeding copies
+	// a broken fixture's state across from the old table by cell (C293), and
+	// this table is what a smashed sconce would otherwise come back through.
+	ResetEvalTransients();
+
 	// --- 1. THE STATIC LAYER, back from the project files -------------------
 	// `arena` sets EVERY cell to wall before carving, and strips the map's own
 	// fixtures, stairs, niches and features on the way past — so a reset that
@@ -162,25 +168,32 @@ void DungeonWorld::ResetForEval() {
 	// it puts the party on the map's start cell.
 	ResetForNewGame();
 
-	// A blast is a wavefront mid-flight; a `step` that ends between its ticks
-	// leaves one live, and it would detonate into the next test.
-	m_activeBlastCount = 0;
 	// Damage done to the DUNGEON (save v24). A smashed decoration KEEPS its
 	// record — the adapter holds a reference and the save has to be able to name
-	// what broke — so the flag is lifted rather than the entry erased. Fixtures
-	// live in their own side-table keyed by cell+wall, so that is rebuilt whole.
+	// what broke - so the flag is lifted rather than the entry erased. (Fixtures
+	// live in their own side-table keyed by cell+wall, emptied by
+	// ResetEvalTransients above and seeded afresh after the respawn.)
 	for (Decoration& deco : m_decorations) {
 		deco.brk.broken = false;
 		deco.brk.hp = deco.brk.maxHp;
 		deco.brk.effects.clear();
 	}
-	m_fixtureBreaks.clear();
-	SeedFixtureBreakables();
 
 	// --- 3. make it real -----------------------------------------------------
 	// The FULL bake, as `arena` does: every cell in the map may have changed.
 	BuildDungeonMeshes();
 	RebuildFiresAndDust(); // the level's fires are back, and a doused one burns
+}
+
+void DungeonWorld::ResetEvalTransients() {
+	// A blast is a wavefront mid-flight; a `step` that ends between its ticks
+	// leaves one live, and it would detonate into the next test. The table is
+	// fixed (batch 21's C49), so emptying it is its count.
+	m_activeBlastCount = 0;
+	// Seeded again by whoever puts the level back: ResetForEval's respawn, or
+	// the staged load's fires task. Cleared rather than kept, because the seed
+	// copies an entry's broken state across by cell (C293).
+	m_fixtureBreaks.clear();
 
 	// A pit fall caught mid-plunge would swap levels on the first frame of the
 	// next test, and the bruise is latched separately from the transition.
@@ -197,6 +210,71 @@ void DungeonWorld::ResetForEval() {
 	m_harness = {};
 	m_resting = false;
 	m_restEndReason = "";
+	// The two clocks a fresh world starts at zero (C294, brought forward from
+	// batch 78 because the `transients` readout caught the kindle clock with
+	// nothing injected: it runs every frame, so a reset handed the next test
+	// whatever phase the last one ended on - 0.100 against a new game's 0.250).
+	// C294's other half, a new game or a load doing the same, is still batch 78.
+	m_throwCooldown = {};
+	m_kindleClock = 0.0f;
+
+	// EVERY OTHER LEVEL BACK TO ITS FILE (C300). A script that walked out of a
+	// dungeon, edited a level it was browsing or travelled through an ambush left
+	// stashes - a parked level's fog and kills, a remote edit's map - and the
+	// next script's way into that level would find them there, where a fresh
+	// process would read the files. (m_levelStates, the dynamic stashes, goes
+	// in ResetForNewGame.)
+	m_levelMaps.clear();
+	m_levelEnts.clear();
+	// ...and the editor's history, whose every step is a snapshot of a session
+	// this reset just ended. Undo after it would restore the old one's fog, dead
+	// monsters and door states. ONE call site for C300 and C297: when C297 puts
+	// this in ResetForNewGame, which ResetForEval calls, this line goes.
+	ClearUndoHistory();
+}
+
+DungeonWorld::TransientReport DungeonWorld::Transients() const {
+	TransientReport r;
+	r.blasts = static_cast<int>(m_activeBlastCount); // the live ones, not the table
+	for (const Monster& m : m_monsters) {
+		r.monsterEffects += static_cast<int>(m.effects.size());
+		if (!m.effects.empty()) ++r.monstersAffected;
+	}
+	// A piece of dungeon counts once whatever it is: broken, else hurt, and
+	// whatever is riding it either way.
+	const auto piece = [&r](const Breakable& brk, int& broken) {
+		if (!brk.Damageable()) return;
+		if (brk.broken) ++broken;
+		else if (brk.hp < brk.maxHp) ++r.hurtPieces;
+		r.pieceEffects += static_cast<int>(brk.effects.size());
+	};
+	for (const FixtureBreak& fb : m_fixtureBreaks) piece(fb.brk, r.brokenFixtures);
+	for (const Decoration& d : m_decorations) piece(d.brk, r.brokenDecorations);
+	for (const Door& d : m_doors) piece(d.brk, r.brokenDoors);
+	r.fallPending = m_pendingFall.has_value();
+	r.fellPending = m_fellPending;
+	r.fallT = m_fallT;
+	r.undo = static_cast<int>(m_undoStack.size());
+	r.redo = static_cast<int>(m_redoStack.size());
+	r.stashedMaps = static_cast<int>(m_levelMaps.size());
+	r.stashedEnts = static_cast<int>(m_levelEnts.size());
+	r.stashedStates = static_cast<int>(m_levelStates.size());
+	// The stems, so a leftover says WHICH level (each container is sorted; the
+	// union is merged and de-duplicated here).
+	std::vector<std::string> stems;
+	for (const auto& [stem, map] : m_levelMaps) stems.push_back(stem);
+	for (const auto& [stem, ents] : m_levelEnts) stems.push_back(stem);
+	for (const auto& [stem, state] : m_levelStates) stems.push_back(stem);
+	std::sort(stems.begin(), stems.end());
+	stems.erase(std::unique(stems.begin(), stems.end()), stems.end());
+	for (const std::string& stem : stems)
+		r.stashedLevels += (r.stashedLevels.empty() ? "" : " ") + stem;
+	if (r.stashedLevels.empty()) r.stashedLevels = "none";
+	r.resting = m_resting;
+	r.lockstep = LockstepAI();
+	r.throwCooldown = m_throwCooldown;
+	r.kindleClock = m_kindleClock;
+	return r;
 }
 
 SaveData::LevelState DungeonWorld::SnapshotActive() const {
