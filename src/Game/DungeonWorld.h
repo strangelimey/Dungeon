@@ -1222,9 +1222,10 @@ public:
 	std::vector<std::string> FloorTorchReport() const;
 	// The `flooritems` readout: each item lying in square (x, z) - every square
 	// for x < 0 - as `<x>,<z>: <id> slot <s> charge <c>`, and each thrown item in
-	// the air as `<id> charge <c> lands <x>,<z>` - where a save would write it
-	// (SaveFlyingCargo). Harness views of what a fumble knocked down and what a
-	// save holds; they build strings.
+	// the air as `<id> charge <c> at <x>,<z> over <x>,<z>`: where it is, in
+	// squares, and the square it is over - the one a save made now writes it in
+	// (SaveFlyingCargo), NOT where its flight will end. Harness views of what a
+	// fumble knocked down and what a save holds; they build strings.
 	std::vector<std::string> FloorItemRows(int x, int z) const;
 	std::vector<std::string> FlyingCargoRows() const;
 	void DropAtPartyFeet(std::string_view itemId);
@@ -3876,14 +3877,17 @@ private:
 	// past the party's square. One that `shatters` bursts in any open square; one
 	// that lands must be able to rest there (ItemCanRest - short of a pit,
 	// code-review C74). The one statement of it for a landing and for a save,
-	// which writes a thing still in the air WHOLE, as the floor item it will be
-	// (SaveFlyingCargo, so `shatters` false).
+	// which writes a thing still in the air WHOLE, as the floor item it would be
+	// if it came down now, in the square it is over (SaveFlyingCargo, so
+	// `shatters` false).
 	void ThrownLanding(const ProjectileExpiry& expiry, bool shatters, int& cx, int& cz) const;
 	// A SAVE'S VIEW OF A THROWN ITEM IN THE AIR (code-review C47): each one, as a
-	// floor item at its landing square with its charge, appended to the live
-	// level's snapshot `ls`. The flight itself is left flying - landing it for the
-	// save resolved a shattering flask's payload in the live world, so a fire
-	// flask burst in or beside the party's square and the save held the damage.
+	// floor item with its charge in the square it is over (ThrownLanding at its
+	// position now - not where the flight would have ended, which a save cannot
+	// know), appended to the live level's snapshot `ls`. The flight itself is
+	// left flying - landing it for the save resolved a shattering flask's payload
+	// in the live world, so a fire flask burst in or beside the party's square
+	// and the save held the damage.
 	void SaveFlyingCargo(SaveData::LevelState& ls) const;
 	// The training a throw earns on contact: `throwing`, and a creep of the stats
 	// it was thrown with (a weapon's own, else Balance's ThrowStats).

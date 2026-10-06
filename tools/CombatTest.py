@@ -69,7 +69,17 @@
 #   SAVE       a save made with a fire flask in the air sets nothing off (C47):
 #              nobody is hurt and nothing lands or bursts at the save, the flight
 #              goes on to burst on its own, and loading the save finds the flask
-#              on the floor of the square its flight said it would come down in.
+#              whole on the floor of the square it was over - the square its
+#              position (`flooritems` `at`) falls in, worked out HERE, not the
+#              game's own `over` - both for a save in the party's square and for
+#              one two squares out, which a save written at the party's feet or
+#              a landing rule that never moved off the party would fail. Each
+#              save must have been MADE in this run ("saved: <name>"), or a
+#              stale file from an earlier run would be what loaded.
+#
+# And the script as a whole must run CLEAN - its verdict a PASS, nothing in it
+# refused or unknown - since a refused line (a save that failed, say) prints a
+# notice the section checks might not read.
 #
 # Each later combat batch adds its sections to combat.eval and its checks here.
 #
@@ -78,6 +88,7 @@
 # checks resting on one fail (SETUP_FREE names the rest, which must still pass),
 # so no check is satisfied by nothing happening.
 import io
+import math
 import os
 import re
 import sys
@@ -102,6 +113,9 @@ SETUP_FREE = {
 	"unarmoured, no class, no soak",
 	"the script ran to its end",
 	"the game ran the script to its verdict",
+	# A cut line becomes an `echo`, and nothing after one is refused for it: the
+	# cut run is a real run, so it too must run clean.
+	"the script ran clean: nothing refused or unknown, and it ended in play",
 }
 
 results = []
@@ -122,6 +136,12 @@ def run(script):
 	check(harness_game.finished(code, text), "the game ran the script to its verdict",
 		  f"exit code {code}, no verdict line")
 	verdict = next((l for l in log if "eval RESULT=" in l), "")
+	# The verdict's own count: a line the game refused (a save that failed, a
+	# command used wrong) or did not know prints a notice a section check need
+	# not read, and the run still reaches its verdict - which then says FAIL.
+	check("eval RESULT=PASS" in verdict,
+		  "the script ran clean: nothing refused or unknown, and it ended in play",
+		  verdict.split("] ", 1)[-1] if verdict else "no verdict line")
 	said = [l.split("console: ", 1)[1] for l in log if "console: " in l]
 	return code, verdict, [l for l in said if not l.startswith("> ")], text
 
@@ -318,12 +338,15 @@ def floor_items(sec):
 
 def flying(sec):
 	"""Every thrown item in the air the section's `flooritems` readouts listed:
-	(id, charge, the cell it would come down in)."""
+	(id, charge, where it is in squares (x, z), the square it is over - the one
+	a save made then writes it in, by the game's own rule)."""
 	out = []
 	for l in sec:
-		m = re.match(r"flooritems flying: (\S+) charge ([\d.-]+) lands (\d+),(\d+)$", l)
+		m = re.match(r"flooritems flying: (\S+) charge ([\d.-]+) at ([\d.-]+),([\d.-]+) "
+					 r"over (\d+),(\d+)$", l)
 		if m:
-			out.append((m.group(1), float(m.group(2)), (int(m.group(3)), int(m.group(4)))))
+			out.append((m.group(1), float(m.group(2)), (float(m.group(3)), float(m.group(4))),
+						(int(m.group(5)), int(m.group(6)))))
 	return out
 
 
@@ -749,24 +772,45 @@ def judge(lines, text):
 	ts = tallies(sec)
 	air = flying(sec)
 	pr = party_reads(sec)
-	# The flask was IN THE AIR at the save: one flight, and where it would land.
-	aloft = len(air) == 1 and air[0][0] == "fire_flask" and len(ts) == 2 and len(pr) == 2
-	check(aloft, "the fire flask was in the air when the game was saved",
-		  f"flying {air} tallies {len(ts)} party readouts {len(pr)}")
+	at = party_pos(sec)
+	# Both saves were MADE in this run: a save that failed prints a refusal, and
+	# the load after it would find an earlier run's file under the same name.
+	made = "saved: combat_flask" in sec and "saved: combat_flask_far" in sec
+	# The flask was IN THE AIR at both saves: one flight, read at each.
+	aloft = (made and at is not None and len(air) == 2 and all(a[0] == "fire_flask" for a in air)
+			 and len(ts) == 3 and len(pr) == 2)
+	check(aloft, "the fire flask was in the air at both saves, each made in this run",
+		  f"saved lines {[l for l in sec if l.startswith(('saved', 'not saved'))]} flying {air} "
+		  f"tallies {len(ts)} party readouts {len(pr)} pos {at}")
 	check(aloft and pr[0] == pr[1] and num(ts[0], "taken") == 0,
 		  "and the save hurt nobody", f"hp before/after {pr} taken={ts[0].get('taken') if ts else None}")
-	check(aloft and num(ts[0], "throwlandings") == 0 and num(ts[0], "blasts") == 0,
-		  "nor landed it, nor set it off", f"after the save {ts[0] if ts else None}")
-	# Its landing and burst came AFTER the save: none counted at it, one since.
-	check(aloft and num(ts[0], "throwlandings") == 0 and num(ts[1], "throwlandings") == 1
-		  and num(ts[0], "blasts") == 0 and num(ts[1], "blasts") >= 1,
+	check(aloft and all(num(t, "throwlandings") == 0 and num(t, "blasts") == 0 for t in ts[:2]),
+		  "nor landed it, nor set it off", f"after each save {ts[:2]}")
+	# Its landing and burst came AFTER both saves: none counted at them, one since.
+	check(aloft and num(ts[1], "throwlandings") == 0 and num(ts[2], "throwlandings") == 1
+		  and num(ts[1], "blasts") == 0 and num(ts[2], "blasts") >= 1,
 		  "the flight went on, and ended in a burst of its own",
-		  f"at the save {ts[0] if ts else None} later {ts[1] if len(ts) > 1 else None}")
-	loaded = "loaded: combat_flask" in sec
-	held = [r for r in floor_items(sec) if r[1] == "fire_flask"]
-	check(aloft and loaded and len(held) == 1 and held[0][0] == air[0][2],
-		  "the save holds the flask, whole, on the floor where its flight said it would land",
-		  f"loaded={loaded} floor {floor_items(sec)} flight would land {air[0][2] if air else None}")
+		  f"at the later save {ts[1] if len(ts) > 1 else None} after {ts[2] if len(ts) > 2 else None}")
+	# WHERE the flask was at each save, worked out here from its position - not
+	# taken from the game's `over`, which is the same rule the save itself used.
+	cell = lambda p: (math.floor(p[0]), math.floor(p[1]))
+	near = cell(air[0][2]) if aloft else None
+	far = cell(air[1][2]) if aloft else None
+	party = at[0] if at else None
+	step = STEP.get(at[1]) if at else None
+	ahead = (aloft and step is not None and far != party
+			 and any(far == (party[0] + k * step[0], party[1] + k * step[1]) for k in range(1, 5)))
+	check(aloft and near == party and ahead,
+		  "at the first save it was over the party's square, at the second a square or more ahead",
+		  f"party {at} flask at {[a[2] for a in air]} -> squares {near} / {far}")
+	for name, want in (("near", near), ("far", far)):
+		loaded_sec = get(f"flask-save-{name}")
+		got = [r for r in floor_items(loaded_sec) if r[1] == "fire_flask"]
+		loaded = f"loaded: combat_flask{'_far' if name == 'far' else ''}" in loaded_sec
+		check(aloft and loaded and len(got) == 1 and got[0][0] == want
+			  and (name == "near" or got[0][0] != party),
+			  f"the {name} save holds the flask, whole, on the floor of the square it was over",
+			  f"loaded={loaded} floor {floor_items(loaded_sec)} it was over {want}, party {party}")
 	check("end" in s, "the script ran to its end")
 
 

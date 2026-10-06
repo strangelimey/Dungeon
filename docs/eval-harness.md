@@ -762,24 +762,34 @@ complete inventory, which is the point of writing it down — it should be
 auditable in one read rather than trusted.
 
 **All harness STATE the world holds is one member**, `DungeonWorld::m_harness`
-(`struct Harness`): the encounter `tally`, `autoAttack`, `frozen`,
-`frozenHeld`, `pendingSteps`, `autoCast` and `wholeSteps`. It is touched in a
-handful of places in the simulation - the two `fx::ITarget` adapters and
-`ResolveAttack` (the tally), the carrier counts in `ResolveSpellHit` /
-`ResolveProjectileExpiry` / `Detonate` (the tally again), one `continue` in the
-monster loop (`frozen`), one `continue` in `ConsumeAIPlans` (`frozenHeld`: a
-held freeze takes each bucket's new plans and drops them, so nothing notices the
-party until an `alloctest` window releases it - `AllocTest.ps1 -Melee`,
-2026-10-05), one guard on `TickAutoAttack`, `TickAutoCast` (the `autocast`
-round-robin, added 2026-09-28 so `AllocTest.ps1 -Impact` can put a bolt's launch
-AND landing inside a guarded window - the console's own frame never is one; since
-code-review batch 24 an `autocast bolt` entry fires a spell's bolt AT the party,
-as `bolt` does, and may meet it with a repel of an exact power, as `castsvc
-repel` does, for `AllocTest.ps1 -Burst`), the shot-at-the-party counts in
-`ResolveMonsterProjectileHit` and `RepelAhead` (the tally), three lines feeding
-queued steps, and one test in `AdvanceSimulation` (`wholeSteps`: `frames ...
-whole` takes each frame's dt as one step, code-review C48). Every one of them
-reads `m_harness.something` and says what it is.
+(`struct Harness`): the encounter `tally`, `autoAttack`, `autoAttackHeld`,
+`loadedFumble`, `frozen`, `frozenHeld`, `pendingSteps`, `autoCast` and
+`wholeSteps`. It is touched in a handful of places in the simulation - the two
+`fx::ITarget` adapters and `ResolveAttack` (the tally), the carrier counts in
+`ResolveSpellHit` / `ResolveProjectileExpiry` / `Detonate` (the tally again),
+the severe-fumble and dropped-item counts in `PartyFumble` (the tally,
+code-review batch 27), one `continue` in the monster loop (`frozen`),
+one `continue` in `ConsumeAIPlans` (`frozenHeld`: a held freeze takes each
+bucket's new plans and drops them, so nothing notices the party until an
+`alloctest` window releases it - `AllocTest.ps1 -Melee`, 2026-10-05),
+one guard on `TickAutoAttack` with two conditions (`autoAttack`, and
+`autoAttackHeld`: a held autoattack swings nothing until an `alloctest` window
+releases it, so the party's first swing lands inside it - `AllocTest.ps1
+-Swing` and `-OnHitTypo`, code-review batches 15 and 27), one branch in
+`PartyAttack` (`TakeLoadedFumble`: when the `fumble` command has loaded the
+die, the swing is a fumble without a roll and skips `fx::Deal` - a severe face
+is about one swing in a hundred, so no script could reach the fumble table
+otherwise; the die is spent by the swing it loads), `TickAutoCast` (the
+`autocast` round-robin, added 2026-09-28 so `AllocTest.ps1 -Impact` can put a
+bolt's launch AND landing inside a guarded window - the console's own frame
+never is one; since code-review batch 24 an `autocast bolt` entry fires a
+spell's bolt AT the party, as `bolt` does, and may meet it with a repel of an
+exact power, as `castsvc repel` does, for `AllocTest.ps1 -Burst`), the
+shot-at-the-party counts in `ResolveMonsterProjectileHit` and `RepelAhead`
+(the tally), three lines feeding queued steps, and one test in
+`AdvanceSimulation` (`wholeSteps`: `frames ... whole` takes each frame's dt as
+one step, code-review C48). Every one of them reads `m_harness.something` and
+says what it is.
 A reset is `m_harness = {}` (in `ResetEvalTransients`, which both of its paths
 call), so a field added to the struct is reset for
 free — the four loose bools this replaced were four chances to forget one.

@@ -27,8 +27,9 @@
 // reach - unless it is a thing that shatters (`throw_breaks`), and anything
 // that would clear flights mid-air (a level change, the inspector's Remove)
 // lands it first (LandCargo). A SAVE does not: it writes the thing as the floor
-// item it will be, at its landing square, and leaves it flying (SaveFlyingCargo;
-// landing it burst a fire flask on the party - code-review C47).
+// item it would be if it came down now, in the square it is over, and leaves it
+// flying (SaveFlyingCargo; landing it burst a fire flask on the party -
+// code-review C47).
 //
 // It TRAINS `throwing` on contact with a monster - a landed blow, or a bomb
 // bursting on one - and on nothing else (Michael: a flask shattered on a wall
@@ -322,9 +323,10 @@ void DungeonWorld::ThrownLanding(const ProjectileExpiry& expiry, bool shatters, 
 
 void DungeonWorld::SaveFlyingCargo(SaveData::LevelState& ls) const {
 	// Where it would come down if it came down now - what LandCargo lands it as
-	// (an expiry at its position, its reach run out) - and WHOLE: a flask is
-	// saved unbroken where it would have fallen, since a save is no place for it
-	// to shatter. The flight flies on in the live game and ends as it would have.
+	// (an expiry at its position, its reach run out), the square it is over, not
+	// the one its flight will end in - and WHOLE: a flask is saved unbroken,
+	// since a save is no place for it to shatter. The flight flies on in the live
+	// game and ends as it would have.
 	m_projectiles.ForEachCargo([&](u32, const Vec3& pos, const Vec3& dir, float,
 								   const void* cargo, float charge) {
 		const ItemKind& kind = *static_cast<const ItemKind*>(cargo);

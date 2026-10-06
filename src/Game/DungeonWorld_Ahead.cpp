@@ -107,13 +107,17 @@ std::vector<std::string> DungeonWorld::FlyingCargoRows() const {
 	std::vector<std::string> rows;
 	m_projectiles.ForEachCargo([&](u32, const Vec3& pos, const Vec3& dir, float,
 								   const void* cargo, float charge) {
+		// Where it IS, in squares, beside the square a save would write it in -
+		// so a reader can tell the two apart rather than trusting one rule twice.
 		ProjectileExpiry at;
 		at.pos = pos;
 		at.dir = dir;
+		at.cause = ExpiryCause::Range;
 		int cx = 0, cz = 0;
 		ThrownLanding(at, /*shatters=*/false, cx, cz); // where a save writes it, whole
-		rows.push_back(std::format("{} charge {:.1f} lands {},{}",
-								   static_cast<const ItemKind*>(cargo)->id, charge, cx, cz));
+		rows.push_back(std::format("{} charge {:.1f} at {:.2f},{:.2f} over {},{}",
+								   static_cast<const ItemKind*>(cargo)->id, charge,
+								   pos.x / kCellSize, pos.z / kCellSize, cx, cz));
 	});
 	return rows;
 }

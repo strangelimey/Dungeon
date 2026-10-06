@@ -3144,29 +3144,31 @@ docs/ui-panels-notes.md / -plan.md. What exists, and the rules it rests on:
   DOES NOT LAND IT (code-review C47): landing a `throw_breaks` item is setting it
   off, so a save made with a fire flask in the air burst it on the party and
   saved the damage. CaptureState writes each thing in the air as the floor item
-  it will be - whole, with its charge, at its landing square (ThrownLanding, the
-  rule a landing uses, `shatters` false) - and the flight flies on in the game
-  being played (SaveFlyingCargo). TRAINING IS ON CONTACT ONLY (Michael,
-  code-review C40): a landed blow, or a bomb bursting on a monster, trains
-  `throwing`; a flask that shatters on a wall or at the end of its reach trains
-  nothing. WHERE A THING MAY REST is one rule, `DungeonWorld::ItemCanRest`
-  (code-review C74): walkable, a floor under it (FloorHoleAt - not a pit or a
-  stairwell, where it hung in the air over the shaft) and no shut door. The
-  drop, a landing (which backs off along its flight to the first such square,
-  never past the party's own - the party can stand on a stairwell) and a
-  fumble's fling all ask it; a hole REFUSES a thing rather than sending it to
-  the level below. A SHATTERING throw leaves nothing to hang, so it bursts at
-  the first OPEN square (walkable, no shut door), a pit's included, not pulled
-  back toward the thrower. The rock is script-built (tools/BuildRock.py ->
-  assets/models/rock.glb, committed by a .gitignore exception: an item loads
-  only .glb). Dev: `throw [item]`, `drop <item> <x> <z>` (DropItemAt aimed at a
-  square's centre), `castsvc floor [x z]`, `flooritems [x z|all]` (floor items
-  with their charge, and where each throw in the air would come down); tally
-  `throws= throwstrikes= throwlandings= landat=` (where the last throw came down
-  or burst). Checked by AllocTest -Throw (lift, throw at eval_arena's north wall,
-  again, by clicks), tools\AITest.py (a pit refuses a drop and a landing; a
-  flask bursts over it; a rock thrown from the stairwell lands on the party's
-  square) and tools\CombatTest.py's FLASK / SAVE checks.
+  it would be if it came down NOW - whole, with its charge, in the square it is
+  over (ThrownLanding at its position, the rule a landing uses, `shatters`
+  false), not where the flight will end, which a save cannot know - and the
+  flight flies on in the game being played (SaveFlyingCargo). TRAINING IS ON
+  CONTACT ONLY (Michael, code-review C40): a landed blow, or a bomb bursting on
+  a monster, trains `throwing`; a flask that shatters on a wall or at the end of
+  its reach trains nothing. WHERE A THING MAY REST is one rule,
+  `DungeonWorld::ItemCanRest` (code-review C74): walkable, a floor under it
+  (FloorHoleAt - not a pit or a stairwell, where it hung in the air over the
+  shaft) and no shut door. The drop, a landing (which backs off along its
+  flight to the first such square, never past the party's own - the party can
+  stand on a stairwell) and a fumble's fling all ask it; a hole REFUSES a thing
+  rather than sending it to the level below. A SHATTERING throw leaves nothing
+  to hang, so it bursts at the first OPEN square (walkable, no shut door), a
+  pit's included, not pulled back toward the thrower. The rock is script-built
+  (tools/BuildRock.py -> assets/models/rock.glb, committed by a .gitignore
+  exception: an item loads only .glb). Dev: `throw [item]`, `drop <item> <x>
+  <z>` (DropItemAt aimed at a square's centre), `castsvc floor [x z]`,
+  `flooritems [x z|all]` (floor items with their charge, and each throw in the
+  air: `at` where it is, in squares, `over` the square a save made now writes
+  it in); tally `throws= throwstrikes= throwlandings= landat=` (where the last
+  throw came down or burst). Checked by AllocTest -Throw (lift, throw at
+  eval_arena's north wall, again, by clicks), tools\AITest.py (a pit refuses a
+  drop and a landing; a flask bursts over it; a rock thrown from the stairwell
+  lands on the party's square) and tools\CombatTest.py's FLASK / SAVE checks.
 - BLASTS ARE SEEN now (they drew nothing): a puff of `blast_color` (else the
   type's element colour) in each square on each tick (ProjectileSystem::Puff,
   LandBlastHit) - a fire front flares, a persistent gas rolls. And `blast_linger`

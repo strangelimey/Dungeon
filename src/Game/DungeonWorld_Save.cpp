@@ -705,8 +705,9 @@ void DungeonWorld::CaptureState(SaveData& out, bool includeLive) const {
 	for (const auto& [stem, ls] : m_levelStates) out.levels.push_back(ls);
 	if (includeLive && !m_parked) {
 		out.levels.push_back(SnapshotActive());
-		// A thrown thing still in the air goes in as the floor item it will be,
-		// and keeps flying here (code-review C47). Here and not in SnapshotActive,
+		// A thrown thing still in the air goes in as the floor item it would be
+		// if it came down now, in the square it is over, and keeps flying here
+		// (code-review C47). Here and not in SnapshotActive,
 		// whose other callers - a level's stash, an undo step - must not see a
 		// flight as an item it would then hold twice.
 		SaveFlyingCargo(out.levels.back());

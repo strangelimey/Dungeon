@@ -392,8 +392,9 @@ void Game::RegisterPartyCommands() {
 					   });
 
 	// What lies on the floor of a square, with each item's charge, and what is
-	// in the air with where it would come down - where a fumble put a torch,
-	// and what a save made mid-throw holds (code-review C10, C47).
+	// in the air: where it is and the square it is over, which is where a save
+	// made now writes it - where a fumble put a torch, and what a save made
+	// mid-throw holds (code-review C10, C47).
 	m_console.Register({.name = "flooritems",
 						.group = CmdGroup::Party,
 						.params = "[x z]\nall",

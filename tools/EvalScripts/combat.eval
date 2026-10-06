@@ -727,11 +727,14 @@ char 0
 ; party's own square, 0.05 s out of his hand. A save used to LAND every thrown
 ; thing first, and a flask landed is a flask going off: it burst in the party's
 ; square, the party was hurt, and the save held the damage. Now the save writes
-; the flask as the floor item it will be, where it would come down (`flooritems
-; flying` says where), and the flight goes on: 0.2 s after the save nobody is
-; hurt and nothing has landed or burst; 2 s on it has flown out of reach and
-; burst there, far off. Loading the save finds the flask - whole - on the floor
-; of the square `flooritems flying` named.
+; the flask as the floor item it would be if it came down now, in the square it
+; is over, and the flight goes on: 0.2 s after the save nobody is hurt and
+; nothing has landed or burst. At 0.6 s, two squares out, it is saved again -
+; the save that can tell "the square it is over" from "the party's square" -
+; and 2 s on it has flown out of reach and burst there, far off. `flooritems`
+; says where the flask IS at each save (`at`, in squares) beside the square the
+; game would write (`over`); loading each save finds the flask - whole - on the
+; floor of the square its position was in.
 
 echo === flask-save ===
 reset
@@ -743,6 +746,7 @@ arena open 9 9
 heal
 tp 14 14
 face n
+pos
 freeze on
 tally reset
 throw fire_flask
@@ -753,9 +757,19 @@ save combat_flask
 step 0.2
 tally
 party
+step 0.35
+flooritems
+save combat_flask_far
+tally
 step 2
 tally
+
+echo === flask-save-near ===
 load combat_flask
+flooritems all
+
+echo === flask-save-far ===
+load combat_flask_far
 flooritems all
 
 echo === end ===

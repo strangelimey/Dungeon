@@ -1177,7 +1177,8 @@ bool Game::SaveGame(const std::string& name) {
 	// live session's held item untouched (restored to the cursor on load).
 	if (m_heldItem) data.heldItem = ItemToken(*m_heldItem, m_heldItem.Charge());
 	// A thrown item in the air is not saved as a flight: CaptureState writes it
-	// as the floor item it will be, where it would come down, and the flight
+	// as the floor item it would be if it came down now, in the square it is
+	// over (a save cannot know where the flight will end), and the flight
 	// carries on in the game being played. It used to be LANDED here first, and
 	// a shattering flask landed is a flask going off - in or beside the party's
 	// square, with the save then holding the damage (code-review C47).
