@@ -253,6 +253,10 @@ void Game::WireModuleCallbacks() {
 	m_ui.itemCommands = [this](const std::string& id) -> const std::vector<std::string>& {
 		return m_world->ItemCommands(id);
 	};
+	// ...and whether it is a rune tablet, from the same kinds (code-review C347).
+	m_ui.itemRune = [this](std::string_view id, SpellSymbol& symbol) {
+		return m_world && m_world->ItemRune(id, symbol);
+	};
 	// The hand menu's Magic group enumerates the recipe table (filtered by the
 	// member's vocabulary in GameUI); a picked "cast:<id>" default casts through
 	// the world's façade — the same vocab/mana gates as the dev `cast` command.
@@ -470,6 +474,12 @@ void Game::WireModuleCallbacks() {
 		}
 		return UnloadableModelReason(key, e);
 	};
+	// The typed id against the RELATED catalogs (code-review C302): one item id
+	// in two item catalogs, or one prop id in two prop catalogs, is refused in
+	// the form; CreateCatalogEntry asks again.
+	m_assetDialog.idRefusal = [this](const std::string& key, const std::string& id) {
+		return RelatedIdRefusal(key, id);
+	};
 	// Create runs AssetBaker on the picked source (P4c); the dialog stays open in
 	// a "baking…" state until Update sees the subprocess finish.
 	m_assetDialog.onCreate = [this](const AssetDialog::CreateRequest& req) {
@@ -658,7 +668,8 @@ void Game::WireModuleCallbacks() {
 				// The reload frees this kind's mesh and respawns EVERY object
 				// with a new id - keeping what the editor and play did to the
 				// level (HoldActiveState / RestoreHeldState; C311), and only for
-				// a category whose kinds are cached (ReloadTypeKind) - and an
+				// a category whose kinds are cached (ReloadTypeKind; an item's
+				// kind is rebuilt in place instead, nothing respawned) - and an
 				// open inspector, or the monster dialog, borrows that mesh for
 				// its preview and names its object by the old id. A mouse cannot
 				// get here with one open (each is modal); `typeset` can (C232).
@@ -667,11 +678,20 @@ void Game::WireModuleCallbacks() {
 					m_monsterDialog.Close();
 					ForgetMonsterPreview();
 				}
+				// The item details dialog too, for an item: its preview was filled
+				// once, at Open, with the kind's own meshes and textures, and the
+				// rebuild in place below frees that model (a quality swap closes
+				// it for the same reason, SetQuality). `typeset` reaches here with
+				// it open; the next frame drew freed meshes.
+				if (Project::IsItemCatalog(cfg.catalogKey)) m_ui.CloseItemDetails();
 				m_world->ReloadTypeKind(cfg.catalogKey, cfg.id);
-				// An item kind outlives that reload; its `light` is re-read here.
-				if (cfg.catalogKey == "items" || cfg.catalogKey == "weapons" ||
-					cfg.catalogKey == "armor")
+				// An ITEM's kind was rebuilt in place (code-review C302), so the
+				// UI's banks that mirror it follow (C330) - its icon, weight,
+				// holdable and wear - and the light it names is checked.
+				if (Project::IsItemCatalog(cfg.catalogKey)) {
+					RefreshItemBanks();
 					m_world->ReloadLightProfiles();
+				}
 			}
 			if (m_world->onMessage)
 				m_world->onMessage(loc::FormatLine("map.type.saved", cfg.id));

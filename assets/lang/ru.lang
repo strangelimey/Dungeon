@@ -1432,6 +1432,7 @@ newasset.map.missing=(не найдено)
 newasset.warn.noheight=Нет карты высот: параллакс будет плоским.
 newasset.err.noname=Введите имя нового типа.
 newasset.err.dup=«{}» уже есть в этом каталоге.
+newasset.err.related=«{}» уже занято в каталоге «{}»: у этих каталогов общие имена.
 newasset.err.nosource=Выберите папку или файл источника.
 newasset.err.noalbedo=В папке нет карты альбедо — импортировать нечего.
 newasset.err.noasset=Нет установленных ресурсов для выбора.

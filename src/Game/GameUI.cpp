@@ -250,9 +250,10 @@ void GameUI::LoadTitleArt() {
 		m_moveEtch[i] = LoadEtch(m_device, stem, m_etchFloor[i]);
 		m_moveEtchLit[i] = LoadEtch(m_device, stem + "_lit", m_etchFloorLit[i]);
 	}
-	// The soft glow behind a SET hand box (tools/BuildGlow.py). Optional: without
-	// it a set hand shows the flat tint alone.
-	m_glowTex = TryLoadTextureFile(m_device, paths::Asset("ui\\glow_radial"));
+	// The soft glow behind a SET hand box (tools/BuildGlow.py), the shared one
+	// (GlowIcon - the flames under burning items borrow it too). Optional:
+	// without it a set hand shows the flat tint alone.
+	m_glowTex = GlowIcon(m_device);
 	// (The shared close box is loaded in BuildStaticUi, which needs it before
 	// this load task runs — see the note there.)
 	// The overlays are authored at 2x (64 texels, a 16-texel corner) and drawn
@@ -1758,7 +1759,7 @@ void GameUI::BuildHud() {
 	deps.onHandHold = [this](size_t i, size_t hand) { OnHandHold(i, hand); };
 	deps.handSetUse = [this](size_t i, size_t hand) { return HandSetUseFor(i, hand); };
 	deps.useIcons = m_useIcons; // Game's stable bank, set before any HUD build
-	deps.glow = m_glowTex.get();
+	deps.glow = m_glowTex;
 	deps.onGuardChange = [this](size_t i, float share) {
 		if (onGuardChange) onGuardChange(i, share);
 	};

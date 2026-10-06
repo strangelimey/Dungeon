@@ -201,6 +201,13 @@ std::unique_ptr<gfx::Texture> LoadNormalMapFile(gfx::GraphicsDevice& device,
 // AddCloseButton then falls back to a text "x".
 const gfx::Texture* CloseIcon(gfx::GraphicsDevice& device);
 
+// The soft radial glow (assets/ui/glow_radial, tools/BuildGlow.py), white for
+// the draw to tint: behind a SET hand box, and under a burning item's flame in
+// a socket and in the details dialog. Owned here for the close box's reason -
+// the HUD and the flame each loaded their own, a second SRV slot for one image
+// (code-review C330). Null if the asset is missing (the callers draw no glow).
+const gfx::Texture* GlowIcon(gfx::GraphicsDevice& device);
+
 // An editor TOOLBAR icon disc by name (assets/ui/icon_tb_<name>), owned here
 // for the same reason the close box is: TWO toolbars draw from this set now —
 // the level editor's and the world screen's — and a per-view copy would spend

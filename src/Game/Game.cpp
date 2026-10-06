@@ -420,6 +420,8 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	m_audio.SetMasterVolume(m_settings.volume);
 	m_device.SetPresentInterval(m_settings.presentInterval);
 
+	// No world yet, so no rune tablets: the four are handed their world's when a
+	// game starts (ResetRoster -> DefaultParty).
 	m_characters = CreateDefaultParty();
 	ApplyMemberColors(); // the settings palette wins over the authored defaults
 	// (The world takes the roster, the keys and the look settings when it is
@@ -612,11 +614,18 @@ void Game::UnloadWorld() {
 	ForgetMonsterPreview();
 	m_previewAnim = anim::Animator();
 	// Keyed by the old world's catalog ids — a new world made from this one
-	// shares them, so a stale entry would show the wrong icon, not a gap.
+	// shares them, so a stale entry would show the wrong icon, not a gap - or,
+	// for the item banks, accept an item where the next world's catalog does not
+	// (code-review C330: nothing cleared them here).
 	m_itemIcons.byType.clear();
+	m_itemIcons.runeOf.clear();
+	m_itemIcons.flameAt.clear();
+	m_itemIcons.flameTint.clear();
 	m_slotIcons.byType.clear();
 	m_useIcons.byType.clear();
 	m_itemIconPlaceholders.clear();
+	m_itemWeights.byType.clear();
+	m_itemCategories = {};
 	m_slotIconTextures.clear();
 	m_useIconTextures.clear();
 	// The cursor's item is the old world's kind id, and a question still up names
@@ -869,22 +878,19 @@ static std::unique_ptr<gfx::Texture> MakeSolidIcon(gfx::GraphicsDevice& device,
 }
 
 void Game::LoadItemIcons() {
-	// Every item kind is built here, not on its first drop (see the method).
-	m_world->PreloadItemKinds();
-	// One element-tinted icon per symbol, keyed by the rune's catalog id
-	// (rune_fire → rune_icon_fire). PNG only (like the splats). Drawn on the
-	// cursor when a tablet is held, and in the hand slots / inventory.
+	// The per-symbol pictures: a flat element-tinted icon (assets/ui/rune_icon_<
+	// symbol>, PNG only like the splats) - what a rune tablet shows while its baked
+	// tablet is missing, and DrawRuneFace's picture - and the Magic window's
+	// glowing rune: glyph + halo (tools/BuildRuneGlow.py). Linear, not sRGB: the
+	// glyph and halo are white masks the draw tints.
+	static_assert(kSymbolCount <= ItemIconBank::kRuneSlots);
 	for (u32 i = 0; i < kSymbolCount; ++i) {
 		const auto sym = static_cast<SpellSymbol>(i);
-		const std::string id(RuneItemId(sym));
 		m_runeIconTextures[i] = TryLoadTextureFile(
 			m_device, paths::Asset(std::format("ui\\rune_icon_{}", SymbolId(sym))));
 		if (!m_runeIconTextures[i])
-			log::Warn("missing rune_icon_{}.png — no cursor icon", SymbolId(sym));
-		m_itemIcons.byType[id] = m_runeIconTextures[i].get();
-		// The Magic window's glowing rune: glyph + halo (tools/BuildRuneGlow.py).
-		// Linear, not sRGB: they are white masks the draw tints.
-		static_assert(kSymbolCount <= ItemIconBank::kRuneSlots);
+			log::Warn("missing rune_icon_{}.png - no cursor icon", SymbolId(sym));
+		m_itemIcons.runeIcon[i] = m_runeIconTextures[i].get();
 		m_runeGlyphTextures[i] = TryLoadTextureFile(
 			m_device, paths::Asset(std::format("ui\\rune_glyph_{}", SymbolId(sym))));
 		m_runeGlowTextures[i] = TryLoadTextureFile(
@@ -892,94 +898,15 @@ void Game::LoadItemIcons() {
 		m_itemIcons.runeGlyph[i] = m_runeGlyphTextures[i].get();
 		m_itemIcons.runeGlow[i] = m_runeGlowTextures[i].get();
 	}
-	// A rune in an item socket (pack, doll, cursor) is its CARVED TABLET, baked
-	// from the 3D model like any item, with its school's glow laid over the
-	// groove; the hand boxes and spell controls keep the glyph alone (Michael).
-	// The flat rune_icon PNG above stays the fallback while a tablet is missing.
-	{
-		std::array<const gfx::Texture*, kSymbolCount> tablets{};
-		bool all = m_world->RuneFaceUv(m_itemIcons.runeFaceLo, m_itemIcons.runeFaceHi);
-		for (u32 i = 0; all && i < kSymbolCount; ++i)
-			all = (tablets[i] = m_world->ItemIconFor(
-					   std::string(RuneItemId(static_cast<SpellSymbol>(i))))) != nullptr;
-		m_itemIcons.runeTablets = all;
-		if (all)
-			for (u32 i = 0; i < kSymbolCount; ++i)
-				m_itemIcons.byType[std::string(RuneItemId(static_cast<SpellSymbol>(i)))] =
-					tablets[i];
-		else
-			log::Warn("rune tablet icons not baked - runes keep their flat icon");
-	}
-	// Non-rune items: a model item uses its baked 3D thumbnail (rendered once by
-	// DungeonWorld; the same texture feeds every slot/grid/cursor instance);
-	// model-less items keep a generated solid category-tint placeholder.
-	for (const CatalogEntry* defp : m_project.AllItems()) {
-		const CatalogEntry& def = *defp;
-		const std::string category = def.Get("category", "misc");
-		if (category == "rune") continue; // runes use their element PNG above
-		if (const gfx::Texture* model = m_world->ItemIconFor(def.id)) {
-			m_itemIcons.byType[def.id] = model;
-			continue;
-		}
-		m_itemIconPlaceholders.push_back(MakeSolidIcon(m_device, CategoryTint(category)));
-		m_itemIcons.byType[def.id] = m_itemIconPlaceholders.back().get();
-	}
-	// A BURNING item's flame (Michael: the lit torch in a hand had none): where
-	// it stands on the icon, and the sprites it is drawn with. White masks the
-	// draw tints, so linear.
-	m_itemIcons.flameAt.clear();
-	m_itemIcons.flameTint.clear();
-	for (const CatalogEntry* defp : m_project.AllItems()) {
-		if (Vec2 uv; m_world->ItemFlameUv(defp->id, uv)) {
-			m_itemIcons.flameAt[defp->id] = uv;
-			log::Info("item icon {}: flame at {:.2f},{:.2f}", defp->id, uv.x, uv.y);
-		}
-		if (Vec3 tint; m_world->ItemFlameTint(defp->id, tint))
-			m_itemIcons.flameTint[defp->id] = tint;
-	}
-	if (!m_flameTexture) {
+	// A BURNING item's flame (Michael: the lit torch in a hand had none): the
+	// sprites it is drawn with. White masks the draw tints, so linear. The glow
+	// under it is the shared one (code-review C330).
+	if (!m_flameTexture)
 		m_flameTexture = TryLoadTextureFile(m_device, paths::Asset("ui\\flame"));
-		m_flameGlowTexture = TryLoadTextureFile(m_device, paths::Asset("ui\\glow_radial"));
-	}
 	m_itemIcons.flame = m_flameTexture.get();
-	m_itemIcons.flameGlow = m_flameGlowTexture.get();
-	// Carry weights + categories for every catalog item (load sum; pack check).
-	m_itemWeights.byType.clear();
-	m_itemCategories.byType.clear();
-	m_itemCategories.capacityByType.clear();
-	m_itemCategories.acceptsByType.clear();
-	m_itemCategories.holdableTypes.clear();
-	// Splits a whitespace/comma list (the catalog `accepts` field) into tokens.
-	const auto splitList = [](const std::string& s) {
-		std::vector<std::string> out;
-		std::string tok;
-		for (char c : s) {
-			if (c == ' ' || c == '\t' || c == ',') {
-				if (!tok.empty()) { out.push_back(tok); tok.clear(); }
-			} else {
-				tok += c;
-			}
-		}
-		if (!tok.empty()) out.push_back(tok);
-		return out;
-	};
-	for (const CatalogEntry* defp : m_project.AllItems()) {
-		const CatalogEntry& def = *defp;
-		m_itemWeights.byType[def.id] = def.GetFloat("weight", 0.0f);
-		m_itemCategories.byType[def.id] = def.Get("category", "misc");
-		int capacity = static_cast<int>(def.GetFloat("capacity", 0.0f));
-		if (capacity > kMaxPackSlots) { // a bag's slots are fixed storage (PackSlots)
-			log::Warn("item '{}': capacity {} is more than the {} slots a bag can have"
-					  " - clamped", def.id, capacity, kMaxPackSlots);
-			capacity = kMaxPackSlots;
-		}
-		m_itemCategories.capacityByType[def.id] = capacity;
-		m_itemCategories.acceptsByType[def.id] = splitList(def.Get("accepts", ""));
-		if (def.GetBool("holdable", false))
-			m_itemCategories.holdableTypes.insert(def.id);
-		if (WearSlot w{}; ParseWearSlot(def.Get("wear", ""), w))
-			m_itemCategories.wearByType[def.id] = w;
-	}
+	m_itemIcons.flameGlow = GlowIcon(m_device);
+	// Every item's own entries: its icon, flame, weight, category and the rest.
+	RefreshItemBanks();
 
 	// Equipment-slot outline silhouettes (slot_<type>.png), the ghost behind an
 	// empty doll slot. PNG only, like the rune icons; a missing one just draws no
@@ -1015,6 +942,105 @@ void Game::LoadItemIcons() {
 	}
 }
 
+void Game::RefreshItemBanks() {
+	if (!m_world) return;
+	// The placeholders below are freed and an icon target may have been swapped;
+	// frames still in flight draw them.
+	m_device.WaitIdle();
+	// Every item kind is built here, not on its first drop (see the method).
+	m_world->PreloadItemKinds();
+	// EVERY per-item map is cleared before it is filled (code-review C330: the
+	// wear slots never were, so after a world switch the doll still took an item
+	// in the slot the last world's catalog gave it).
+	m_itemIcons.byType.clear();
+	m_itemIcons.runeOf.clear();
+	m_itemIcons.flameAt.clear();
+	m_itemIcons.flameTint.clear();
+	m_itemIconPlaceholders.clear();
+	m_itemWeights.byType.clear();
+	m_itemCategories.byType.clear();
+	m_itemCategories.capacityByType.clear();
+	m_itemCategories.acceptsByType.clear();
+	m_itemCategories.holdableTypes.clear();
+	m_itemCategories.wearByType.clear();
+
+	// RUNE TABLETS are whichever items the world's KINDS say are (ItemKind::isRune,
+	// code-review C347) - never an id's `rune_` spelling - each with its symbol.
+	// In an item socket a tablet is its CARVED TABLET, baked from the 3D model
+	// like any item, with its school's glow laid over the groove; the hand boxes
+	// and spell controls draw the glyph alone (Michael). Until EVERY tablet is
+	// baked they all keep their symbol's flat icon.
+	bool tablets = m_world->RuneFaceUv(m_itemIcons.runeFaceLo, m_itemIcons.runeFaceHi);
+	for (const CatalogEntry* defp : m_project.AllItems())
+		if (SpellSymbol sym; m_world->ItemRune(defp->id, sym)) {
+			m_itemIcons.runeOf[defp->id] = sym;
+			tablets = tablets && m_world->ItemIconFor(defp->id) != nullptr;
+		}
+	m_itemIcons.runeTablets = tablets;
+	if (!tablets && !m_itemIcons.runeOf.empty())
+		log::Warn("rune tablet icons not baked - runes keep their flat icon");
+	// Every item's icon: a rune's tablet (else its symbol's flat PNG), a model
+	// item's baked 3D thumbnail (rendered once by DungeonWorld; the same texture
+	// feeds every slot/grid/cursor instance), and a generated solid
+	// category-tint placeholder for the rest.
+	for (const CatalogEntry* defp : m_project.AllItems()) {
+		const CatalogEntry& def = *defp;
+		if (const SpellSymbol* sym = m_itemIcons.RuneOf(def.id)) {
+			m_itemIcons.byType[def.id] = tablets ? m_world->ItemIconFor(def.id)
+												 : m_itemIcons.runeIcon[static_cast<size_t>(*sym)];
+			continue;
+		}
+		if (const gfx::Texture* model = m_world->ItemIconFor(def.id)) {
+			m_itemIcons.byType[def.id] = model;
+			continue;
+		}
+		m_itemIconPlaceholders.push_back(
+			MakeSolidIcon(m_device, CategoryTint(def.Get("category", "misc"))));
+		m_itemIcons.byType[def.id] = m_itemIconPlaceholders.back().get();
+	}
+	// A BURNING item's flame: where it stands on the icon, and its colour.
+	for (const CatalogEntry* defp : m_project.AllItems()) {
+		if (Vec2 uv; m_world->ItemFlameUv(defp->id, uv)) {
+			m_itemIcons.flameAt[defp->id] = uv;
+			log::Info("item icon {}: flame at {:.2f},{:.2f}", defp->id, uv.x, uv.y);
+		}
+		if (Vec3 tint; m_world->ItemFlameTint(defp->id, tint))
+			m_itemIcons.flameTint[defp->id] = tint;
+	}
+	// Carry weights + categories for every catalog item (load sum; pack check).
+	// Splits a whitespace/comma list (the catalog `accepts` field) into tokens.
+	const auto splitList = [](const std::string& s) {
+		std::vector<std::string> out;
+		std::string tok;
+		for (char c : s) {
+			if (c == ' ' || c == '\t' || c == ',') {
+				if (!tok.empty()) { out.push_back(tok); tok.clear(); }
+			} else {
+				tok += c;
+			}
+		}
+		if (!tok.empty()) out.push_back(tok);
+		return out;
+	};
+	for (const CatalogEntry* defp : m_project.AllItems()) {
+		const CatalogEntry& def = *defp;
+		m_itemWeights.byType[def.id] = def.GetFloat("weight", 0.0f);
+		m_itemCategories.byType[def.id] = def.Get("category", "misc");
+		int capacity = static_cast<int>(def.GetFloat("capacity", 0.0f));
+		if (capacity > kMaxPackSlots) { // a bag's slots are fixed storage (PackSlots)
+			log::Warn("item '{}': capacity {} is more than the {} slots a bag can have"
+					  " - clamped", def.id, capacity, kMaxPackSlots);
+			capacity = kMaxPackSlots;
+		}
+		m_itemCategories.capacityByType[def.id] = capacity;
+		m_itemCategories.acceptsByType[def.id] = splitList(def.Get("accepts", ""));
+		if (def.GetBool("holdable", false))
+			m_itemCategories.holdableTypes.insert(def.id);
+		if (WearSlot w{}; ParseWearSlot(def.Get("wear", ""), w))
+			m_itemCategories.wearByType[def.id] = w;
+	}
+}
+
 // ============================================================================
 // State transitions
 // ============================================================================
@@ -1025,7 +1051,7 @@ void Game::ResetRoster(const std::vector<Character>* party) {
 	// the new party; SyncPortraits re-points the textures, reloading only a slot
 	// whose id changed. A party of another SIZE (party creation) replaces the
 	// vector - the world holds a pointer to the vector, not to its members.
-	const std::vector<Character> fresh = party ? *party : CreateDefaultParty();
+	const std::vector<Character> fresh = party ? *party : DefaultParty();
 	const bool resized = fresh.size() != m_characters.size();
 	if (resized) {
 		m_characters = fresh;
@@ -3201,7 +3227,7 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 										   pv.w / pv.h, &dlg.FitMin(), &dlg.FitMax(),
 										   &dlg.Pose(), uv))
 				DrawFlame(m_spriteBatch, {pv.x + uv.x * pv.w, pv.y + uv.y * pv.h}, pv.h * 0.30f,
-						  pv.h * 0.36f, 0.0f, *m_flameTexture, m_flameGlowTexture.get(),
+						  pv.h * 0.36f, 0.0f, *m_flameTexture, m_itemIcons.flameGlow,
 						  dlg.FlameTint());
 		}
 	}

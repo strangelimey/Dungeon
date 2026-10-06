@@ -1928,8 +1928,9 @@ std::string DungeonWorld::DecorationTypeByIndex(int index) const {
 }
 
 bool DungeonWorld::DecorationShowsFacing(const std::string& type) const {
-	const auto it = m_decorationKinds.find(type);
-	return it == m_decorationKinds.end() || it->second->facingArrow;
+	const PropKinds& kinds = KindsOf(PropCatalog::Decorations);
+	const auto it = kinds.find(type);
+	return it == kinds.end() || it->second->facingArrow;
 }
 
 bool DungeonWorld::MonsterShowsFacing(const std::string& type) const {
@@ -1938,8 +1939,9 @@ bool DungeonWorld::MonsterShowsFacing(const std::string& type) const {
 }
 
 void DungeonWorld::SetDecorationFacingArrow(const std::string& type, bool show) {
-	const auto it = m_decorationKinds.find(type);
-	if (it != m_decorationKinds.end()) it->second->facingArrow = show;
+	PropKinds& kinds = KindsOf(PropCatalog::Decorations);
+	const auto it = kinds.find(type);
+	if (it != kinds.end()) it->second->facingArrow = show;
 }
 
 bool DungeonWorld::RemoveDecorationByIndex(int index) {

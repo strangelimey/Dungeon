@@ -131,6 +131,19 @@ struct ItemIconBank {
 	static constexpr size_t kRuneSlots = 12;
 	const gfx::Texture* runeGlyph[kRuneSlots]{};
 	const gfx::Texture* runeGlow[kRuneSlots]{};
+	// Each symbol's FLAT icon (assets/ui/rune_icon_<symbol>), by SpellSymbol
+	// index: what a tablet shows while the tablets are not baked, and
+	// DrawRuneFace's picture.
+	const gfx::Texture* runeIcon[kRuneSlots]{};
+	// WHICH ITEMS ARE RUNE TABLETS, and of which symbol - filled from the world's
+	// item KINDS (ItemKind::isRune / runeSymbol; code-review C347), never read off
+	// the `rune_` spelling of an id, so a tablet under any id draws as one. Null =
+	// not a rune. By view: DrawItemIcon asks every socket, every frame.
+	std::flat_map<std::string, SpellSymbol, std::less<>> runeOf;
+	const SpellSymbol* RuneOf(std::string_view typeId) const {
+		const auto it = runeOf.find(typeId);
+		return it == runeOf.end() ? nullptr : &it->second;
+	}
 	// A rune TABLET's baked icon is its byType entry; this is where its carved
 	// face sits in that icon (DungeonWorld::RuneFaceUv, the same for every
 	// rune), for the glow laid over the groove. hi <= lo = not known.

@@ -67,7 +67,8 @@ void DungeonWorld::BeginLevelLoad(const std::string& stem, bool stashCurrent) {
 	m_currentLevel = stem;
 
 	// Reset per-level state. The shared caches (m_monsterKinds, m_decorationKinds,
-	// m_propTextures) persist — they are keyed by name and reused across levels.
+	// m_propTextures) persist - they are keyed by name (a prop kind by its
+	// catalog and name) and reused across levels.
 	// Instance lists must be cleared (LoadMonsters/LoadDecorations/BuildFires
 	// push_back); the surface chunks/blocks/textures self-reset when the caller
 	// re-runs AppendLoadTasks.

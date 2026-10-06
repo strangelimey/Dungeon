@@ -61,7 +61,7 @@ void DungeonWorld::SpawnDoor(const Entity& record) {
 	if (const std::string* o = record.Param("open")) door.initialOpen = *o != "0";
 	door.open = door.initialOpen;
 	door.openT = door.open ? 1.0f : 0.0f;
-	door.panel = &DecorationKindFor(record.type, m_project.doors);
+	door.panel = &DecorationKindFor(record.type, PropCatalog::Doors);
 	// The type's knobs, resolved ONCE from its catalog entry. A legacy record
 	// naming a type the catalog has lost keeps the defaults, which are the
 	// sideways slide and the shared frame every door had before either was
@@ -90,7 +90,7 @@ void DungeonWorld::SpawnDoor(const Entity& record) {
 		const float secs = def->GetFloat("open_seconds", 0.7f);
 		door.openSeconds = secs > 0.05f ? secs : 0.05f;
 		if (const std::string t = def->Get("trim", ""); !t.empty())
-			door.trim = &DecorationKindFor(t, m_project.doors);
+			door.trim = &DecorationKindFor(t, PropCatalog::Doors);
 		// The SURROUND is per type too: one mesh, but its own catalog entry, so
 		// a vault door can stand in granite while a cellar door stands in the
 		// wall's own stone. A named frame the catalog has lost falls back to the
@@ -100,7 +100,7 @@ void DungeonWorld::SpawnDoor(const Entity& record) {
 			frame = f;
 		door.ease = EaseSpanOf(def);
 	}
-	door.frame = &DecorationKindFor(frame, m_project.doors);
+	door.frame = &DecorationKindFor(frame, PropCatalog::Doors);
 	// The leaf's shaping, overridable per placement like the opener is.
 	if (const std::string* e = record.Param("ease_in"))
 		door.ease.in = EaseShapeFromName(*e, door.ease.in);
@@ -163,14 +163,14 @@ void DungeonWorld::ResolveDoorOpener(Door& door, const std::string& type,
 	const float off = def ? def->GetFloat("offset", kOpenerX) : kOpenerX;
 	door.openerX = side == "right" ? off : -off;
 	door.openerEase = EaseSpanOf(def);
-	door.opener = &DecorationKindFor(opener, m_project.doors);
+	door.opener = &DecorationKindFor(opener, PropCatalog::Doors);
 	door.openerStyle =
 		CatalogGet(def, "style", "pad") == "chain" ? OpenerStyle::Chain
 												  : OpenerStyle::Pad;
 	// The static half, if the opener has one — the socket a chain runs out of.
 	if (const std::string m = CatalogGet(def, "mount", "");
 		!m.empty() && m_project.doors.Contains(m))
-		door.openerMount = &DecorationKindFor(m, m_project.doors);
+		door.openerMount = &DecorationKindFor(m, PropCatalog::Doors);
 }
 
 bool DungeonWorld::AddDoor(const std::string& type, int x, int z) {
@@ -787,9 +787,9 @@ bool DungeonWorld::AddButton(const std::string& type, int x, int z) {
 	b.x = x;
 	b.z = z;
 	b.facing = wall;
-	b.kind = &DecorationKindFor(type, m_project.buttons);
+	b.kind = &DecorationKindFor(type, PropCatalog::Buttons);
 	if (m_project.buttons.Contains("lever_plate"))
-		b.plate = &DecorationKindFor("lever_plate", m_project.buttons);
+		b.plate = &DecorationKindFor("lever_plate", PropCatalog::Buttons);
 	m_buttons.push_back(std::move(b));
 	MarkSeen(x, z);
 	return true;

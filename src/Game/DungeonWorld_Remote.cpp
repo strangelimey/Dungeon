@@ -525,10 +525,12 @@ const gfx::Texture* DungeonWorld::MonsterIconFor(const std::string& type) const 
 	return it != m_monsterKinds.end() ? it->second->iconTarget.get() : nullptr;
 }
 
-const gfx::Texture* DungeonWorld::DecorationIconFor(const std::string& type) const {
+const gfx::Texture* DungeonWorld::DecorationIconFor(PropCatalog cat,
+													 const std::string& type) const {
 	if (!m_decorationIconsBaked) return nullptr; // RT still transparent
-	const auto it = m_decorationKinds.find(type);
-	return it != m_decorationKinds.end() ? it->second->iconTarget.get() : nullptr;
+	const PropKinds& kinds = KindsOf(cat);
+	const auto it = kinds.find(type);
+	return it != kinds.end() ? it->second->iconTarget.get() : nullptr;
 }
 
 const gfx::Texture* DungeonWorld::ItemIconLookup(const std::string& type) const {

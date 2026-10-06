@@ -262,6 +262,23 @@ bool Project::IdentityInCode(std::string_view key) {
 	return false;
 }
 
+std::span<const std::string_view> Project::RelatedCatalogs(std::string_view key) {
+	static constexpr std::string_view kItems[] = {"items", "weapons", "armor"};
+	static constexpr std::string_view kProps[] = {"decorations", "doors", "buttons", "stairs"};
+	for (const std::span<const std::string_view> group :
+		 {std::span<const std::string_view>(kItems), std::span<const std::string_view>(kProps)})
+		if (std::ranges::find(group, key) != group.end()) return group;
+	return {};
+}
+
+std::string_view Project::RelatedCatalogUsing(std::string_view key, std::string_view id) const {
+	for (const std::string_view other : RelatedCatalogs(key))
+		if (other != key)
+			if (const Catalog* c = CatalogForKey(std::string(other)); c && c->Contains(id))
+				return other;
+	return {};
+}
+
 Catalog* Project::CatalogForKey(const std::string& key) {
 	if (key == "terrain") return &terrain;
 	if (key == "dungeons") return &dungeons;

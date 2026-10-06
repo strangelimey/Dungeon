@@ -74,6 +74,12 @@ public:
 	// tools\SpellTest.py holds the shown count to the file's, code-review C371).
 	size_t DescBytes() const;
 	size_t DescEntryBytes() const { return m_descEntryBytes; }
+	// Every line the open item shows, as (row id - its label key past
+	// `item.detail.`, "damage" - and the value shown): `itemdetails rows`, the
+	// dialog read back as drawn (a weapon type-saved shows its new numbers at
+	// once - code-review C302).
+	void ForEachShownRow(
+		const std::function<void(std::string_view id, std::string_view value)>& fn) const;
 
 	// Esc closes; otherwise the dialog takes the pointer (it is modal for the
 	// mouse - the keyboard is left to whoever owns it underneath).

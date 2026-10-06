@@ -57,7 +57,8 @@ bool WearSlotFits(WearSlot wear, EquipSlot slot) {
 // project's balance knobs are loaded. Bases were back-solved from the old
 // authored maxima at k=1, so a default balance reproduces them exactly
 // (Brand 42/38/8, Sera 30/44/12, Maren 34/30/36, Tilo 24/26/48).
-std::vector<Character> CreateDefaultParty() {
+std::vector<Character> CreateDefaultParty(
+	const std::function<std::string_view(SpellSymbol)>& runeItem) {
 	std::vector<Character> party(4);
 
 	party[0].name = "Brand";
@@ -152,10 +153,15 @@ std::vector<Character> CreateDefaultParty() {
 	// lit common torch, full. With nothing lit held, the party sees by the
 	// level's ambient alone, so a new game without it would open in the dark.
 	party[1].inventory.Hand(1).typeId = "torch_lit";
-	party[2].inventory.Hand(0).typeId = RuneItemId(SpellSymbol::Fire);
-	party[2].inventory.Hand(1).typeId = RuneItemId(SpellSymbol::Project);
-	party[3].inventory.Hand(0).typeId = RuneItemId(SpellSymbol::Earth);
-	party[3].inventory.Hand(1).typeId = RuneItemId(SpellSymbol::Protect);
+	// Each tablet is the WORLD's for its symbol (`runeItem`, its item kinds' say -
+	// code-review C347), none where the world has none to give.
+	const auto tablet = [&runeItem](SpellSymbol s) {
+		return runeItem ? std::string(runeItem(s)) : std::string();
+	};
+	party[2].inventory.Hand(0).typeId = tablet(SpellSymbol::Fire);
+	party[2].inventory.Hand(1).typeId = tablet(SpellSymbol::Project);
+	party[3].inventory.Hand(0).typeId = tablet(SpellSymbol::Earth);
+	party[3].inventory.Hand(1).typeId = tablet(SpellSymbol::Protect);
 	// And each caster carries the two MODIFIER runes, Ingwaz and Hagalaz, in the
 	// backpack (Michael, spell-updates): the third tier is reachable from a fresh
 	// game - memorize them from the sheet, then volley a bolt or burst a ward.
@@ -164,9 +170,8 @@ std::vector<Character> CreateDefaultParty() {
 	// spells are reachable until there is somewhere in the levels to find one.
 	for (const int caster : {2, 3}) {
 		Inventory& inv = party[static_cast<size_t>(caster)].inventory;
-		inv.Stow(std::string(RuneItemId(SpellSymbol::Multiple)));
-		inv.Stow(std::string(RuneItemId(SpellSymbol::Explode)));
-		inv.Stow(std::string(RuneItemId(SpellSymbol::Light)));
+		for (const SpellSymbol s : {SpellSymbol::Multiple, SpellSymbol::Explode, SpellSymbol::Light})
+			if (std::string id = tablet(s); !id.empty()) inv.Stow(std::move(id));
 	}
 
 	// Brand starts carrying one piece of each armor WEIGHT CLASS, for the same

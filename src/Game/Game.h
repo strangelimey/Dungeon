@@ -318,6 +318,12 @@ private:
 	// (UnloadableModelReason), or a terrain glyph the world could not be read
 	// with (TerrainSaveRefusal). Both `typeset` and the dialog's Save ask it.
 	std::string TypeSaveRefusal(const std::string& catalogKey, const CatalogEntry& merged) const;
+	// Why `id` may not be a new or renamed `catalogKey` type because a RELATED
+	// catalog already has it (code-review C302, Project::RelatedCatalogUsing):
+	// one item catalog's id in another's (FindItem would find only one), or one
+	// prop catalog's in another's. "" when it may. Create, duplicate and rename
+	// all ask it.
+	std::string RelatedIdRefusal(const std::string& catalogKey, const std::string& id) const;
 	// What "Use installed" does with pool texture set `set` adopted as a surface
 	// of `catalogKey` (walls / floors / ceilings) - code-review C407. A set's worn
 	// meshes are ONE file per set in the shared pool, kind baked into the
@@ -900,6 +906,13 @@ private:
 	void OpenPortraitPicker(size_t member);
 	void LoadHitSplats();      // hit-feedback splat icons (load task)
 	void LoadItemIcons();      // rune + placeholder item cursor/inventory icons (load task)
+	// The UI's PER-ITEM banks - icons, rune tablets, flames, weights, categories,
+	// capacities, holdable and wear slots - cleared WHOLE and rebuilt from the
+	// world's item kinds and the catalogs (code-review C330: the wear slots were
+	// never cleared, so a world switch kept the last world's). LoadItemIcons runs
+	// it, and so does every item type's create, save, rename and delete, which
+	// rebuild the kinds the banks mirror.
+	void RefreshItemBanks();
 
 	// --- state transitions --------------------------------------------------
 	// Puts the party in a level, staging a LOAD only when it is not the one
@@ -941,6 +954,10 @@ private:
 	// one). Only the default four take the Settings palette's colours; a created
 	// member keeps the one it was given.
 	void ResetRoster(const std::vector<Character>* party = nullptr);
+	// The default four (CreateDefaultParty) holding THIS world's rune tablets
+	// (DungeonWorld::RuneItemFor, code-review C347). With no world there are no
+	// tablets to hand out.
+	std::vector<Character> DefaultParty() const;
 
 	// --- party creation (Game_Party.cpp) ------------------------------------
 	// One member from a spec: race (stats from PartyRules + the race's bases,
@@ -1304,14 +1321,17 @@ private:
 
 	// Item icons for the held cursor / hand slots / inventory. Game owns the
 	// textures; the bank (catalog id → texture) is handed to GameUI once, address
-	// stable, filled by LoadItemIcons: rune tablets load element PNGs, other
-	// categories get a generated solid-tint placeholder (m_itemIconPlaceholders).
+	// stable, filled by RefreshItemBanks: a rune tablet is its baked tablet (else
+	// its symbol's flat PNG), a model item its baked thumbnail, the rest a
+	// generated solid-tint placeholder (m_itemIconPlaceholders).
 	std::array<std::unique_ptr<gfx::Texture>, kSymbolCount> m_runeIconTextures;
 	// The Magic window's glowing runes: glyph + halo per symbol (BuildRuneGlow.py).
 	std::array<std::unique_ptr<gfx::Texture>, kSymbolCount> m_runeGlyphTextures;
 	std::array<std::unique_ptr<gfx::Texture>, kSymbolCount> m_runeGlowTextures;
-	// A burning torch's flame over its icon, and the glow under it (ItemIconBank).
-	std::unique_ptr<gfx::Texture> m_flameTexture, m_flameGlowTexture;
+	// A burning torch's flame over its icon (ItemIconBank). The glow under it is
+	// the shared glow_radial (AssetUtil GlowIcon, code-review C330 - it was
+	// loaded here AND by GameUI, a second SRV slot for one image).
+	std::unique_ptr<gfx::Texture> m_flameTexture;
 	std::vector<std::unique_ptr<gfx::Texture>> m_itemIconPlaceholders;
 	ItemIconBank m_itemIcons;
 	ItemWeightBank m_itemWeights; // catalog id → carry weight (kg), for the sheet

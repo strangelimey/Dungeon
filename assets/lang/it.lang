@@ -1418,6 +1418,7 @@ newasset.map.missing=(non trovato)
 newasset.warn.noheight=Nessuna mappa di altezza: la parallasse sarà piatta.
 newasset.err.noname=Scrivi un nome per il nuovo tipo.
 newasset.err.dup='{}' esiste già in questo catalogo.
+newasset.err.related='{}' è già in uso in {}; i due cataloghi condividono gli identificatori.
 newasset.err.nosource=Scegli una cartella o un file di origine.
 newasset.err.noalbedo=Nessuna mappa albedo nella cartella — niente da importare.
 newasset.err.noasset=Nessuna risorsa installata da scegliere.

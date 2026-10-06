@@ -99,17 +99,18 @@ struct ItemIconBank; // PartyHudTypes.h
 float EffectTimeLeft(const fx::Inst& effect);
 // One effect's ICON in `rect`, the HUD strip's and the sheet's Effects tab's
 // alike (code-review C263: two copies had drifted apart): an item socket
-// (ui::DrawSlotFace), the kind's art in its well - a rune as its glyph alone,
-// never the tablet - or a `tint` square without it, the time-left sliver
-// (`frac`, EffectTimeLeft) draining along the picture's foot, and a border in
-// `tint` (the effect's school). The picture's inset and the sliver's thickness
-// are shares of the icon, so a small strip icon and a large tab icon draw alike.
+// (ui::DrawSlotFace), the kind's art in its well (ResolveEffectIcon) - a rune as
+// its glyph alone, never the tablet - or a `tint` square without it, the
+// time-left sliver (`frac`, EffectTimeLeft) draining along the picture's foot,
+// and a border in `tint` (the effect's school). The picture's inset and the
+// sliver's thickness are shares of the icon, so a small strip icon and a large
+// tab icon draw alike.
 void DrawEffectIcon(const ui::UIContext& ctx, gfx::SpriteBatch& batch, const gfx::Rect& rect,
 					const fx::EffectKind* kind, const Vec4& tint, float frac,
 					const ItemIconBank* icons);
 
-// One rune face: the rune-item icon when loaded, else an element-tinted
-// fallback square; element-coloured border. DrawRuneGlow's FALLBACK, for when
+// One rune face: the symbol's flat icon (rune_icon_<symbol>) when loaded, else an
+// element-tinted fallback square; element-coloured border. DrawRuneGlow's FALLBACK, for when
 // the glow masks are not installed - the spellbook, the hand boxes and every
 // other rune control draw through DrawRuneGlow, so a rune reads the same
 // everywhere either way. `disabled` washes it out under a dark overlay.
@@ -158,6 +159,25 @@ void DrawRuneGlow(gfx::SpriteBatch& batch, const gfx::Rect& r, SpellSymbol s,
 // to draw (empty id, no icon).
 bool DrawItemIcon(gfx::SpriteBatch& batch, const gfx::Rect& r, std::string_view typeId,
 				  const ItemIconBank* icons, float pad = 0.1f, bool symbolic = false);
+// WHAT DrawItemIcon draws for an item, decided in ONE place for the draw and the
+// dev `itemicon` readout: a rune tablet (the bank's runeOf, filled from the item
+// kinds - code-review C347) as its glyph or its carved tablet, any other item as
+// its icon, or nothing. Allocation-free.
+struct ItemIconLook {
+	enum class Kind : u8 { None, Glyph, Tablet, Icon };
+	Kind kind = Kind::None;
+	SpellSymbol rune = SpellSymbol::Fire;  // Glyph / Tablet
+	const gfx::Texture* icon = nullptr;     // Tablet / Icon
+};
+ItemIconLook ResolveItemIcon(std::string_view typeId, const ItemIconBank* icons,
+							 bool symbolic);
+// WHAT AN EFFECT'S ICON draws (DrawEffectIcon's decision, and the dev `itemicon
+// effect` readout): the item its effects.cat `icon` names, as a hand box draws
+// it (a rune tablet as its glyph), else the kind's own rune's glyph (fx::
+// EffectKind::IconRune - a ward, Sight, a light), else nothing, which the strip
+// draws as the tinted square. By the rune, not by an item id, so a renamed tablet
+// takes no effect's picture with it. Allocation-free.
+ItemIconLook ResolveEffectIcon(const fx::EffectKind* kind, const ItemIconBank* icons);
 
 // A flame standing on the head of a burning item's icon `in`: `at` is the head
 // in the icon (uv), the flame a stack of three tinted `flame` sprites (body,

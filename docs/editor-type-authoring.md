@@ -371,7 +371,9 @@ Three follow-ups from the phase notes, plus a real bug the review turned up.
    (`m_monsterKinds` / `m_fixtureKinds` / `m_decorationKinds`) so the next resolve
    re-reads the catalog, then `RespawnFromRecords`. A kind is loaded once and
    cached by type name, which is why a saved edit used to wait for the next level
-   entry.
+   entry. (Since code-review C302 a prop kind is cached by its catalog AND name -
+   a door and a decoration of one id are two kinds - and an ITEM's kind, which
+   this left untouched, is rebuilt in place with the UI's item banks.)
 
 3. **Absent vs explicit 0 on the material sliders.** A Float field with no schema
    default (metallic/roughness/height_scale — absence means "the map decides")

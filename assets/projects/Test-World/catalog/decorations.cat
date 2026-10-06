@@ -267,8 +267,12 @@ category = gate
 ; Wall-plane prop, as wood_door.
 mount = wall
 
-[portcullis]
-display = Portcullis
+; `portcullis_grate`, not `portcullis`: doors.cat has the working [portcullis],
+; and a door and a decoration of one id once shared one cached kind - whichever
+; was drawn second wore the other's model (code-review C302). The editor now
+; refuses an id the related prop catalogs already hold.
+[portcullis_grate]
+display = Portcullis Grate
 tags = iron
 model = portcullis
 texture = rusted_iron

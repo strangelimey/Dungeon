@@ -24,6 +24,7 @@
 #include <array>
 #include <cmath>
 #include <flat_map>
+#include <functional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -454,7 +455,12 @@ inline int Character::StatValue(std::string_view id) const {
 	return i < 0 ? 0 : this->*kStats[i].value;
 }
 
-// The default four-member starting party, fresh at full health.
-std::vector<Character> CreateDefaultParty();
+// The default four-member starting party, fresh at full health. Its casters'
+// rune TABLETS are the world's: `runeItem` names the item that is a symbol's
+// tablet there (DungeonWorld::RuneItemFor - code-review C347: the ids used to be
+// the `rune_<symbol>` convention, so a world that renamed its tablets handed out
+// items it did not have). Empty, or an empty answer, hands out no tablet.
+std::vector<Character> CreateDefaultParty(
+	const std::function<std::string_view(SpellSymbol)>& runeItem = {});
 
 } // namespace dungeon::game

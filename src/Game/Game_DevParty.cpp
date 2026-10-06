@@ -77,9 +77,15 @@ void Game::RegisterPartyCommands() {
 						   if (!Need(m_console, args, 1)) return;
 						   SpellSymbol sym;
 						   if (!ParseSymbolArg(m_console, args[0], sym)) return;
-						   const std::string typeId(RuneItemId(sym));
-						   if (m_characters.empty() ||
-							   !m_characters[0].inventory.Stow(typeId))
+						   // The WORLD's tablet for the symbol, by its item kinds
+						   // (code-review C347), not the rune_<symbol> spelling.
+						   const std::string typeId(m_world ? m_world->RuneItemFor(sym)
+															: std::string_view());
+						   if (typeId.empty())
+							   m_console.Refuse(std::format("no {} rune tablet in this world",
+															SymbolId(sym)));
+						   else if (m_characters.empty() ||
+									!m_characters[0].inventory.Stow(typeId))
 							   m_console.Refuse("pack full (or no party)");
 						   else
 							   m_console.Print(std::format("pack += {}", typeId));
@@ -973,6 +979,7 @@ void Game::RegisterPartyCommands() {
 						.params = "<item> [kg]\n"
 								  "pack <member> <slot>\n"
 								  "memorize\n"
+								  "rows\n"
 								  "off\n"
 								  "status",
 						.summary = "open, close or report the item details dialog"},
@@ -981,6 +988,20 @@ void Game::RegisterPartyCommands() {
 						   if (args[0] == "off") {
 							   m_ui.CloseItemDetails();
 							   m_console.Print("item details closed");
+							   return;
+						   }
+						   // The lines the open dialog SHOWS, read off its rows - a
+						   // weapon saved in the type editor shows its new numbers
+						   // here with no reload (code-review C302).
+						   if (args[0] == "rows") {
+							   const ItemDetailsDialog* dlg = m_ui.DetailsDialog();
+							   if (!m_ui.ItemDetailsOpen() || !dlg) {
+								   m_console.Refuse("item details: not open");
+								   return;
+							   }
+							   dlg->ForEachShownRow([this](std::string_view id, std::string_view value) {
+								   m_console.Print(std::format("item details row {} = {}", id, value));
+							   });
 							   return;
 						   }
 						   if (args[0] == "status") {
@@ -1028,6 +1049,53 @@ void Game::RegisterPartyCommands() {
 							   m_console.Refuse("no such item");
 						   else
 							   m_console.Print(std::format("item details: {}", args[0]));
+					   });
+
+	// What an item's icon DRAWS as in a socket (ResolveItemIcon, DrawItemIcon's own
+	// decision): a rune tablet's glyph or carved tablet - by its KIND, whatever its
+	// id (code-review C347) - another item's icon, or nothing. `symbolic` asks as
+	// the hand boxes and spell controls do. `effect <id>` asks the same of a
+	// status effect's icon (ResolveEffectIcon, DrawEffectIcon's decision): its
+	// effects.cat `icon` item, else its own rune's glyph, else none - the strip's
+	// tinted square.
+	m_console.Register({.name = "itemicon",
+						.group = CmdGroup::Characters,
+						.params = "<item> [symbolic]\neffect <effect>",
+						.summary = "what an item or an effect draws as in a socket: glyph, tablet, icon or none"},
+					   [this](const std::vector<std::string>& args) {
+						   if (!Need(m_console, args, 1)) return;
+						   ItemIconLook look;
+						   std::string what = args[0];
+						   if (args[0] == "effect") {
+							   if (!Need(m_console, args, 2)) return;
+							   const fx::EffectKind* kind =
+								   m_world ? m_world->Effects().Find(args[1]) : nullptr;
+							   if (!kind) {
+								   m_console.Refuse(std::format("no effect '{}'", args[1]));
+								   return;
+							   }
+							   look = ResolveEffectIcon(kind, &m_itemIcons);
+							   what = "effect " + args[1];
+						   } else {
+							   const bool symbolic = args.size() > 1 && args[1] == "symbolic";
+							   look = ResolveItemIcon(args[0], &m_itemIcons, symbolic);
+						   }
+						   switch (look.kind) {
+						   case ItemIconLook::Kind::Glyph:
+							   m_console.Print(std::format("itemicon {}: glyph {}", what,
+														   SymbolId(look.rune)));
+							   return;
+						   case ItemIconLook::Kind::Tablet:
+							   m_console.Print(std::format("itemicon {}: tablet {}", what,
+														   SymbolId(look.rune)));
+							   return;
+						   case ItemIconLook::Kind::Icon:
+							   m_console.Print(std::format("itemicon {}: icon", what));
+							   return;
+						   case ItemIconLook::Kind::None:
+							   break;
+						   }
+						   m_console.Print(std::format("itemicon {}: none", what)); // an answer
 					   });
 
 	// Open (or close) the character sheet. It exists because the sheet was

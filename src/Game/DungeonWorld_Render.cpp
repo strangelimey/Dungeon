@@ -1236,24 +1236,26 @@ void DungeonWorld::UpdateMapIcons(ID3D12GraphicsCommandList* list,
 	}
 
 	if (!m_decorationIconsBaked) {
-		for (auto&& [id, kind] : m_decorationKinds) {
-			if (!kind->iconTarget) continue;
-			if (kind->multi) { // authored multi-material prop: the item baker
-				BakeIcon(list, sprites, *kind->multi, *kind->iconTarget,
-						 /*animated*/ false, /*spin*/ 0.0f);
-			} else if (kind->mesh && !kind->model->meshes.empty()) {
-				gfx::MaterialParams mat;
-				mat.doubleSided = !kind->authored;
-				ApplyPropMaterial(mat, *kind, 0.85f);
-				mat.alphaCutoff = kind->alphaCutoff;
-				Vec3 lo, hi;
-				meshBounds(kind->model->meshes[0], lo, hi);
-				const gfx::PreviewSubmesh part{kind->mesh.get(), mat};
-				BakeMeshIcon(list, sprites, {&part, 1}, lo, hi, *kind->iconTarget);
-			} else {
-				continue;
+		for (const PropKinds& kinds : m_decorationKinds) { // every prop catalog's cache
+			for (auto&& [id, kind] : kinds) {
+				if (!kind->iconTarget) continue;
+				if (kind->multi) { // authored multi-material prop: the item baker
+					BakeIcon(list, sprites, *kind->multi, *kind->iconTarget,
+							 /*animated*/ false, /*spin*/ 0.0f);
+				} else if (kind->mesh && !kind->model->meshes.empty()) {
+					gfx::MaterialParams mat;
+					mat.doubleSided = !kind->authored;
+					ApplyPropMaterial(mat, *kind, 0.85f);
+					mat.alphaCutoff = kind->alphaCutoff;
+					Vec3 lo, hi;
+					meshBounds(kind->model->meshes[0], lo, hi);
+					const gfx::PreviewSubmesh part{kind->mesh.get(), mat};
+					BakeMeshIcon(list, sprites, {&part, 1}, lo, hi, *kind->iconTarget);
+				} else {
+					continue;
+				}
+				any = true;
 			}
-			any = true;
 		}
 		m_decorationIconsBaked = true;
 	}

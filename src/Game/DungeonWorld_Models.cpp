@@ -236,7 +236,7 @@ float DungeonWorld::ModelOriginRadius(const assets::ModelData& model) {
 
 std::string DungeonWorld::DescribeDecorationKind(const std::string& type) {
 	if (!m_project.decorations.Find(type)) return {};
-	const DecorationKind& kind = DecorationKindFor(type, m_project.decorations);
+	const DecorationKind& kind = DecorationKindFor(type, PropCatalog::Decorations);
 	// The bounds the kind was DRAWN with: a multi-material model's own (its
 	// nodes baked), else the raw vertices, which is what meshes[0] uploads.
 	Vec3 lo{1e9f, 1e9f, 1e9f}, hi{-1e9f, -1e9f, -1e9f};

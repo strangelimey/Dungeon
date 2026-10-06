@@ -1401,256 +1401,303 @@ DungeonWorld::ItemKind& DungeonWorld::ItemKindFor(const std::string& type) {
 	auto it = m_itemKinds.find(type);
 	if (it == m_itemKinds.end()) {
 		auto kind = std::make_unique<ItemKind>();
-		kind->id = type;
-		const CatalogEntry* def = m_project.FindItem(type);
-		// Display name: catalog `name` key, else item.<id> by convention.
-		kind->nameKey = CatalogGet(def, "name", std::format("item.{}", type));
-		// Shared, data-driven fields: category, carry weight, hand commands.
-		kind->category = CatalogGet(def, "category", "misc");
-		// Weapon class (docs/skills.md): the skill a swing with this item
-		// trains and is scaled by. Absent = `unarmed` (DungeonWorld::WeaponSkill).
-		kind->skill = CatalogGet(def, "skill", "");
-		// The attack formula's fields (docs/combat.md): weapon damage/speed
-		// (absent damage = no weapon, the hand swings bare - HandWeapon; absent
-		// speed = the unarmed pace), associated stats (`stats = str,
-		// dex`; absent = the unarmed default), and the worn defender side
-		// (per-type `resists` cells + a small flat `armor` soak).
-		kind->damage = def ? def->GetFloat("damage", 0.0f) : 0.0f;
-		kind->speed = def ? def->GetFloat("speed", 0.0f) : 0.0f;
-		kind->stats = ParseStatList(CatalogGet(def, "stats", ""),
-									"items.cat [" + type + "]");
-		// Weapon reach (Phase 7): `reach = polearm` swings from the rear rank.
-		kind->polearm = CatalogGet(def, "reach", "melee") == "polearm";
-		// What eating or drinking it restores (docs/health-and-healing.md).
-		// BOTH, on every item, because most real food is partly one and partly
-		// the other — an apple waters a little, a stew does both properly — and
-		// splitting them by VERB would have forced bread and a waterskin into
-		// different code for the same statement. The verb is flavour; these are
-		// the content. Absent = 0 = the item feeds nobody, and a consume of it
-		// is refused rather than silently eating a rock.
-		kind->nutrition = def ? def->GetFloat("nutrition", 0.0f) : 0.0f;
-		kind->hydration = def ? def->GetFloat("hydration", 0.0f) : 0.0f;
-		kind->drinkAs = CatalogGet(def, "drink_as", "");
-		// A potion (transparency Phase 4): restored at once, and the effects it
-		// treats - `cures = poison 0.5, bleed`, each an effects.cat id and the
-		// share of its bite taken away (absent = 1, lifted outright).
-		kind->restoreHealth = def ? def->GetFloat("restore_health", 0.0f) : 0.0f;
-		kind->restoreStamina = def ? def->GetFloat("restore_stamina", 0.0f) : 0.0f;
-		kind->restoreMana = def ? def->GetFloat("restore_mana", 0.0f) : 0.0f;
-		{
-			const std::string spec = CatalogGet(def, "cures", "");
-			size_t start = 0;
-			while (start < spec.size()) {
-				size_t comma = spec.find(',', start);
-				if (comma == std::string::npos) comma = spec.size();
-				const std::vector<std::string> words =
-					SplitTokens(spec.substr(start, comma - start));
-				start = comma + 1;
-				if (words.empty()) continue;
-				ItemKind::Cure cure{words[0], 1.0f};
-				if (words.size() > 1) cure.share = std::strtof(words[1].c_str(), nullptr);
-				if (!m_effects.Find(cure.effect))
-					log::Warn("items.cat [{}]: cures '{}', which is not an effect", type,
-							  cure.effect);
-				kind->cures.push_back(std::move(cure));
-			}
-		}
-		// Light: a torch, lit or not, and what it becomes.
-		kind->burnTime = def ? def->GetFloat("burn_time", 0.0f) : 0.0f;
-		// A magical torch lasts (1 + power_level) times its authored burn. Folded
-		// in HERE, so the charge, the dimming and the save all just see a longer
-		// burn_time.
-		kind->powerLevel = def ? std::max(def->GetFloat("power_level", 0.0f), 0.0f) : 0.0f;
-		kind->burnTime *= 1.0f + kind->powerLevel;
-		if (Vec4 c; CatalogColor(def, "flame_color", c)) {
-			kind->flameColor = {c.x, c.y, c.z};
-			kind->flameTinted = true;
-		}
-		kind->litAs = CatalogGet(def, "lit_as", "");
-		kind->unlitAs = CatalogGet(def, "unlit_as", "");
-		kind->spentAs = CatalogGet(def, "spent_as", "");
-		kind->light = CatalogGet(def, "light", kind->Lit() ? "torch" : "");
-		kind->trail = CatalogGet(def, "trail", "");
-		// What a Splash turns it into: a container one fill level up.
-		kind->fillAs = CatalogGet(def, "fill_as", "");
-		// What its blows leave behind, named by effect id — the same authored
-		// form a monster uses. A plain weapon has none and swings as before.
-		ParseOnHit(def, kind->onHit, "weapons.cat [" + type + "]");
-		fx::ParseProcs(CatalogGet(def, "on_crit", ""), kind->onCrit,
-					   "weapons.cat [" + type + "]");
-		// What the dice's EXTREMES do — `crit = pierce` on the way out, and the
-		// fumble tables on the way back at the wielder. Left empty when
-		// unauthored so the default resolves per swing (see the monster site).
-		kind->critPierce = CatalogGet(def, "crit", "") == "pierce";
-		fx::ParseProcs(CatalogGet(def, "on_fumble", ""), kind->onFumble,
-					   "weapons.cat [" + type + "]");
-		mishap::Parse(CatalogGet(def, "fumble", ""), kind->fumble,
-					  "weapons.cat [" + type + "]");
-		mishap::Parse(CatalogGet(def, "fumble_severe", ""), kind->fumbleSevere,
-					  "weapons.cat [" + type + "]");
-		// The kind's GLOW starts as its category's tint (a placeholder's look: the
-		// tablet, flat-tinted). Set HERE, before the two things that replace it -
-		// an enchanted weapon's element just below and a rune's symbol further
-		// down - since a default set after them overwrote the element: a
-		// flamebrand's floor glow came out steel grey (code-review C190).
-		kind->glow = CategoryTint(kind->category);
-		// ENCHANTMENT: `element = fire` turns the weapon elemental — every
-		// landed blow adds `element_bonus` of its damage as that element, and
-		// the element becomes the FLAVOUR its on-hit effects arrive with (so
-		// the same `on_hit = burn` is fire on one blade, a freezing burn on
-		// another). Absent (or "none") = an ordinary weapon.
-		if (const std::string elem = CatalogGet(def, "element", "none");
-			!elem.empty() && elem != "none") {
-			if (ParseSymbol(elem, kind->element) &&
-				kind->element <= SpellSymbol::Water) {
-				kind->enchanted = true;
-				kind->elementBonus = def->GetFloat("element_bonus", 0.0f);
-				// An enchanted weapon lies on the floor lit by its own element
-				// (UpdateLights gives it a rune-style glow) — the one visual
-				// tell that this blade is not the plain one beside it.
-				kind->glow = ElementColor(kind->element);
-			} else {
-				log::Warn("weapons.cat [{}]: element '{}' is not a school", type, elem);
-			}
-		}
-		ParseResists(CatalogGet(def, "resists", ""), kind->resists,
-					 "items.cat [" + type + "]", m_damageTypes);
-		if (const std::string cls = CatalogGet(def, "class", ""); !cls.empty())
-			if (!ParseArmorClass(cls, kind->armorClass))
-				log::Warn("armor.cat [{}]: unknown class '{}' (light/medium/heavy)",
-						  type, cls);
-		if (const std::string wear = CatalogGet(def, "wear", ""); !wear.empty())
-			if (!ParseWearSlot(wear, kind->wearSlot))
-				log::Warn("[{}]: unknown wear slot '{}'", type, wear);
-		kind->armor = def ? def->GetFloat("armor", 0.0f) : 0.0f;
-		// The attacker half: what wielding or wearing this makes you potent WITH.
-		ParseResists(CatalogGet(def, "powers", ""), kind->powers,
-					 "[" + type + "]", m_damageTypes);
-		kind->weight = def ? def->GetFloat("weight", 0.0f) : 0.0f;
-		// `command` is a free-form list (whitespace/comma separated) of command ids
-		// the hand right-click menu offers; runes implicitly gain "memorize" below.
-		for (const std::string& cmd : SplitTokens(CatalogGet(def, "command", "")))
-			kind->commands.push_back(cmd);
-		kind->drinks = std::find(kind->commands.begin(), kind->commands.end(), "drink") !=
-					   kind->commands.end();
-		// THROWING (ui-updates Phase 10; DungeonWorld_Throw.cpp). Any item can be
-		// thrown. `throw` names the ATTACK it flies as (attacks.cat - its type and
-		// numbers): absent = a weapon's first command, else `throw` (bash). What it
-		// leaves on what it strikes is its `on_hit`, or `throw_spell`'s whole
-		// payload - a fire flask carries firebolt_burst's, blast and all. `throw_breaks`
-		// = it shatters where it stops instead of landing.
-		kind->throwAttack = CatalogGet(def, "throw", "");
-		kind->throwBreaks = CatalogBool(def, "throw_breaks", false);
-		kind->upright = CatalogBool(def, "upright", false);
-		kind->throwPayload = PackPayload(kind->onHit, "[" + type + "]");
-		if (kind->enchanted) kind->throwPayload.flavour = kind->element;
-		// An area BLAST of its own, authored as a spell's is (blast_force ...,
-		// blast_persist for a gas that fills and keeps biting), typed by
-		// `blast_type` (a damagetypes.cat id; poison is earth here).
-		if (def) ReadBlastRules(*def, kind->throwPayload.blast);
-		kind->throwBlastType =
-			m_damageTypes.FindOr(CatalogGet(def, "blast_type", "bash"), m_balance.Neutral().type);
-		if (const std::string spellId = CatalogGet(def, "throw_spell", ""); !spellId.empty()) {
-			if (const Spell* spell = m_magic.FindSpell(spellId)) {
-				kind->throwPayload = spell->MakePayload();
-				kind->throwPayload.flavour = spell->School();
-				// A borrowed blast burns as the spell's school - fire, not bash.
-				kind->throwBlastType = m_damageTypes.ForSchool(spell->School());
-			} else {
-				log::Warn("[{}]: throw_spell '{}' is not a spell", type, spellId);
-			}
-		}
-		// `throw_scale` (transparency Phase 5): a bomb's SIZE. The fire and poison
-		// flasks come in a vial, a small bottle and a flask, and the size scales
-		// what the throw leaves - the blast's damage, its reach (blast_force counts
-		// SQUARES, so it rounds, and never below one) and how long a gas lingers,
-		// and the strength of its on-hit effects. Applied after a borrowed spell
-		// payload too, which is the case it exists for: the fire flask's numbers
-		// are firebolt_burst's. (ProjectilePayload::Scale, the rule a gust's toll
-		// on a shot uses too.)
-		if (const float s = def ? def->GetFloat("throw_scale", 1.0f) : 1.0f; s != 1.0f && s > 0.0f)
-			kind->throwPayload.Scale(s);
-		// A lit torch with a flame colour of its own sets alight in that colour
-		// when THROWN too, as it does when swung (FlameTintOf).
-		if (const Vec3* tint = FlameTintOf(*kind)) kind->throwPayload.tint = *tint;
-		// Authored model (catalog `model`): the item draws as this 3D model on the
-		// floor and its baked render becomes the icon/cursor. null = the tablet+tint
-		// placeholder. The bought items are embedded-texture multi-material .glb; an
-		// editor import is a .gltf, which loads as well (ModelFileOf takes the
-		// extension that is installed - code-review C301).
-		if (const std::string file = ModelFileOf(ModelFamily::Item, def, type); !file.empty()) {
-			// The file's meshes + textures are shared (an enchanted blade and its
-			// plain twin, five armours on one model); the materials are this
-			// kind's own copy, so its overrides touch nothing else.
-			kind->model = ModelMulti(file);
-			// THE ENTRY'S OWN SET (`texture`, which an import writes beside the
-			// model it made): bound by the rule the asset picker shows it with.
-			// It was never read, so an imported weapon - a mesh with no image of
-			// its own - drew WHITE. Before the material overrides, which apply on
-			// top of it as they do on a prop; before the liquid, which is no part
-			// of the file and wears no set.
-			kind->modelSet = CatalogGet(def, "texture", "");
-			if (!kind->modelSet.empty())
-				WearModelSet(*kind->model, LoadPropTextures(kind->modelSet), file);
-			BakeCatalogMaterial(*kind->model, def); // dialog material overrides
-			if (def) AddLiquid(*kind, *def, file);
-		}
-		// Every item draws as the shared carved-stone tablet (loaded once) — runes
-		// carve their element's set in; other categories ride the flat tint above.
-		if (!m_runeMesh) {
-			m_runeModel = LoadModelOrDie("rune_tablet.gltf");
-			m_runeMesh = std::make_unique<gfx::Mesh>(m_device, m_runeModel.meshes[0]);
-			// Cache the tablet AABB so the floor draw can tip it flat + re-ground.
-			m_runeBoundsMin = {1e9f, 1e9f, 1e9f};
-			m_runeBoundsMax = {-1e9f, -1e9f, -1e9f};
-			for (const auto& v : m_runeModel.meshes[0].vertices) {
-				m_runeBoundsMin = {std::min(m_runeBoundsMin.x, v.position.x),
-								   std::min(m_runeBoundsMin.y, v.position.y),
-								   std::min(m_runeBoundsMin.z, v.position.z)};
-				m_runeBoundsMax = {std::max(m_runeBoundsMax.x, v.position.x),
-								   std::max(m_runeBoundsMax.y, v.position.y),
-								   std::max(m_runeBoundsMax.z, v.position.z)};
-			}
-		}
-		// RUNES are the built-out specialization — category=rune, symbol=<sym>.
-		if (kind->category == "rune") {
-			SpellSymbol sym;
-			if (ParseSymbol(CatalogGet(def, "symbol", "fire"), sym)) {
-				kind->isRune = true;
-				kind->runeSymbol = sym;
-				// The whole tablet pulses in its element's accent colour via an
-				// additive emissive term (see SubmitSceneGeometry); the shared
-				// palette lives in Spells (ElementColor).
-				kind->glow = ElementColor(sym);
-				kind->tex = LoadPropTextures(std::string(RuneItemId(sym)));
-				// A rune is always memorizable, even if the catalog omits `command`.
-				if (std::find(kind->commands.begin(), kind->commands.end(),
-							  "memorize") == kind->commands.end())
-					kind->commands.push_back("memorize");
-			} else {
-				log::Warn("item {}: unknown rune symbol '{}'", type,
-						  CatalogGet(def, "symbol", ""));
-			}
-		}
-		// A model item owns a render-target texture for its baked 3D icon (drawn
-		// once by BakeItemIconsIfNeeded; the icon bank points at it). Placeholder
-		// items leave iconTarget null and keep their flat category swatch.
-		// A RUNE bakes one too, of its carved tablet (BakeRuneIcon; Michael: the
-		// pack should show the tablet, the glyph alone is for the hand and spell
-		// controls).
-		if (kind->model || (kind->isRune && m_runeMesh)) {
-			kind->iconTarget = gfx::Texture::RenderTarget(m_device, kIconSize);
-			kind->iconAnimated = kind->model && CatalogBool(def, "icon_spin", false);
-			m_itemIconsBaked = false; // a freshly added icon needs baking
-		}
-		// Uniform size trim over the authored unit size, like DecorationKind's.
-		kind->modelScale = def ? def->GetFloat("scale", 1.0f) : 1.0f;
-		// How it lies on the floor, worked out once now that the model (or the
-		// tablet's bounds) and the scale are known (code-review C359).
-		LayOnFloor(*kind);
+		BuildItemKind(type, *kind);
 		it = m_itemKinds.emplace(type, std::move(kind)).first;
 	}
 	return *it->second;
+}
+
+void DungeonWorld::RebuildItemKind(const std::string& type) {
+	const auto it = m_itemKinds.find(type);
+	if (it == m_itemKinds.end()) {
+		ItemKindFor(type); // never built: nothing points at it yet
+		return;
+	}
+	// Built beside the old one and MOVED over it, so the kind's address - what a
+	// thrown item, the Earth light's stone and the icon bank hold - never changes.
+	// The icon target goes across first: the bank and every slot draw it.
+	ItemKind fresh;
+	fresh.iconTarget = std::move(it->second->iconTarget);
+	BuildItemKind(type, fresh);
+	*it->second = std::move(fresh);
+	m_itemIconsBaked = false; // re-bake the icon: its model or set may have moved
+}
+
+bool DungeonWorld::ItemRune(std::string_view typeId, SpellSymbol& symbol) const {
+	const auto it = m_itemKinds.find(typeId);
+	if (it == m_itemKinds.end() || !it->second->isRune) return false;
+	symbol = it->second->runeSymbol;
+	return true;
+}
+
+std::string_view DungeonWorld::RuneItemFor(SpellSymbol symbol) {
+	const auto isTablet = [&](const std::string& id) {
+		const ItemKind& kind = ItemKindFor(id);
+		return kind.isRune && kind.runeSymbol == symbol;
+	};
+	// The conventional id first, so a world that also has a second tablet of the
+	// symbol (a variant, a quest copy) still hands out the ordinary one.
+	if (const std::string conventional(RuneItemId(symbol));
+		m_project.HasItem(conventional) && isTablet(conventional))
+		return ItemKindFor(conventional).id;
+	for (const CatalogEntry* def : m_project.AllItems())
+		if (isTablet(def->id)) return ItemKindFor(def->id).id;
+	return {};
+}
+
+void DungeonWorld::BuildItemKind(const std::string& type, ItemKind& kind) {
+	kind.id = type;
+	const CatalogEntry* def = m_project.FindItem(type);
+	// Display name: catalog `name` key, else item.<id> by convention.
+	kind.nameKey = CatalogGet(def, "name", std::format("item.{}", type));
+	// Shared, data-driven fields: category, carry weight, hand commands.
+	kind.category = CatalogGet(def, "category", "misc");
+	// Weapon class (docs/skills.md): the skill a swing with this item
+	// trains and is scaled by. Absent = `unarmed` (DungeonWorld::WeaponSkill).
+	kind.skill = CatalogGet(def, "skill", "");
+	// The attack formula's fields (docs/combat.md): weapon damage/speed
+	// (absent damage = no weapon, the hand swings bare - HandWeapon; absent
+	// speed = the unarmed pace), associated stats (`stats = str,
+	// dex`; absent = the unarmed default), and the worn defender side
+	// (per-type `resists` cells + a small flat `armor` soak).
+	kind.damage = def ? def->GetFloat("damage", 0.0f) : 0.0f;
+	kind.speed = def ? def->GetFloat("speed", 0.0f) : 0.0f;
+	kind.stats = ParseStatList(CatalogGet(def, "stats", ""),
+								"items.cat [" + type + "]");
+	// Weapon reach (Phase 7): `reach = polearm` swings from the rear rank.
+	kind.polearm = CatalogGet(def, "reach", "melee") == "polearm";
+	// What eating or drinking it restores (docs/health-and-healing.md).
+	// BOTH, on every item, because most real food is partly one and partly
+	// the other — an apple waters a little, a stew does both properly — and
+	// splitting them by VERB would have forced bread and a waterskin into
+	// different code for the same statement. The verb is flavour; these are
+	// the content. Absent = 0 = the item feeds nobody, and a consume of it
+	// is refused rather than silently eating a rock.
+	kind.nutrition = def ? def->GetFloat("nutrition", 0.0f) : 0.0f;
+	kind.hydration = def ? def->GetFloat("hydration", 0.0f) : 0.0f;
+	kind.drinkAs = CatalogGet(def, "drink_as", "");
+	// A potion (transparency Phase 4): restored at once, and the effects it
+	// treats - `cures = poison 0.5, bleed`, each an effects.cat id and the
+	// share of its bite taken away (absent = 1, lifted outright).
+	kind.restoreHealth = def ? def->GetFloat("restore_health", 0.0f) : 0.0f;
+	kind.restoreStamina = def ? def->GetFloat("restore_stamina", 0.0f) : 0.0f;
+	kind.restoreMana = def ? def->GetFloat("restore_mana", 0.0f) : 0.0f;
+	{
+		const std::string spec = CatalogGet(def, "cures", "");
+		size_t start = 0;
+		while (start < spec.size()) {
+			size_t comma = spec.find(',', start);
+			if (comma == std::string::npos) comma = spec.size();
+			const std::vector<std::string> words =
+				SplitTokens(spec.substr(start, comma - start));
+			start = comma + 1;
+			if (words.empty()) continue;
+			ItemKind::Cure cure{words[0], 1.0f};
+			if (words.size() > 1) cure.share = std::strtof(words[1].c_str(), nullptr);
+			if (!m_effects.Find(cure.effect))
+				log::Warn("items.cat [{}]: cures '{}', which is not an effect", type,
+						  cure.effect);
+			kind.cures.push_back(std::move(cure));
+		}
+	}
+	// Light: a torch, lit or not, and what it becomes.
+	kind.burnTime = def ? def->GetFloat("burn_time", 0.0f) : 0.0f;
+	// A magical torch lasts (1 + power_level) times its authored burn. Folded
+	// in HERE, so the charge, the dimming and the save all just see a longer
+	// burn_time.
+	kind.powerLevel = def ? std::max(def->GetFloat("power_level", 0.0f), 0.0f) : 0.0f;
+	kind.burnTime *= 1.0f + kind.powerLevel;
+	if (Vec4 c; CatalogColor(def, "flame_color", c)) {
+		kind.flameColor = {c.x, c.y, c.z};
+		kind.flameTinted = true;
+	}
+	kind.litAs = CatalogGet(def, "lit_as", "");
+	kind.unlitAs = CatalogGet(def, "unlit_as", "");
+	kind.spentAs = CatalogGet(def, "spent_as", "");
+	kind.light = CatalogGet(def, "light", kind.Lit() ? "torch" : "");
+	kind.trail = CatalogGet(def, "trail", "");
+	// What a Splash turns it into: a container one fill level up.
+	kind.fillAs = CatalogGet(def, "fill_as", "");
+	// What its blows leave behind, named by effect id — the same authored
+	// form a monster uses. A plain weapon has none and swings as before.
+	ParseOnHit(def, kind.onHit, "weapons.cat [" + type + "]");
+	fx::ParseProcs(CatalogGet(def, "on_crit", ""), kind.onCrit,
+				   "weapons.cat [" + type + "]");
+	// What the dice's EXTREMES do — `crit = pierce` on the way out, and the
+	// fumble tables on the way back at the wielder. Left empty when
+	// unauthored so the default resolves per swing (see the monster site).
+	kind.critPierce = CatalogGet(def, "crit", "") == "pierce";
+	fx::ParseProcs(CatalogGet(def, "on_fumble", ""), kind.onFumble,
+				   "weapons.cat [" + type + "]");
+	mishap::Parse(CatalogGet(def, "fumble", ""), kind.fumble,
+				  "weapons.cat [" + type + "]");
+	mishap::Parse(CatalogGet(def, "fumble_severe", ""), kind.fumbleSevere,
+				  "weapons.cat [" + type + "]");
+	// The kind's GLOW starts as its category's tint (a placeholder's look: the
+	// tablet, flat-tinted). Set HERE, before the two things that replace it -
+	// an enchanted weapon's element just below and a rune's symbol further
+	// down - since a default set after them overwrote the element: a
+	// flamebrand's floor glow came out steel grey (code-review C190).
+	kind.glow = CategoryTint(kind.category);
+	// ENCHANTMENT: `element = fire` turns the weapon elemental — every
+	// landed blow adds `element_bonus` of its damage as that element, and
+	// the element becomes the FLAVOUR its on-hit effects arrive with (so
+	// the same `on_hit = burn` is fire on one blade, a freezing burn on
+	// another). Absent (or "none") = an ordinary weapon.
+	if (const std::string elem = CatalogGet(def, "element", "none");
+		!elem.empty() && elem != "none") {
+		if (ParseSymbol(elem, kind.element) &&
+			kind.element <= SpellSymbol::Water) {
+			kind.enchanted = true;
+			kind.elementBonus = def->GetFloat("element_bonus", 0.0f);
+			// An enchanted weapon lies on the floor lit by its own element
+			// (UpdateLights gives it a rune-style glow) — the one visual
+			// tell that this blade is not the plain one beside it.
+			kind.glow = ElementColor(kind.element);
+		} else {
+			log::Warn("weapons.cat [{}]: element '{}' is not a school", type, elem);
+		}
+	}
+	ParseResists(CatalogGet(def, "resists", ""), kind.resists,
+				 "items.cat [" + type + "]", m_damageTypes);
+	if (const std::string cls = CatalogGet(def, "class", ""); !cls.empty())
+		if (!ParseArmorClass(cls, kind.armorClass))
+			log::Warn("armor.cat [{}]: unknown class '{}' (light/medium/heavy)",
+					  type, cls);
+	if (const std::string wear = CatalogGet(def, "wear", ""); !wear.empty())
+		if (!ParseWearSlot(wear, kind.wearSlot))
+			log::Warn("[{}]: unknown wear slot '{}'", type, wear);
+	kind.armor = def ? def->GetFloat("armor", 0.0f) : 0.0f;
+	// The attacker half: what wielding or wearing this makes you potent WITH.
+	ParseResists(CatalogGet(def, "powers", ""), kind.powers,
+				 "[" + type + "]", m_damageTypes);
+	kind.weight = def ? def->GetFloat("weight", 0.0f) : 0.0f;
+	// `command` is a free-form list (whitespace/comma separated) of command ids
+	// the hand right-click menu offers; runes implicitly gain "memorize" below.
+	for (const std::string& cmd : SplitTokens(CatalogGet(def, "command", "")))
+		kind.commands.push_back(cmd);
+	kind.drinks = std::find(kind.commands.begin(), kind.commands.end(), "drink") !=
+				   kind.commands.end();
+	// THROWING (ui-updates Phase 10; DungeonWorld_Throw.cpp). Any item can be
+	// thrown. `throw` names the ATTACK it flies as (attacks.cat - its type and
+	// numbers): absent = a weapon's first command, else `throw` (bash). What it
+	// leaves on what it strikes is its `on_hit`, or `throw_spell`'s whole
+	// payload - a fire flask carries firebolt_burst's, blast and all. `throw_breaks`
+	// = it shatters where it stops instead of landing.
+	kind.throwAttack = CatalogGet(def, "throw", "");
+	kind.throwBreaks = CatalogBool(def, "throw_breaks", false);
+	kind.upright = CatalogBool(def, "upright", false);
+	kind.throwPayload = PackPayload(kind.onHit, "[" + type + "]");
+	if (kind.enchanted) kind.throwPayload.flavour = kind.element;
+	// An area BLAST of its own, authored as a spell's is (blast_force ...,
+	// blast_persist for a gas that fills and keeps biting), typed by
+	// `blast_type` (a damagetypes.cat id; poison is earth here).
+	if (def) ReadBlastRules(*def, kind.throwPayload.blast);
+	kind.throwBlastType =
+		m_damageTypes.FindOr(CatalogGet(def, "blast_type", "bash"), m_balance.Neutral().type);
+	if (const std::string spellId = CatalogGet(def, "throw_spell", ""); !spellId.empty()) {
+		if (const Spell* spell = m_magic.FindSpell(spellId)) {
+			kind.throwPayload = spell->MakePayload();
+			kind.throwPayload.flavour = spell->School();
+			// A borrowed blast burns as the spell's school - fire, not bash.
+			kind.throwBlastType = m_damageTypes.ForSchool(spell->School());
+		} else {
+			log::Warn("[{}]: throw_spell '{}' is not a spell", type, spellId);
+		}
+	}
+	// `throw_scale` (transparency Phase 5): a bomb's SIZE. The fire and poison
+	// flasks come in a vial, a small bottle and a flask, and the size scales
+	// what the throw leaves - the blast's damage, its reach (blast_force counts
+	// SQUARES, so it rounds, and never below one) and how long a gas lingers,
+	// and the strength of its on-hit effects. Applied after a borrowed spell
+	// payload too, which is the case it exists for: the fire flask's numbers
+	// are firebolt_burst's. (ProjectilePayload::Scale, the rule a gust's toll
+	// on a shot uses too.)
+	if (const float s = def ? def->GetFloat("throw_scale", 1.0f) : 1.0f; s != 1.0f && s > 0.0f)
+		kind.throwPayload.Scale(s);
+	// A lit torch with a flame colour of its own sets alight in that colour
+	// when THROWN too, as it does when swung (FlameTintOf).
+	if (const Vec3* tint = FlameTintOf(kind)) kind.throwPayload.tint = *tint;
+	// Authored model (catalog `model`): the item draws as this 3D model on the
+	// floor and its baked render becomes the icon/cursor. null = the tablet+tint
+	// placeholder. The bought items are embedded-texture multi-material .glb; an
+	// editor import is a .gltf, which loads as well (ModelFileOf takes the
+	// extension that is installed - code-review C301).
+	if (const std::string file = ModelFileOf(ModelFamily::Item, def, type); !file.empty()) {
+		// The file's meshes + textures are shared (an enchanted blade and its
+		// plain twin, five armours on one model); the materials are this
+		// kind's own copy, so its overrides touch nothing else.
+		kind.model = ModelMulti(file);
+		// THE ENTRY'S OWN SET (`texture`, which an import writes beside the
+		// model it made): bound by the rule the asset picker shows it with.
+		// It was never read, so an imported weapon - a mesh with no image of
+		// its own - drew WHITE. Before the material overrides, which apply on
+		// top of it as they do on a prop; before the liquid, which is no part
+		// of the file and wears no set.
+		kind.modelSet = CatalogGet(def, "texture", "");
+		if (!kind.modelSet.empty())
+			WearModelSet(*kind.model, LoadPropTextures(kind.modelSet), file);
+		BakeCatalogMaterial(*kind.model, def); // dialog material overrides
+		if (def) AddLiquid(kind, *def, file);
+	}
+	// Every item draws as the shared carved-stone tablet (loaded once) — runes
+	// carve their element's set in; other categories ride the flat tint above.
+	if (!m_runeMesh) {
+		m_runeModel = LoadModelOrDie("rune_tablet.gltf");
+		m_runeMesh = std::make_unique<gfx::Mesh>(m_device, m_runeModel.meshes[0]);
+		// Cache the tablet AABB so the floor draw can tip it flat + re-ground.
+		m_runeBoundsMin = {1e9f, 1e9f, 1e9f};
+		m_runeBoundsMax = {-1e9f, -1e9f, -1e9f};
+		for (const auto& v : m_runeModel.meshes[0].vertices) {
+			m_runeBoundsMin = {std::min(m_runeBoundsMin.x, v.position.x),
+							   std::min(m_runeBoundsMin.y, v.position.y),
+							   std::min(m_runeBoundsMin.z, v.position.z)};
+			m_runeBoundsMax = {std::max(m_runeBoundsMax.x, v.position.x),
+							   std::max(m_runeBoundsMax.y, v.position.y),
+							   std::max(m_runeBoundsMax.z, v.position.z)};
+		}
+	}
+	// RUNES are the built-out specialization — category=rune, symbol=<sym>.
+	if (kind.category == "rune") {
+		SpellSymbol sym;
+		if (ParseSymbol(CatalogGet(def, "symbol", "fire"), sym)) {
+			kind.isRune = true;
+			kind.runeSymbol = sym;
+			// The whole tablet pulses in its element's accent colour via an
+			// additive emissive term (see SubmitSceneGeometry); the shared
+			// palette lives in Spells (ElementColor).
+			kind.glow = ElementColor(sym);
+			// The SYMBOL's carved set (AssetBaker runes bakes rune_<symbol>), a
+			// texture set's name - the same whatever the tablet's item id is.
+			kind.tex = LoadPropTextures(std::string(RuneItemId(sym)));
+			// A rune is always memorizable, even if the catalog omits `command`.
+			if (std::find(kind.commands.begin(), kind.commands.end(),
+						  "memorize") == kind.commands.end())
+				kind.commands.push_back("memorize");
+		} else {
+			log::Warn("item {}: unknown rune symbol '{}'", type,
+					  CatalogGet(def, "symbol", ""));
+		}
+	}
+	// A model item owns a render-target texture for its baked 3D icon (drawn
+	// once by BakeItemIconsIfNeeded; the icon bank points at it). Placeholder
+	// items leave iconTarget null and keep their flat category swatch.
+	// A RUNE bakes one too, of its carved tablet (BakeRuneIcon; Michael: the
+	// pack should show the tablet, the glyph alone is for the hand and spell
+	// controls). A rebuild keeps the target it was handed (RebuildItemKind) -
+	// or drops it, when the item no longer bakes one.
+	if (kind.model || (kind.isRune && m_runeMesh)) {
+		if (!kind.iconTarget) kind.iconTarget = gfx::Texture::RenderTarget(m_device, kIconSize);
+		kind.iconAnimated = kind.model && CatalogBool(def, "icon_spin", false);
+		m_itemIconsBaked = false; // a freshly added icon needs baking
+	} else {
+		kind.iconTarget.reset();
+	}
+	// Uniform size trim over the authored unit size, like DecorationKind's.
+	kind.modelScale = def ? def->GetFloat("scale", 1.0f) : 1.0f;
+	// How it lies on the floor, worked out once now that the model (or the
+	// tablet's bounds) and the scale are known (code-review C359).
+	LayOnFloor(kind);
 }
 
 const gfx::Texture* DungeonWorld::ItemIconFor(const std::string& typeId) {
@@ -1703,9 +1750,9 @@ void DungeonWorld::LoadButtons() {
 		// The mount is shared by every lever type, resolved by its well-known
 		// id the way a door resolves [door_frame].
 		if (m_project.buttons.Contains(spawn.type)) {
-			b.kind = &DecorationKindFor(spawn.type, m_project.buttons);
+			b.kind = &DecorationKindFor(spawn.type, PropCatalog::Buttons);
 			if (m_project.buttons.Contains("lever_plate"))
-				b.plate = &DecorationKindFor("lever_plate", m_project.buttons);
+				b.plate = &DecorationKindFor("lever_plate", PropCatalog::Buttons);
 		}
 		m_buttons.push_back(std::move(b));
 	}
@@ -2164,24 +2211,71 @@ std::unique_ptr<DungeonWorld::MultiMaterialModel> DungeonWorld::BuildMultiMateri
 	return out;
 }
 
-// Each decoration type resolves through the decorations catalog: its model
+// --- the prop catalogs (code-review C302) -------------------------------------
+
+const char* DungeonWorld::PropCatalogKey(PropCatalog cat) {
+	switch (cat) {
+	case PropCatalog::Decorations: return "decorations";
+	case PropCatalog::Doors: return "doors";
+	case PropCatalog::Buttons: return "buttons";
+	case PropCatalog::Stairs: return "stairs";
+	case PropCatalog::Count: break;
+	}
+	return "";
+}
+
+std::optional<DungeonWorld::PropCatalog> DungeonWorld::PropCatalogFor(std::string_view key) {
+	for (size_t i = 0; i < static_cast<size_t>(PropCatalog::Count); ++i)
+		if (key == PropCatalogKey(static_cast<PropCatalog>(i)))
+			return static_cast<PropCatalog>(i);
+	return std::nullopt;
+}
+
+const Catalog& DungeonWorld::PropCatalogOf(PropCatalog cat) const {
+	switch (cat) {
+	case PropCatalog::Doors: return m_project.doors;
+	case PropCatalog::Buttons: return m_project.buttons;
+	case PropCatalog::Stairs: return m_project.stairs;
+	case PropCatalog::Decorations:
+	case PropCatalog::Count: break;
+	}
+	return m_project.decorations;
+}
+
+std::vector<std::string> DungeonWorld::DescribePropKinds() const {
+	std::vector<std::string> out;
+	for (size_t c = 0; c < static_cast<size_t>(PropCatalog::Count); ++c)
+		for (const auto& [id, kind] : m_decorationKinds[c])
+			out.push_back(std::format("propkind {} '{}' file={} set={} multi={} authored={}",
+									  PropCatalogKey(static_cast<PropCatalog>(c)), id,
+									  kind->file.empty() ? "-" : kind->file,
+									  kind->set.empty() ? "-" : kind->set, kind->multi ? 1 : 0,
+									  kind->authored ? 1 : 0));
+	return out;
+}
+
+// Each prop type resolves through ITS catalog's entry: its model
 // (assets/models/<model>, as .gltf or .glb - ModelFileOf), its texture set
 // (procedural props share a dungeon-stone/wood-plank set, authored imports carry
 // their own), whether it is back-face culled (authored), and whether a
 // floor-standing instance blocks the party (passages like the archway don't). An
 // unlisted type falls back to the old convention: same-named model + set,
-// authored, solid.
+// authored, solid. Cached under that catalog: a door and a decoration of one id
+// are two kinds (code-review C302).
 DungeonWorld::DecorationKind& DungeonWorld::DecorationKindFor(const std::string& type,
-															 const Catalog& catalog) {
-	auto it = m_decorationKinds.find(type);
-	if (it == m_decorationKinds.end()) {
-		const CatalogEntry* def = catalog.Find(type);
+															 PropCatalog cat) {
+	PropKinds& kinds = KindsOf(cat);
+	auto it = kinds.find(type);
+	if (it == kinds.end()) {
+		const CatalogEntry* def = PropCatalogOf(cat).Find(type);
 		// Whichever of .gltf / .glb is installed, the .glb first for a
 		// `multimaterial` entry - ModelFileOf's rule (code-review C301).
 		const std::string file = ModelFileOf(ModelFamily::Prop, def, type);
 		const std::string tex = TextureOf(def, type);
 		auto kind = std::make_unique<DecorationKind>();
 		kind->id = type; // the record type, for the .map writer
+		kind->catalog = cat;
+		kind->file = file;
 		kind->authored = CatalogBool(def, "authored", true);
 		kind->facingArrow = CatalogBool(def, "facing_arrow", true);
 		// Catalog material overrides (the asset dialog's sliders): absent = -1 /
@@ -2203,7 +2297,8 @@ DungeonWorld::DecorationKind& DungeonWorld::DecorationKindFor(const std::string&
 				kind->hp = def->GetFloat("hp", 10.0f);
 				kind->soak = def->GetFloat("armor", 0.0f);
 				ParseResists(CatalogGet(def, "resists", ""), kind->resists,
-							 "decorations.cat [" + type + "]", m_damageTypes);
+							 std::format("{}.cat [{}]", PropCatalogKey(cat), type),
+							 m_damageTypes);
 			}
 		}
 		// Every kind bakes a whole-model map icon; a fresh kind re-arms the
@@ -2223,20 +2318,21 @@ DungeonWorld::DecorationKind& DungeonWorld::DecorationKindFor(const std::string&
 			// scale read ~115 times too big, so it was never culled (C253).
 			kind->cullRadius = OriginRadius(kind->multi->boundsMin, kind->multi->boundsMax) *
 							   kUnit * kind->modelScale;
-			it = m_decorationKinds.emplace(type, std::move(kind)).first;
+			it = kinds.emplace(type, std::move(kind)).first;
 			return *it->second;
 		}
 		kind->model = ModelFile(file); // marble + stone columns share one
 		kind->mesh = ModelMesh(file);
 		kind->color = kind->model->materials[0].baseColorFactor;
 		kind->tex = LoadPropTextures(tex);
+		kind->set = tex;
 		kind->solidDefault = CatalogBool(def, "solid", true);
 		// Optional alpha-test cutout (a masked set like wood planks renders its
 		// gaps); absent/0 = opaque, the usual case.
 		kind->alphaCutoff = def ? def->GetFloat("alpha_test", 0.0f) : 0.0f;
 		kind->transparent = CatalogBool(def, "transparent", false);
 		kind->cullRadius = ModelOriginRadius(*kind->model) * kUnit * kind->modelScale;
-		it = m_decorationKinds.emplace(type, std::move(kind)).first;
+		it = kinds.emplace(type, std::move(kind)).first;
 	}
 	return *it->second;
 }
@@ -2318,7 +2414,7 @@ DungeonWorld::FixtureKind& DungeonWorld::FixtureKindFor(const std::string& type)
 // "solid=0"/"solid=1" param on the record overrides the default.
 void DungeonWorld::LoadDecorations() {
 	for (const Entity& record : m_map.Decorations()) {
-		DecorationKind& kind = DecorationKindFor(record.type, m_project.decorations);
+		DecorationKind& kind = DecorationKindFor(record.type, PropCatalog::Decorations);
 		Decoration deco;
 		deco.kind = &kind;
 		deco.x = record.x;
@@ -2352,7 +2448,7 @@ void DungeonWorld::LoadDecorations() {
 		m_decorations.push_back(std::move(deco));
 	}
 	log::Info("Placed {} decorations ({} kinds)", m_decorations.size(),
-			  m_decorationKinds.size());
+			  KindsOf(PropCatalog::Decorations).size());
 }
 
 // Places a stair prop per map "stairs" record (P6). Stairs render through the
@@ -2409,7 +2505,7 @@ Direction DungeonWorld::ArrivalFacingAt(int x, int z) const {
 }
 
 void DungeonWorld::PlaceStairProp(const StairLink& s) {
-	DecorationKind& kind = DecorationKindFor(s.type, m_project.stairs);
+	DecorationKind& kind = DecorationKindFor(s.type, PropCatalog::Stairs);
 	Decoration deco;
 	deco.kind = &kind;
 	deco.x = s.x;

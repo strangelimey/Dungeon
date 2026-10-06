@@ -1274,7 +1274,8 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 	} else {
 		for (const Entity& e : m_browse->map.Decorations())
 			decos.push_back({e.x, e.z, e.type, e.facing,
-							 m_world->DecorationIconFor(e.type),
+							 m_world->DecorationIconFor(DungeonWorld::PropCatalog::Decorations,
+														e.type),
 							 m_world->DecorationShowsFacing(e.type)});
 	}
 	for (const auto& m : decos) {
@@ -1377,9 +1378,10 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 		switch (e.kind) {
 		case EntityKind::Item:   itemMarker(e.x, e.z, e.type); break;
 		case EntityKind::Button:
-			// The lever's baked icon (buttons share the decoration kind cache),
-			// else the blue square for a legacy/unknown type.
-			if (const gfx::Texture* icon = m_world->DecorationIconFor(e.type))
+			// The lever's baked icon (the buttons catalog's prop kind), else the
+			// blue square for a legacy/unknown type.
+			if (const gfx::Texture* icon =
+					m_world->DecorationIconFor(DungeonWorld::PropCatalog::Buttons, e.type))
 				iconMarker(e.x, e.z, 0.5f, *icon);
 			else
 				marker(e.x, e.z, 0.3f, kButton);

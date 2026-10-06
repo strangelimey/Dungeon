@@ -112,11 +112,13 @@ public:
 	// resolve re-reads the catalog (model, texture set, material overrides,
 	// scale, flags), then re-spawns the live objects that used it. A kind is
 	// loaded once and cached by type name, so without this a saved edit only
-	// showed on the next level entry. `catalogKey` picks the cache; a category
-	// with none (items, effects, flags, the world's) does nothing at all. The
-	// respawn KEEPS the level as the editor and play left it (HoldActiveState /
-	// RestoreHeldState): a placed monster or prop, an opened door, a corpse, a
-	// drop - all of which a respawn from the records alone used to lose (C311).
+	// showed on the next level entry. `catalogKey` picks the cache; an ITEM
+	// catalog's kind is rebuilt in place instead (RebuildItemKind - its holders
+	// keep its address, so nothing respawns), and a category with no kinds
+	// (effects, flags, the world's) does nothing at all. The respawn KEEPS the
+	// level as the editor and play left it (HoldActiveState / RestoreHeldState):
+	// a placed monster or prop, an opened door, a corpse, a drop - all of which a
+	// respawn from the records alone used to lose (C311).
 	void ReloadTypeKind(const std::string& catalogKey, const std::string& id);
 	// Re-reads lights.cat (lighting-updates Phase 2, Game/LightProfile.h). Every
 	// light resolves its profile by id each frame, so a saved edit shows on the
@@ -255,10 +257,22 @@ public:
 	// icon pass (Game::LoadItemIcons) already built every non-rune kind by
 	// asking for its icon; runes never ask, which is how they were missed.
 	void PreloadItemKinds();
+	// WHAT IS A RUNE TABLET is its item KIND's to say (code-review C347): items.cat
+	// `category = rune` with a `symbol`, ItemKind::isRune / runeSymbol - never the
+	// `rune_` spelling of an id. True, with the symbol, for an item whose kind is
+	// one; false for any other, and for an id no kind was built for (every
+	// catalog item's is, PreloadItemKinds). A lookup only: it builds nothing and
+	// allocates nothing (Memorize asks it on a click in a guarded frame).
+	bool ItemRune(std::string_view typeId, SpellSymbol& symbol) const;
+	// The item this world hands out as `symbol`'s tablet (the starter kit, dev
+	// `rune`): the conventional rune_<symbol> when its kind is that rune, else the
+	// first rune of that symbol in the item catalogs (items, weapons, armor), else
+	// empty - a world with no such tablet has none to give.
+	std::string_view RuneItemFor(SpellSymbol symbol);
 	// Renders the map overlay's baked icons: each monster kind's HEAD SHOT (its
 	// mesh in rest pose framed on the model's top quarter — a skull for the
-	// skeleton), each decoration kind's whole model (props read best in full;
-	// covers button levers too, they share the kind cache), and the sconce +
+	// skeleton), each prop kind's whole model (props read best in full; the
+	// decorations', doors', levers' and stairs' caches all bake), and the sconce +
 	// brazier fixture meshes. Bakes once per kind; call every frame like
 	// UpdateItemIcons (and unlike it, also while the editor covers the scene —
 	// the map overlay is what draws these). Redirects the OM and rebinds.
@@ -475,11 +489,26 @@ public:
 															PoolModelLook::Mount mount =
 																PoolModelLook::Mount::Free,
 															const CatalogEntry* liquid = nullptr);
+	// THE FOUR CATALOGS A PROP KIND IS DRAWN FROM (code-review C302): the
+	// decorations, the doors (a leaf and its trim, frame, opener and mount), the
+	// buttons (a lever and its plate) and the stairs. An id is unique only WITHIN
+	// its catalog - `portcullis` was a door and a decoration both, and whichever
+	// was drawn second wore the other's mesh, texture and map icon - so every
+	// cache and every lookup of a prop kind takes the catalog with the id.
+	enum class PropCatalog : u8 { Decorations, Doors, Buttons, Stairs, Count };
+	// Its catalog key ("decorations", "doors", ...), and the catalog a key names
+	// (none for a key that is not one of the four).
+	static const char* PropCatalogKey(PropCatalog cat);
+	static std::optional<PropCatalog> PropCatalogFor(std::string_view key);
+	// Every prop kind built so far, one line each - its catalog, its id, the model
+	// file and the texture set it loaded (dev `propkinds`): how a harness sees two
+	// catalogs' kinds of one id stand side by side.
+	std::vector<std::string> DescribePropKinds() const;
 	// The baked icons for already-loaded kinds, or null (not loaded / not baked
 	// yet) — the map overlay then falls back to its square markers. These never
 	// force-load a model (browse markers may name unloaded types).
 	const gfx::Texture* MonsterIconFor(const std::string& type) const;
-	const gfx::Texture* DecorationIconFor(const std::string& type) const;
+	const gfx::Texture* DecorationIconFor(PropCatalog cat, const std::string& type) const;
 	const gfx::Texture* ItemIconLookup(const std::string& type) const;
 	// The baked map icon for a fixture kind (null until its one-shot bake ran —
 	// the map overlay falls back to a colored marker). Kinds load lazily on
@@ -1564,9 +1593,11 @@ public:
 	// The inspected decoration's raw catalog id (its display name is what the
 	// picker shows) — "" on a stale handle.
 	std::string DecorationTypeByIndex(int index) const;
-	// The per-TYPE map facing-arrow flag (catalog facing_arrow, default 1):
-	// no-load queries for the marker/browse paths, and the live half of the
-	// inspector checkbox's type edit (Game writes the catalog field + saves).
+	// The per-TYPE map facing-arrow flag (catalog facing_arrow, default 1) of a
+	// DECORATIONS type (the decoration inspector's checkbox; doors and the rest
+	// draw no arrow): no-load queries for the marker/browse paths, and the live
+	// half of the inspector checkbox's type edit (Game writes the catalog field +
+	// saves).
 	bool DecorationShowsFacing(const std::string& type) const;
 	bool MonsterShowsFacing(const std::string& type) const; // faces= flag
 	void SetDecorationFacingArrow(const std::string& type, bool show);
@@ -3278,6 +3309,10 @@ private:
 		ProjectilePayload throwPayload;
 		DamageType throwBlastType{}; // what its blast deals (blast_type / the spell's school)
 		bool throwBreaks = false;
+		// A RUNE TABLET (items.cat `category = rune` + `symbol`) and its symbol
+		// (runeSymbol, below): THE definition of a rune (code-review C347) -
+		// Memorize, the icon bank and the starter kit all ask the kind
+		// (ItemRune / RuneItemFor), never the shape of the id.
 		bool isRune = false;
 		// items.cat `upright`: it STANDS on the floor as authored (a bottle) and
 		// its icon stands too, instead of being laid along its length.
@@ -3582,6 +3617,11 @@ private:
 		// a single bound set; non-null replaces the mesh/tex/color path above.
 		std::unique_ptr<MultiMaterialModel> multi;
 		std::string id;            // catalog id (the record type), for the writer
+		// Which catalog the id is in (its cache, m_decorationKinds[catalog]), the
+		// model file it loaded and the texture set it wears ("" for a multi-
+		// material model, which wears its own) - what `propkinds` reports.
+		PropCatalog catalog = PropCatalog::Decorations;
+		std::string file, set;
 		bool authored = false;     // imported model: consistently wound -> back-cull
 		bool solidDefault = true;  // floor-standing blocks the party (passages don't)
 		float alphaCutoff = 0.0f;  // > 0: alpha-test cutout (masked set, e.g. a gate)
@@ -3809,6 +3849,18 @@ private:
 	// Lazily loads (and caches) the shared behaviour for an item type, resolved
 	// through the items catalog (category=rune → symbol + element glow colour).
 	ItemKind& ItemKindFor(const std::string& type);
+	// Fills `kind` from the item catalogs' entry for `type` - ItemKindFor's build,
+	// and a rebuild's. An icon target `kind` already holds is KEPT when the item
+	// still bakes one (the icon bank and every slot draw that texture), dropped
+	// when it no longer does.
+	void BuildItemKind(const std::string& type, ItemKind& kind);
+	// Re-reads an item type's kind IN PLACE after a type-editor save (code-review
+	// C302): the kind is never erased, because thrown items, the Earth light's
+	// stone and the icon bank hold pointers to it. The old model and textures
+	// GO, though: the caller drains the GPU first (ReloadTypeKind does) and
+	// closes whatever borrowed them - the item details dialog's preview (Game's
+	// type save closes it, as a quality swap does).
+	void RebuildItemKind(const std::string& type);
 	// THE WORN PIECES (code-review C12): every doll slot that DEFENDS - the hands
 	// excepted - handed to `fn` as its item kind. The ONE hand rule for every
 	// defensive sum (WornArmorClass, PartyTarget::Soak and ::Resist, DefenseFor),
@@ -3915,12 +3967,14 @@ private:
 	// meshes' +Z is the way you travel on them; the facing is the way you step
 	// off). Shared by placement and the stair inspector's turn.
 	Mat4 StairPropWorld(const DecorationKind& kind, int x, int z, Direction facing) const;
-	// Lazily loads (and caches) the shared assets for a monster / decoration
-	// type (model + mesh + PBR set), resolved through `catalog` (decorations.cat
-	// for props, stairs.cat for stair props). Shared by the initial load and live
-	// editor placement.
+	// Lazily loads (and caches) the shared assets for a monster / prop type
+	// (model + mesh + PBR set), a prop resolved through its `catalog`'s entry and
+	// cached under that catalog (code-review C302). Shared by the initial load and
+	// live editor placement.
 	MonsterKind& MonsterKindFor(const std::string& type);
-	DecorationKind& DecorationKindFor(const std::string& type, const Catalog& catalog);
+	DecorationKind& DecorationKindFor(const std::string& type, PropCatalog catalog);
+	// The project catalog a PropCatalog names.
+	const Catalog& PropCatalogOf(PropCatalog catalog) const;
 	// World-space mount for a prop hung flat against the `wall` of cell (x,z):
 	// origin pushed to the wall face, +Z (authored front) turned to face the
 	// room. Shared by wall sconces and wall-mounted decorations.
@@ -5108,7 +5162,8 @@ private:
 	std::flat_map<std::string, std::unique_ptr<MonsterKind>> m_monsterKinds;
 	std::vector<Monster> m_monsters;
 
-	std::flat_map<std::string, std::unique_ptr<ItemKind>> m_itemKinds;
+	// Transparent, so ItemRune looks a kind up by a view without building a string.
+	std::flat_map<std::string, std::unique_ptr<ItemKind>, std::less<>> m_itemKinds;
 	// Baked 3D item-icon thumbnails: each model ItemKind owns its RT texture
 	// (ItemKind::iconTarget), rendered once before the first scene via
 	// BakeItemIconsIfNeeded. Shared depth target + halo for the bakes.
@@ -5570,7 +5625,16 @@ private:
 	// changed). Linear scan — fine at this scale; swap for a map if counts explode.
 	Monster* MonsterByRuntimeId(u32 id);
 
-	std::flat_map<std::string, std::unique_ptr<DecorationKind>> m_decorationKinds;
+	// The prop kinds, ONE CACHE PER CATALOG (code-review C302: one cache by bare
+	// id served all four, so a door and a decoration of one id shared a kind).
+	using PropKinds = std::flat_map<std::string, std::unique_ptr<DecorationKind>, std::less<>>;
+	std::array<PropKinds, static_cast<size_t>(PropCatalog::Count)> m_decorationKinds;
+	PropKinds& KindsOf(PropCatalog catalog) {
+		return m_decorationKinds[static_cast<size_t>(catalog)];
+	}
+	const PropKinds& KindsOf(PropCatalog catalog) const {
+		return m_decorationKinds[static_cast<size_t>(catalog)];
+	}
 	// unique_ptr so DecorationKind::tex stays valid as more sets are added
 	// (flat_map stores values contiguously and reallocates on insert).
 	std::flat_map<std::string, std::unique_ptr<PropTextures>> m_propTextures;

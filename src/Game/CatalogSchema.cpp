@@ -643,7 +643,8 @@ constexpr FieldSpec kEffectFields[] = {
 	{.key = "name", .kind = FieldKind::Text, .sectionKey = kSectionIdentity,
 	 .help = "Display name loc key; the sheet appends '.desc' for the long form."},
 	{.key = "icon", .kind = FieldKind::Text, .sectionKey = kSectionLook,
-	 .help = "Item id whose baked icon it borrows in the HUD strip; empty = a tinted square."},
+	 .help = "Item id whose baked icon it borrows in the HUD strip; empty = its own rune's "
+			 "glyph (a ward, Sight, a light), else a tinted square."},
 	{.key = "school", .kind = FieldKind::Enum, .sectionKey = kSectionLook,
 	 .help = "Tint (and flavour) when the source lends none of its own.",
 	 .options = "fire earth air water", .def = "fire"},

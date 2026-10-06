@@ -115,9 +115,16 @@ std::vector<std::string> DungeonWorld::FlyingCargoRows() const {
 		at.cause = ExpiryCause::Range;
 		int cx = 0, cz = 0;
 		ThrownLanding(at, /*shatters=*/false, cx, cz); // where a save writes it, whole
+		// The kind the flight HOLDS, found among the cached kinds before it is
+		// read: a type save rebuilds an item's kind in place so a flight's
+		// pointer stays good (code-review C302), and a readout of one that did
+		// not would read freed memory - so it says so instead.
+		bool cached = false;
+		for (auto&& [id, kind] : m_itemKinds) cached = cached || kind.get() == cargo;
 		rows.push_back(std::format("{} charge {:.1f} at {:.2f},{:.2f} over {},{}",
-								   static_cast<const ItemKind*>(cargo)->id, charge,
-								   pos.x / kCellSize, pos.z / kCellSize, cx, cz));
+								   cached ? std::string_view(static_cast<const ItemKind*>(cargo)->id)
+										  : std::string_view("(a kind no longer cached)"),
+								   charge, pos.x / kCellSize, pos.z / kCellSize, cx, cz));
 	});
 	return rows;
 }

@@ -70,9 +70,10 @@ resists = slash -0.25, fire -0.5, bash 0.2, earth 0.2
 ; the bars, rails, beam, spikes and rivets as one.
 ;
 ; `portcullis_leaf`, not `portcullis`: decorations.cat already has a cosmetic
-; [portcullis] filling a whole cell face, the same pairing as its cosmetic
-; [wood_door] beside this file's leaves. Different sizes, so one mesh cannot
-; serve both.
+; grate, [portcullis_grate] on the `portcullis` model, filling a whole cell
+; face, the same pairing as its cosmetic [wood_door] beside this file's leaves.
+; Different sizes, so one mesh cannot serve both. (The decoration was
+; [portcullis] too until code-review C302: one id in two prop catalogs.)
 ;
 ; travel = 1.0 is a CONTRACT, not a taste: `rise` has nothing to hide the leaf
 ; in but the ceiling block over the cell, so the throw has to carry the spike

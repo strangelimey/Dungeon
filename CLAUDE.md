@@ -2431,7 +2431,11 @@ EditorTest phase 27) and Duplicate (copy another entry of this category,
 including fields no schema row covers). The id is validated as you type
 ([A-Za-z0-9_-], records are whitespace-tokenised) and CHECKED FOR COLLISION —
 Catalog::Add replaces by id, so an unchecked name silently overwrote a type
-every level used. The new entry's SHAPE comes from the category's schema
+every level used - in its own catalog AND in a RELATED one (code-review C302,
+Project::RelatedCatalogs / Game::RelatedIdRefusal: the three item catalogs share
+one namespace through FindItem, the four prop catalogs another); create,
+duplicate (dev `newasset <cat> duplicate <type> <id>`) and rename all refuse it,
+each saying which catalog has the id. The new entry's SHAPE comes from the category's schema
 defaults (Game::CreateCatalogEntry), so a new stair gets its up/pair/hole rows
 and a new item its weight/holdable, where the old writer stamped
 authored=1/solid=1 on everything; a surface type also joins the viewed level's
@@ -2601,7 +2605,22 @@ hand-back for a script). A surface's PER-DRAW knobs are the exception —
 ApplySurfaceFactors), so saving them pushes at the live scene through
 DungeonWorld::RefreshSurfaceMaterials: no reload, no rebuild. The factors follow
 the PROP rule — absent = -1 = the set's ORM map stays authoritative, a value
-REPLACES the draw's factor (which the shader multiplies over the map). An
+REPLACES the draw's factor (which the shader multiplies over the map). A PROP's
+save drops its kind from ITS catalog's cache and respawns (DungeonWorld::
+ReloadTypeKind): prop kinds are cached by (catalog, id) - `DungeonWorld::
+PropCatalog`, decorations / doors / buttons / stairs, dev `propkinds` - since a
+door and a decoration once shared `portcullis` and one cache, and whichever drew
+second wore the other's model (code-review C302; the decoration is
+`portcullis_grate` now). An ITEM's kind is REBUILT IN PLACE (RebuildItemKind -
+floor items, thrown items, the Earth light's stone and the icon bank hold its
+address and nothing else of it, so nothing respawns; `flooritems`
+reads a flight's kind only once it finds it among the cached ones) and the UI's
+per-item banks with it (Game::RefreshItemBanks, every bank cleared whole - C330:
+the wear slots never were, so a world switch kept the last world's), so a
+weapon's new damage shows in its details at once (`itemdetails rows`; EditorTest
+phase 51, WorldTest phase 51). The kind's OLD MODEL still goes, so the save
+closes the item details dialog first, as a quality swap does: its preview holds
+that model's meshes. An
 OPTIONAL float (no schema default) that is absent shows as a CHECKBOX, "...: from
 the texture's map" (or, for a `derivedFor` field such as a monster's `power`,
 the derived value), until unticked into a slider, and a set one carries a clear
@@ -3241,7 +3260,8 @@ Michael's notes and answers: docs/ui-updates-notes.md; the plan: -plan.md.
   it): they are controls, so RIGHT still opens the use menu where a hand's
   default is set, as before; middle opens the same menu. A SET hand box shows a
   low flat accent tint plus a soft centre glow (assets/ui/glow_radial.png,
-  made by tools/BuildGlow.py); a spell's runes sit in ROWS OF TWO, each the size
+  made by tools/BuildGlow.py - ONE shared texture, AssetUtil's GlowIcon, which the
+  burning-item flames borrow too: code-review C330); a spell's runes sit in ROWS OF TWO, each the size
   two across leave it (a 3rd/4th rune takes the next row). Off the
   hand the menu offers only memorize/eat/drink (`IsOffHandUse`); nothing to
   offer = no menu and `log.no_use` ("Brand finds no use for that item.").
@@ -3648,14 +3668,30 @@ docs/ui-panels-notes.md / -plan.md. What exists, and the rules it rests on:
   carve from the rune set's occlusion (RuneBaker writes 1 - 0.45 x carve), and
   `RuneTabletMaterial` is the one held-tablet material (icon bake + details
   dialog, which breathes it on the same kRuneBreathSeconds), so the two match.
-  DrawRuneFace survives only as the glow's fallback.
+  DrawRuneFace survives only as the glow's fallback. WHAT IS A RUNE is the item
+  KIND's to say (code-review C347): items.cat `category = rune` + `symbol`,
+  ItemKind::isRune / runeSymbol. Memorize asks it (DungeonWorld::ItemRune, wired
+  as GameUI::itemRune), the icon bank's `runeOf` is filled from it
+  (ResolveItemIcon is the draw's decision, dev `itemicon <item> [symbolic]`),
+  and the starter kit hands out the world's tablet for each symbol
+  (RuneItemFor) - never the `rune_` spelling of an id, which only names a
+  symbol's carved texture set (RuneItemId). RuneSymbolFromItemId is gone: a
+  tablet under any other id read as no rune and could not be learned. An
+  EFFECT's icon is its own rune the same way (fx::EffectKind::IconRune: a ward's
+  Protect, Sight's, a light's Sowilo), drawn straight from the symbol; effects.cat
+  `icon` only names an item to wear OVER it (PartyHudDraw's ResolveEffectIcon,
+  dev `itemicon effect <id>`) - it named `rune_light`, and a renamed tablet left
+  every light's icon a tinted square.
 - THE STARTER KIT (Character.cpp CreateDefaultParty): Brand a dagger in his
   right hand (his bare left is what the harness's `swing 0` uses), Sera one in
   her left and a LIT TORCH in her right (the party's only light - see FIRE AND
   LIGHT); Maren holds fire + project, Tilo earth + protect, school rune left,
   and EACH caster's backpack carries Ingwaz + Hagalaz (the tier-3 modifiers;
   both each, since a tablet is memorized by one member and spent) and, FOR NOW
-  (Michael, 2026-10-05), a Sowilo tablet - until a level has one to find. That is the
+  (Michael, 2026-10-05), a Sowilo tablet - until a level has one to find. Each
+  tablet is the WORLD's for its symbol (`Game::DefaultParty` hands
+  CreateDefaultParty `DungeonWorld::RuneItemFor`; rune_<symbol> when its kind is
+  that rune), and a world with none for a symbol gives none. That is the
   PREMADE four; a CREATED member picks two of project.ini `start_items`, which
   carries `torch_lit` so a party of created members is not left in the dark.
 - THE MESSAGE LOG opens only from its Log button, which sits at the bottom-left

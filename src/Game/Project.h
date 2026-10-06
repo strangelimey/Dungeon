@@ -23,7 +23,9 @@
 
 #include "Game/Catalog.h"
 
+#include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace dungeon::game {
@@ -180,6 +182,18 @@ struct Project {
 	// and the type editor offers neither. Keyed like CatalogForKey.
 	static bool IdentityInCode(std::string_view key);
 
+	// The catalogs whose ids share ONE namespace with `key`'s (code-review C302),
+	// `key` among them; empty for any other key. The three ITEM catalogs, which
+	// FindItem resolves across - an id in two of them is half unreachable - and
+	// the four PROP catalogs (decorations, doors, buttons, stairs), whose kinds
+	// one cache used to hold by bare id: `portcullis` was a door and a decoration,
+	// and whichever drew second wore the other's model. The cache is per catalog
+	// now; the rule keeps a new id from bringing the confusion back.
+	static std::span<const std::string_view> RelatedCatalogs(std::string_view key);
+	// The key of a catalog RELATED to `key` (not `key` itself) that already holds
+	// an entry `id`, or empty. Create, duplicate and rename refuse on it.
+	std::string_view RelatedCatalogUsing(std::string_view key, std::string_view id) const;
+
 	// Every CONTENT catalog, for sweeps that don't care which category a type is
 	// in — the asset picker's "does anything bind this asset" check. `imports` is
 	// provenance rather than content, so it stays out, as it does of
@@ -203,6 +217,10 @@ struct Project {
 	// same as any other item — the runtime never needs to know the split.
 	const CatalogEntry* FindItem(std::string_view id) const;
 	bool HasItem(std::string_view id) const { return FindItem(id) != nullptr; }
+	// Is `key` one of the three item catalogs ("items", "weapons", "armor")?
+	static bool IsItemCatalog(std::string_view key) {
+		return key == "items" || key == "weapons" || key == "armor";
+	}
 	std::vector<const CatalogEntry*> AllItems() const;
 
 	// --- the dungeon tier (docs/world-map.md, W5) ----------------------------

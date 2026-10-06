@@ -250,19 +250,46 @@ void DungeonWorld::ReloadTypeKind(const std::string& catalogKey,
 								  const std::string& id) {
 	// Only a category whose KINDS are cached by id has anything stale to
 	// rebuild: a monster, a prop of any family (decorations, doors, levers,
-	// stairs), a fixture, a feature's mesh. An item kind outlives this (Game
-	// re-reads its light), and effects, flags, quests, the world's catalogs and
-	// the rest build nothing here - the respawn they used to get only threw the
-	// level's live state away (code-review C311).
+	// stairs), a fixture, a feature's mesh - and an item, rebuilt in place below.
+	// Effects, flags, quests, the world's catalogs and the rest build nothing
+	// here - the respawn they used to get only threw the level's live state away
+	// (code-review C311).
 	static constexpr std::string_view kCached[] = {"monsters", "fixtures", "decorations",
 												   "doors",    "buttons",  "stairs",
 												   "wallfeatures", "surfacefeatures"};
-	if (std::ranges::find(kCached, std::string_view(catalogKey)) == std::end(kCached)) return;
+	const bool item = Project::IsItemCatalog(catalogKey);
+	if (!item && std::ranges::find(kCached, std::string_view(catalogKey)) == std::end(kCached))
+		return;
 	// The caches are keyed by catalog id and hold GPU resources the live objects
 	// point INTO, so drop the entry only after the instances are gone — the
 	// respawn below rebuilds both. Draining first: in-flight frames may still
 	// reference the mesh/textures we are about to free.
 	m_device.WaitIdle();
+	// The rebuilt kind reads its model file fresh, as it did when every kind
+	// parsed its own copy - so a file changed on disk shows on save. Other kinds
+	// sharing the file keep the copy they hold until they are reloaded themselves.
+	const auto forgetModelFiles = [&] {
+		const Catalog* cat = m_project.CatalogForKey(catalogKey);
+		if (!cat) return;
+		const CatalogEntry* def = cat->Find(id);
+		for (const std::string& model : {CatalogGet(def, "model", id),
+										 CatalogGet(def, "part2_model", "")})
+			if (!model.empty()) {
+				ForgetModelFile(model + ".gltf");
+				ForgetModelFile(model + ".glb");
+			}
+	};
+	// An ITEM's kind is rebuilt IN PLACE (code-review C302): a floor item, a thing
+	// in flight, the Earth light's stone and the icon bank hold its address and
+	// nothing else of it, so they all see the new kind with nothing respawned -
+	// and the level keeps its live state without a hold (C311). It used to clear
+	// a decoration's cache entry of that id instead (a weapon named like a prop
+	// dropped the prop) and leave the item as it was until a reload.
+	if (item) {
+		forgetModelFiles();
+		RebuildItemKind(id);
+		return;
+	}
 	// What the editor placed and play did is HELD first and laid back after:
 	// the respawn reads the records, which knew nothing of a monster or prop the
 	// editor placed, still held one it erased, and every one of them as it was
@@ -273,21 +300,13 @@ void DungeonWorld::ReloadTypeKind(const std::string& catalogKey,
 	m_buttons.clear();
 	m_doors.clear();
 	m_decorations.clear();
+	// THE CACHE OF THAT CATALOG, and no other (code-review C302): a prop's in its
+	// own catalog's cache, since a door and a decoration may share an id.
 	if (catalogKey == "monsters") m_monsterKinds.erase(id);
 	else if (catalogKey == "fixtures") m_fixtureKinds.erase(id);
-	else m_decorationKinds.erase(id); // decorations/doors/buttons/stairs/items
-	// The rebuilt kind reads its model file fresh, as it did when every kind
-	// parsed its own copy - so a file changed on disk shows on save. Other kinds
-	// sharing the file keep the copy they hold until they are reloaded themselves.
-	if (const Catalog* cat = m_project.CatalogForKey(catalogKey)) {
-		const CatalogEntry* def = cat->Find(id);
-		for (const std::string& model : {CatalogGet(def, "model", id),
-										 CatalogGet(def, "part2_model", "")})
-			if (!model.empty()) {
-				ForgetModelFile(model + ".gltf");
-				ForgetModelFile(model + ".glb");
-			}
-	}
+	else if (const std::optional<PropCatalog> prop = PropCatalogFor(catalogKey))
+		KindsOf(*prop).erase(id);
+	forgetModelFiles();
 	// Fixtures are props AND light sources, so their rebuild goes through the
 	// fire/turbidity path; everything else just re-spawns.
 	RespawnFromRecords(StampedIntoSurfaces(catalogKey));
@@ -498,7 +517,7 @@ bool DungeonWorld::AddDecoration(const std::string& type, int x, int z,
 								 Direction facing) {
 	if (!m_map.IsWalkable(x, z)) return false;
 	if (!m_project.decorations.Contains(type)) return false;
-	DecorationKind& kind = DecorationKindFor(type, m_project.decorations);
+	DecorationKind& kind = DecorationKindFor(type, PropCatalog::Decorations);
 	Decoration deco;
 	deco.kind = &kind;
 	deco.x = x;
@@ -519,7 +538,7 @@ bool DungeonWorld::AddWallDecoration(const std::string& type, int x, int z,
 	if (!m_map.IsWalkable(x, z)) return false;
 	if (m_map.IsWalkable(x + DirDX(wall), z + DirDZ(wall))) return false; // nothing to hang on
 	if (!m_project.decorations.Contains(type)) return false;
-	DecorationKind& kind = DecorationKindFor(type, m_project.decorations);
+	DecorationKind& kind = DecorationKindFor(type, PropCatalog::Decorations);
 	Decoration deco;
 	deco.kind = &kind;
 	deco.x = x;

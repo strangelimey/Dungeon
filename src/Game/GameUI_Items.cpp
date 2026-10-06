@@ -619,7 +619,7 @@ void GameUI::MemorizeFromHand(size_t i, size_t hand) {
 
 bool GameUI::CanMemorize(size_t i, std::string_view itemId) const {
 	SpellSymbol sym;
-	return i < m_characters.size() && RuneSymbolFromItemId(itemId, sym) &&
+	return i < m_characters.size() && itemRune && itemRune(itemId, sym) &&
 		   !m_characters[i].Knows(sym);
 }
 
@@ -627,7 +627,7 @@ void GameUI::MemorizeSlot(size_t i, ItemSlot& slot) {
 	// Never spends a tablet on a rune the member already knows.
 	if (!CanMemorize(i, slot.typeId)) return;
 	SpellSymbol sym;
-	if (!RuneSymbolFromItemId(slot.typeId, sym)) return;
+	if (!itemRune(slot.typeId, sym)) return;
 	m_characters[i].Learn(sym);
 	slot.Clear(); // the tablet is consumed
 	Click();

@@ -3,8 +3,9 @@
 ; spell's. An entry naming no class is a warning, never a new effect.
 ;
 ; Fields: name = the display loc key (the sheet appends ".desc" for the long
-; form), icon = the item id whose baked icon it borrows in the HUD strip
-; ("" = the school-tinted square), stacking = refresh | school | stack.
+; form), icon = an item id whose baked icon it borrows in the HUD strip (absent
+; = the kind's own rune - a ward's Protect, Sight's, a light's Sowilo - else the
+; school-tinted square), stacking = refresh | school | stack.
 ;
 ; fade_party / fade_monster = the line saying it RAN OUT, one per side (a piece
 ; of the dungeon - a burning door - takes the monster's). Each is formatted with
@@ -20,7 +21,6 @@
 
 [stoneskin]
 name = spell.stoneskin
-icon = rune_protect
 school = earth
 fade_party = log.shield_fades
 fade_monster = log.effect_fades
@@ -28,7 +28,6 @@ stacking = refresh
 
 [fireshield]
 name = spell.fireshield
-icon = rune_protect
 school = fire
 fade_party = log.shield_fades
 fade_monster = log.effect_fades
@@ -36,7 +35,6 @@ stacking = refresh
 
 [waterveil]
 name = spell.waterveil
-icon = rune_protect
 school = water
 fade_party = log.shield_fades
 fade_monster = log.effect_fades
@@ -44,7 +42,6 @@ stacking = refresh
 
 [windward]
 name = spell.windward
-icon = rune_protect
 school = air
 fade_party = log.shield_fades
 fade_monster = log.effect_fades
@@ -138,7 +135,6 @@ name_fire = spell.embersight
 name_earth = spell.stonesight
 name_air = spell.farsight
 name_water = spell.scrying
-icon = rune_sight
 fade_party = log.sight_fades
 fade_monster = log.effect_fades
 stacking = school
@@ -164,7 +160,6 @@ name_fire = spell.firelight
 name_earth = spell.stonelight
 name_air = spell.skylight
 name_water = spell.tidelight
-icon = rune_light
 fade_party = log.light_fades
 fade_monster = log.effect_fades
 stacking = school

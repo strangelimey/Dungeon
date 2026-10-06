@@ -77,6 +77,12 @@ std::string RaceTraits(const CatalogEntry& race, const party::RaceStats& rs) {
 
 } // namespace
 
+std::vector<Character> Game::DefaultParty() const {
+	if (!m_world) return CreateDefaultParty();
+	DungeonWorld& world = *m_world;
+	return CreateDefaultParty([&world](SpellSymbol s) { return world.RuneItemFor(s); });
+}
+
 void Game::ApplyRaceResists(Character& member) const {
 	member.natureResists = ResistTable{};
 	if (!m_world) return;
@@ -109,7 +115,7 @@ std::optional<Character> Game::BuildMember(const party::MemberSpec& spec,
 	if (spec.premade >= 0) {
 		// One of the default four, exactly as authored (the eval suites measure
 		// them): only who they are, their face and their colour can change.
-		std::vector<Character> defaults = CreateDefaultParty();
+		std::vector<Character> defaults = DefaultParty();
 		if (spec.premade >= static_cast<int>(defaults.size())) {
 			why = std::format("there is no premade member {}", spec.premade);
 			return std::nullopt;

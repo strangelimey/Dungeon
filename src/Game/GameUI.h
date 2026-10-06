@@ -530,6 +530,11 @@ public:
 	// wiring lambda must spell out its `-> const std::vector<std::string>&`
 	// return type, or it deduces a value and the reference dangles.
 	std::function<const std::vector<std::string>&(const std::string&)> itemCommands;
+	// Whether an item is a RUNE TABLET, and of which symbol - asked of its item
+	// kind (wired to DungeonWorld::ItemRune; code-review C347: Memorize used to
+	// read the `rune_` spelling of the id, so a tablet under any other id could
+	// not be learned). A lookup by view: it allocates nothing.
+	std::function<bool(std::string_view, SpellSymbol&)> itemRune;
 	// The project's whole spell registry (wired to DungeonWorld::SpellDefs);
 	// the hand-slot Magic submenu filters it by the member's known symbols.
 	std::function<std::span<const std::unique_ptr<Spell>>()> spellDefs;
@@ -781,7 +786,8 @@ private:
 	// — a rune memorizes from WHEREVER it sits (hand or backpack).
 	void MemorizeSlot(size_t i, ItemSlot& slot);
 	// THE ONE TEST for offering Memorize (Michael, spell-updates): the item is a
-	// rune and member `i` - the one holding it - does not know it yet. Every
+	// rune - by its KIND, itemRune - and member `i` - the one holding it - does
+	// not know it yet. Every
 	// place the option appears asks it: the hand menu, the pack / doll menu, and
 	// the details dialog's button. MemorizeSlot asks it too, so a known rune is
 	// never spent for nothing.
@@ -884,7 +890,7 @@ private:
 	std::array<ui::EtchFloor, 6 + 5> m_etchFloorLit{};
 	std::unique_ptr<gfx::Texture> m_frameBlockTex;
 	std::unique_ptr<gfx::Texture> m_frameBlockDownTex;
-	std::unique_ptr<gfx::Texture> m_glowTex; // a set hand box's centre glow
+	const gfx::Texture* m_glowTex = nullptr; // a set hand box's centre glow (shared, AssetUtil)
 	const gfx::Texture* m_closeIcon = nullptr; // shared, owned by AssetUtil
 
 	MenuPage m_menuPage = MenuPage::Main;

@@ -91,14 +91,8 @@ bool ParseSymbol(std::string_view token, SpellSymbol& out) {
 
 std::string_view RuneItemId(SpellSymbol s) { return kRuneIds[static_cast<u32>(s)]; }
 
-bool RuneSymbolFromItemId(std::string_view typeId, SpellSymbol& out) {
-	constexpr std::string_view kPrefix = "rune_";
-	if (!typeId.starts_with(kPrefix)) return false;
-	return ParseSymbol(typeId.substr(kPrefix.size()), out);
-}
-
-// The two tables above spell the same names; a mismatch would make a rune
-// tablet's id stop parsing back to its own symbol.
+// The two tables above spell the same names; a mismatch would bake (and look up)
+// one symbol's carving under another's.
 static_assert([] {
 	for (u32 i = 0; i < kSymbolCount; ++i)
 		if (kRuneIds[i].substr(5) != std::string_view(kIds[i])) return false;

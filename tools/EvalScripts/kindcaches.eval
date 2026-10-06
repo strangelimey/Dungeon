@@ -1,0 +1,114 @@
+; kindcaches.eval - the kind caches (code-review C302, C330, C347). Judged by
+; tools/EditorTest.py phase 51, on its scratch world, into whose catalogs the
+; judge writes four things first (the editor would refuse the first now, and
+; the rest are what the checks are about):
+;   decorations.cat [portcullis]  a decoration under the DOOR's id (a copy of
+;                                 [portcullis_grate]), as every world shipped it
+;                                 until the rename;
+;   items.cat [et_kenaz]          a rune tablet - category rune, symbol air -
+;                                 whose id is NOT rune_<symbol>;
+;   effects.cat [light] icon = rune_light   the line every world shipped until
+;                                 the effect classes carried their own rune;
+;   effects.cat [poison] icon = apple       an effect's item override (a control).
+;
+;   --- weapon ---   in a frozen arena corridor, the dagger's details open and
+;                    read, and a dagger thrown: in the air, it is read back.
+;   --- weapon saved --- its damage saved through the type editor (`typeset`)
+;                    WITH THE DETAILS STILL OPEN: the save closes them (their
+;                    preview held the model the rebuild frees), and the dagger in
+;                    the air reads back through the pointer its flight held -
+;                    the kind is rebuilt IN PLACE, where an erase and rebuild
+;                    leaves the flight holding freed memory.
+;   --- weapon landed --- it lands as a dagger, and the reopened details show the
+;                    new number at once. An item's kind was never rebuilt by a
+;                    save (the save cleared a DECORATION's cache entry of that id),
+;                    so it showed only after a reload.
+;   --- rune ---     et_kenaz draws as the air rune - its carved tablet in a
+;                    socket, the glyph where a control asks - and, given to
+;                    Maren, its details offer Memorize, which learns air and
+;                    spends it; a second one then offers none. Memorize and the
+;                    icon both went by the id's `rune_` spelling.
+;   --- kit ---      rune_light renamed et_sowilo: a new game's casters carry
+;                    et_sowilo (the kit named rune_<symbol> ids outright, which
+;                    the world no longer had), `rune light` gives it, and it
+;                    draws as a tablet. The Sowilo light's effect icon still
+;                    wears the Sowilo glyph though its `icon` names rune_light,
+;                    gone now - and a ward its Protect glyph, poison its item,
+;                    a burn the tinted square.
+;   --- portcullis --- the door portcullis in a doorway, then the decoration
+;                    portcullis beside it: `propkinds` lists TWO kinds, each
+;                    with its own catalog's model and set (one cache by bare id
+;                    gave the second the first's).
+;   --- related ---  an id a RELATED catalog holds is refused: a decoration
+;                    named wooden_door (a door), a weapon named torch (an item),
+;                    a door duplicated as portcullis_grate (a decoration), a
+;                    door renamed portcullis_grate and a weapon renamed apple;
+;                    beside them a weapon created, and one renamed, under free
+;                    ids (the controls).
+;
+; `lang en` because the judge rebuilds each refusal from en.lang; it puts
+; settings.ini back (the language saves).
+
+logecho on
+reset
+lang en
+echo --- weapon ---
+timescale 0
+arena corridor 11
+tp 10 12
+face e
+itemdetails dagger
+itemdetails rows
+throw dagger
+flooritems all
+echo --- weapon saved ---
+typeset weapons dagger damage 9.5
+itemdetails status
+flooritems all
+echo --- weapon landed ---
+step 3
+flooritems all
+itemdetails dagger
+itemdetails rows
+itemdetails off
+timescale 1
+echo --- rune ---
+itemicon et_kenaz
+itemicon et_kenaz symbolic
+give et_kenaz 2
+inventory status
+itemdetails pack 2 3
+itemdetails status
+itemdetails memorize
+inventory status
+give et_kenaz 2
+itemdetails pack 2 3
+itemdetails status
+itemdetails off
+echo --- kit ---
+typeset rename items rune_light et_sowilo
+reset
+inventory status
+rune light
+itemicon et_sowilo
+itemicon effect light
+itemicon effect stoneskin
+itemicon effect poison
+itemicon effect burn
+echo --- portcullis ---
+arena corridor 11
+tp 10 12
+face e
+editor place doors portcullis 12 12
+editor place decorations portcullis 14 12
+propkinds
+echo --- related ---
+newasset decorations installed portcullis wooden_door
+newasset weapons installed viking_dagger torch
+newasset doors duplicate wooden_door portcullis_grate
+newasset weapons installed viking_dagger et_free_weapon
+newasset off
+expect-refuse typeset rename doors wooden_door portcullis_grate
+expect-refuse typeset rename weapons dagger apple
+typeset rename weapons khukri et_free_khukri
+echo --- end ---

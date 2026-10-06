@@ -424,8 +424,16 @@ void CharacterSheet::DrawSpellRow(size_t i, ui::UIContext& ctx,
 	for (size_t k = 0; k < row.symbols.size(); ++k) {
 		const SpellSymbol sym = row.symbols[k];
 		const gfx::Rect ir = SpellRuneRect(ctx, r, k);
-		// A spell control: the rune is its glowing glyph, never the tablet.
-		if (!DrawItemIcon(batch, ir, RuneItemId(sym), m_icons, 0.0f, /*symbolic=*/true)) {
+		// A spell control: the rune is its glowing glyph, never the tablet - the
+		// SYMBOL's, drawn straight from it (it used to go by the rune_<symbol>
+		// item id, which a world need not have; code-review C347). Breathing on
+		// the sockets' slow phase, each a little out of step with its neighbour.
+		if (m_icons) {
+			constexpr float kTwoPi = 6.2831853f;
+			const float phase =
+				batch.Time() * (kTwoPi / kRuneBreathSeconds) - (ir.x + ir.y) * 0.013f;
+			DrawRuneGlow(batch, ir, sym, m_icons, /*hot=*/false, /*disabled=*/false, phase);
+		} else {
 			const Vec4 sc = ElementColor(sym);
 			batch.DrawRect(ir, {sc.x, sc.y, sc.z, 0.6f});
 		}

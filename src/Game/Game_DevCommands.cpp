@@ -1838,6 +1838,21 @@ void Game::RegisterDevCommands() {
 						   }
 						   m_console.Print(line);
 					   });
+	// Every PROP kind built so far, by catalog (code-review C302): a door and a
+	// decoration of one id are two kinds, each with its own model and set - what
+	// EditorTest phase 51 reads off two portcullises side by side.
+	m_console.Register({.name = "propkinds",
+						.group = CmdGroup::Rendering,
+						.summary = "every prop kind built, by catalog: its model file and texture set"},
+					   [this](const std::vector<std::string>&) {
+						   if (!m_world) {
+							   m_console.Refuse("no world loaded");
+							   return;
+						   }
+						   const std::vector<std::string> lines = m_world->DescribePropKinds();
+						   for (const std::string& line : lines) m_console.Print(line);
+						   m_console.Print(std::format("propkinds: {}", lines.size()));
+					   });
 	// `status` is the shadow cache's readout (code-review C178 / C187): each
 	// slot's light and its re-renders by reason, which is how a harness sees a
 	// door's move or a walking Firelight reach a cube. `door` is the pass that

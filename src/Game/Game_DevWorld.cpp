@@ -1689,10 +1689,11 @@ void Game::RegisterWorldCommands() {
 		{.name = "newasset",
 		 .group = CmdGroup::Types,
 		 .params = "<category> installed <asset> <id>\n<category> pick <asset> <id>\n"
+				   "<category> duplicate <type> <id>\n"
 				   "<category> import <folder|file> <id>\ncreate\n"
 				   "plan <category> <asset>\npreview\nstatus | off",
-		 .summary = "the create dialog's Use installed or Import: pick, type the id, click "
-					"Create; or what adopting a texture set would do"},
+		 .summary = "the create dialog's Use installed, Duplicate or Import: pick, type the id, "
+					"click Create; or what adopting a texture set would do"},
 		[this](const std::vector<std::string>& args) {
 			// The palette's "+ New..." dialog without a mouse. The create goes
 			// through the dialog itself - its Validate, its Create, then onCreate -
@@ -1739,6 +1740,16 @@ void Game::RegisterWorldCommands() {
 				m_console.Print(std::format("newasset {} '{}' from {}: {}{}", key, id, asset,
 											outcome, problem.empty() ? "" : " - " + problem));
 			};
+			// DUPLICATE, as the type editor's button opens it: preset on the type
+			// to copy, the new id typed, Create clicked.
+			if (args.size() == 4 && args[1] == "duplicate") {
+				const MapEditor::PaletteCat cat = catOf(args[0]);
+				if (cat == MapEditor::PaletteCat::Count) return;
+				OpenCreateDialog(cat, AssetDialog::Source::Duplicate, args[2]);
+				m_assetDialog.TypeName(args[3]);
+				create();
+				return;
+			}
 			if (args.size() == 4 && (args[1] == "installed" || args[1] == "pick")) {
 				const MapEditor::PaletteCat cat = catOf(args[0]);
 				if (cat == MapEditor::PaletteCat::Count) return;

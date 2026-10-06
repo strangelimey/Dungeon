@@ -2,7 +2,7 @@
 #
 # Run:  python tools\WorldTest.py      (needs a debug build)
 #
-# Twenty-three phases, all built on one principle: a check that never fires
+# Twenty-four phases, all built on one principle: a check that never fires
 # reports "clean" just as loudly as one that works, so every expectation here is
 # paired with something that makes it fail.
 #
@@ -77,6 +77,11 @@
 #      negative one is refused from the console and the dialog (C345, C343) -
 #      and then a SECOND launch opens what the first wrote, which is where
 #      every one of these used to abort.
+#  51. THE DOLL FOLLOWS THE WORLD (code-review C330; numbered in this lane's
+#      range, as EditorTest's are) - padded_jack is worn here, REFUSED after a
+#      switch to a copy of this world where it has no `wear` (the UI's wear
+#      slots were the one bank a world load never cleared), and worn again back
+#      here.
 #
 # NOTHING HERE TOUCHES THE REAL WORLD (code-review C431). Every phase runs in
 # wt_demo, a scratch copy of dungeon-demo made at the start and deleted at the
@@ -120,7 +125,7 @@ SAVES_WORLD = "wt_saves_" + harness_game.worktree_tag(ROOT)
 # Every world a phase makes, and the scratch one: cleared at the start (what a
 # killed run left) and at the end.
 WORLDS = (SCRATCH, "wt_scratch", "wt_dlg", "wt_del", "wt_del2", "wt_dng", "wt_ren", "wt_swap",
-          SAVES_WORLD)
+          SAVES_WORLD, "wt_wear")
 
 # Never a stale exe, and never beside this worktree's own game, which shares
 # the log every phase reads (tools/harness_game.py).
@@ -1528,6 +1533,44 @@ try:
     finally:
         for p in (WORLD, TERRAIN):
             write(p, originals[p])
+
+    # --- phase 51: the doll follows the world (code-review C330) -------------
+    print("\n51 - the doll's wear slots are the world in hand's: refused where an item has "
+          "no `wear`")
+    wear_world = harness_game.scratch_world(ROOT, "wt_wear", source=SCRATCH)
+    armor = os.path.join(wear_world, r"catalog\armor.cat")
+    text = read(armor)
+    jack = re.search(r"^\[padded_jack\]\r?\n(?:(?!\[).*\r?\n)*", text, re.M)
+    stripped = (text[:jack.start()] + re.sub(r"^wear = \S+\r?\n", "", jack.group(0), flags=re.M) +
+                text[jack.end():]) if jack else text
+    check(jack is not None and re.search(r"^wear = body", jack.group(0), re.M) is not None
+          and stripped != text,
+          "THE PREMISE: padded_jack is worn on the body here, and wt_wear's copy has no `wear`")
+    write(armor, stripped)
+    log = run("worldwear.eval", words={"dungeon-demo": SCRATCH})
+
+    def section(name):
+        """The console lines between `echo --- <name> ---` and the next marker."""
+        out, cur = [], None
+        for l in log.splitlines():
+            if "console: " not in l:
+                continue
+            t = l.split("console: ", 1)[1]
+            m = re.match(r"--- (.*) ---$", t)
+            if m:
+                cur = m.group(1)
+            elif cur == name:
+                out.append(t)
+        return out
+    worn = lambda name: any(re.match(r"\S+ wears padded_jack \(body\)$", l) for l in section(name))
+    check(worn("here"), "here the jack is worn on the body (THE CONTROL)", str(section("here")))
+    check(not worn("there") and any("'padded_jack' has no `wear` slot" in l for l in section("there")),
+          "after the switch to wt_wear, wearing it is refused - the doll used to keep the last "
+          "world's slot", str(section("there")))
+    check(worn("back"), "back in the first world it is worn again", str(section("back")))
+    check("World unloaded" in log and "eval RESULT=PASS script=worldwear.eval" in log,
+          "the script ran clean, the switches unloading as they went")
+    harness_game.remove_world(ROOT, "wt_wear")
 
 except Stop as why:
     # Already counted as a failure where it was found: a game RAN, so this is a

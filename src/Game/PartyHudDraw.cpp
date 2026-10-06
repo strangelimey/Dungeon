@@ -345,44 +345,86 @@ void DrawFlame(gfx::SpriteBatch& batch, const Vec2& head, float tall, float glow
 	}
 }
 
-bool DrawItemIcon(gfx::SpriteBatch& batch, const gfx::Rect& r, std::string_view typeId,
-				  const ItemIconBank* icons, float pad, bool symbolic) {
-	if (typeId.empty() || !icons) return false;
-	if (SpellSymbol s; RuneSymbolFromItemId(typeId, s)) {
-		// The Magic window's slow breath, each socket a little out of step with
-		// its neighbours (keyed off where it sits, so a row shimmers).
-		constexpr float kTwoPi = 6.2831853f;
-		const float phase = batch.Time() * (kTwoPi / kRuneBreathSeconds) - (r.x + r.y) * 0.013f;
-		const size_t si = static_cast<size_t>(s);
+ItemIconLook ResolveItemIcon(std::string_view typeId, const ItemIconBank* icons,
+							 bool symbolic) {
+	ItemIconLook look;
+	if (typeId.empty() || !icons) return look;
+	// A RUNE TABLET by its item kind's say (the bank's runeOf, filled from the
+	// kinds - code-review C347), whatever its id is spelled.
+	if (const SpellSymbol* s = icons->RuneOf(typeId)) {
+		look.rune = *s;
+		const size_t si = static_cast<size_t>(*s);
 		const gfx::Texture* tablet = icons->For(typeId);
 		const gfx::Texture* glow = si < ItemIconBank::kRuneSlots ? icons->runeGlow[si] : nullptr;
 		if (symbolic || !icons->runeTablets || !tablet || !glow) {
-			DrawRuneGlow(batch, r, s, icons, /*hot=*/false, /*disabled=*/false, phase);
-			return true;
+			look.kind = ItemIconLook::Kind::Glyph;
+		} else {
+			look.kind = ItemIconLook::Kind::Tablet;
+			look.icon = tablet;
 		}
-		// The CARVED TABLET (Michael: in the pack, the doll, on the cursor), its
-		// groove lit by the school's halo breathing over the face. The glow mask
-		// is the glyph's own cell, which the tablet's texture spans across that
-		// face, so laid over the face's box it sits in the groove.
-		const float p = r.w * pad;
-		const gfx::Rect in{r.x + p, r.y + p, r.w - 2 * p, r.h - 2 * p};
-		batch.DrawSprite(in, {0, 0, 1, 1}, *tablet, {1, 1, 1, 1});
-		const Vec2 lo = icons->runeFaceLo, hi = icons->runeFaceHi;
-		const gfx::Rect face{in.x + lo.x * in.w, in.y + lo.y * in.h, (hi.x - lo.x) * in.w,
-							 (hi.y - lo.y) * in.h};
-		const Vec4 c = RuneGlowColor(s);
-		const float pulse = 0.5f + 0.5f * std::sin(phase);
-		batch.DrawSprite(face, {0, 0, 1, 1}, *glow, {c.x, c.y, c.z, 0.12f + 0.28f * pulse});
-		return true;
+		return look;
 	}
-	const gfx::Texture* icon = icons->For(typeId);
-	if (!icon) return false;
+	if ((look.icon = icons->For(typeId))) look.kind = ItemIconLook::Kind::Icon;
+	return look;
+}
+
+ItemIconLook ResolveEffectIcon(const fx::EffectKind* kind, const ItemIconBank* icons) {
+	ItemIconLook look;
+	if (!kind) return look;
+	// The item effects.cat names, as a hand box draws it (a rune as its glyph)...
+	if (!kind->IconItem().empty()) look = ResolveItemIcon(kind->IconItem(), icons, /*symbolic=*/true);
+	// ...else the kind's own rune, straight from its symbol - so a renamed
+	// tablet cannot take a ward's or a light's picture with it.
+	if (look.kind == ItemIconLook::Kind::None && kind->IconRune()) {
+		look.kind = ItemIconLook::Kind::Glyph;
+		look.rune = *kind->IconRune();
+	}
+	return look;
+}
+
+namespace {
+
+// What DrawItemIcon and DrawEffectIcon draw once the look is decided: `typeId`
+// is the item the look came from (its flame), empty for a rune by symbol.
+bool DrawIconLook(gfx::SpriteBatch& batch, const gfx::Rect& r, const ItemIconLook& look,
+				  std::string_view typeId, const ItemIconBank* icons, float pad) {
+	if (look.kind == ItemIconLook::Kind::None) return false;
 	const float p = r.w * pad;
 	const gfx::Rect in{r.x + p, r.y + p, r.w - 2 * p, r.h - 2 * p};
-	batch.DrawSprite(in, {0, 0, 1, 1}, *icon, {1, 1, 1, 1});
-	if (const Vec2* at = icons->FlameAt(typeId); at && icons->flame)
-		DrawHeldFlame(batch, in, *at, *icons->flame, icons->flameGlow, icons->FlameTint(typeId));
+	if (look.kind == ItemIconLook::Kind::Icon) {
+		batch.DrawSprite(in, {0, 0, 1, 1}, *look.icon, {1, 1, 1, 1});
+		if (const Vec2* at = icons->FlameAt(typeId); at && icons->flame)
+			DrawHeldFlame(batch, in, *at, *icons->flame, icons->flameGlow, icons->FlameTint(typeId));
+		return true;
+	}
+	// The Magic window's slow breath, each socket a little out of step with
+	// its neighbours (keyed off where it sits, so a row shimmers).
+	constexpr float kTwoPi = 6.2831853f;
+	const float phase = batch.Time() * (kTwoPi / kRuneBreathSeconds) - (r.x + r.y) * 0.013f;
+	if (look.kind == ItemIconLook::Kind::Glyph) {
+		DrawRuneGlow(batch, r, look.rune, icons, /*hot=*/false, /*disabled=*/false, phase);
+		return true;
+	}
+	// The CARVED TABLET (Michael: in the pack, the doll, on the cursor), its
+	// groove lit by the school's halo breathing over the face. The glow mask
+	// is the glyph's own cell, which the tablet's texture spans across that
+	// face, so laid over the face's box it sits in the groove.
+	batch.DrawSprite(in, {0, 0, 1, 1}, *look.icon, {1, 1, 1, 1});
+	const Vec2 lo = icons->runeFaceLo, hi = icons->runeFaceHi;
+	const gfx::Rect face{in.x + lo.x * in.w, in.y + lo.y * in.h, (hi.x - lo.x) * in.w,
+						 (hi.y - lo.y) * in.h};
+	const Vec4 c = RuneGlowColor(look.rune);
+	const float pulse = 0.5f + 0.5f * std::sin(phase);
+	batch.DrawSprite(face, {0, 0, 1, 1}, *icons->runeGlow[static_cast<size_t>(look.rune)],
+					 {c.x, c.y, c.z, 0.12f + 0.28f * pulse});
 	return true;
+}
+
+} // namespace
+
+bool DrawItemIcon(gfx::SpriteBatch& batch, const gfx::Rect& r, std::string_view typeId,
+				  const ItemIconBank* icons, float pad, bool symbolic) {
+	return DrawIconLook(batch, r, ResolveItemIcon(typeId, icons, symbolic), typeId, icons, pad);
 }
 
 float EffectTimeLeft(const fx::Inst& effect) {
@@ -402,7 +444,8 @@ void DrawEffectIcon(const ui::UIContext& ctx, gfx::SpriteBatch& batch, const gfx
 	const float bar = std::max(2.0f, std::round(side * 0.1f));
 	const gfx::Rect pic{well.x + pad, well.y + pad, std::max(0.0f, well.w - 2.0f * pad),
 						std::max(0.0f, well.h - 2.0f * pad)};
-	if (!kind || !DrawItemIcon(batch, pic, kind->IconItem(), icons, 0.0f, /*symbolic=*/true))
+	const std::string_view item = kind ? std::string_view(kind->IconItem()) : std::string_view();
+	if (!DrawIconLook(batch, pic, ResolveEffectIcon(kind, icons), item, icons, 0.0f))
 		batch.DrawRect(pic, {tint.x, tint.y, tint.z, 0.5f});
 	// OPAQUE whatever `tint` carries: a school colour (ElementColor) has an
 	// alpha of 0 - it is additive light - and the HUD's copy drew its sliver
@@ -416,7 +459,8 @@ void DrawRuneFace(gfx::SpriteBatch& batch, const gfx::Rect& r, SpellSymbol s,
 				  const ItemIconBank* icons, bool hot, bool disabled,
 				  bool background) {
 	if (background) batch.DrawRect(r, hot ? Vec4{0.12f, 0.12f, 0.13f, 1.0f} : kSlotBg);
-	const gfx::Texture* icon = icons ? icons->For(RuneItemId(s)) : nullptr;
+	const size_t si = static_cast<size_t>(s);
+	const gfx::Texture* icon = icons && si < ItemIconBank::kRuneSlots ? icons->runeIcon[si] : nullptr;
 	if (icon) {
 		const float pad = r.w * 0.08f;
 		batch.DrawSprite({r.x + pad, r.y + pad, r.w - 2 * pad, r.h - 2 * pad},

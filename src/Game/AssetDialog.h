@@ -186,6 +186,12 @@ public:
 	// (Game::CreateCatalogEntry), for a pick gone stale and for an import, whose
 	// model its bake makes.
 	std::function<std::string(const std::string&, Source, const std::string&)> modelRefusal;
+	// Why the typed ID may not be this catalog's because a RELATED catalog holds
+	// it - (catalogKey, id) -> "" when it may (code-review C302, Game::
+	// RelatedIdRefusal: the three item catalogs share one namespace, the four
+	// prop catalogs another). Asked as the name is validated, like a duplicate in
+	// this catalog; the owner's CreateCatalogEntry asks again.
+	std::function<std::string(const std::string&, const std::string&)> idRefusal;
 
 private:
 	void Rebuild(const ui::Theme& theme); // (re)builds the form widgets

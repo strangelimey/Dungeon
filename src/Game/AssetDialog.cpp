@@ -189,6 +189,8 @@ std::string AssetDialog::Validate() const {
 	if (name.empty()) return loc::Tr("newasset.err.noname");
 	if (std::find(m_existing.begin(), m_existing.end(), name) != m_existing.end())
 		return loc::Format("newasset.err.dup", name);
+	if (idRefusal)
+		if (std::string why = idRefusal(m_catalogKey, name); !why.empty()) return why;
 	switch (m_source) {
 	case Source::Import:
 		if (m_sourcePath.empty()) return loc::Tr("newasset.err.nosource");

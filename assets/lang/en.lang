@@ -1403,6 +1403,7 @@ newasset.map.missing=(not found)
 newasset.warn.noheight=No height map: parallax will be flat.
 newasset.err.noname=Type a name for the new type.
 newasset.err.dup='{}' already exists in this catalog.
+newasset.err.related='{}' is already taken in {} - the two catalogs share their ids.
 newasset.err.nosource=Pick a source folder or file.
 newasset.err.noalbedo=No albedo map in that folder — nothing to import.
 newasset.err.noasset=Nothing installed to pick from.

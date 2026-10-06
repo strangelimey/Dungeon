@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <cmath>
 #include <format>
+#include <iterator>
 #include <numbers>
 #include <span>
 
@@ -49,6 +50,16 @@ constexpr float kSpinSeconds = 20.0f;
 constexpr size_t kValueCap = loc::Line::kCapacity;
 static_assert(kValueCap >= loc::Line::kCapacity, "a value row must hold a whole loc::Line");
 constexpr size_t kDescCap = loc::kParagraphCapacity;
+// Each line's label key, in RowId order. A row's id (ForEachShownRow) is its
+// key past the prefix.
+constexpr std::string_view kRowPrefix = "item.detail.";
+constexpr const char* kRowKeys[] = {
+	"item.detail.category", "item.detail.weight",  "item.detail.damage",
+	"item.detail.speed",    "item.detail.skill",   "item.detail.reach",
+	"item.detail.element",  "item.detail.armor",   "item.detail.armorclass",
+	"item.detail.worn",     "item.detail.resists", "item.detail.nutrition",
+	"item.detail.hydration", "item.detail.restore_health",
+	"item.detail.restore_stamina", "item.detail.restore_mana", "item.detail.cures"};
 
 // `v` as tenths ("1.5"), formatted as integers - MSVC's float precision path
 // allocates in debug (the carry-load line's reason).
@@ -160,18 +171,12 @@ void ItemDetailsDialog::Build() {
 	column->debugName = "details";
 	column->gapRem = 0.1f;
 
-	static constexpr const char* kLabels[kRowCount] = {
-		"item.detail.category", "item.detail.weight",  "item.detail.damage",
-		"item.detail.speed",    "item.detail.skill",   "item.detail.reach",
-		"item.detail.element",  "item.detail.armor",   "item.detail.armorclass",
-		"item.detail.worn",     "item.detail.resists", "item.detail.nutrition",
-		"item.detail.hydration", "item.detail.restore_health",
-		"item.detail.restore_stamina", "item.detail.restore_mana", "item.detail.cures"};
+	static_assert(std::size(kRowKeys) == kRowCount);
 	for (size_t i = 0; i < kRowCount; ++i) {
 		ui::Stack* row = column->Row<ui::Stack>(FormRow(kLineRows), true);
 		row->debugName = "line";
 		row->fontScale = kLineScale;
-		ui::Label* label = row->Row<ui::Label>(ui::Len::Fill(kLabelFill), loc::Tr(kLabels[i]));
+		ui::Label* label = row->Row<ui::Label>(ui::Len::Fill(kLabelFill), loc::Tr(kRowKeys[i]));
 		label->dim = true;
 		label->centerV = true;
 		ui::Label* value = row->Row<ui::Label>(ui::Len::Fill(kValueFill), std::string{});
@@ -308,6 +313,15 @@ void ItemDetailsDialog::ShowMemorize(bool shown) {
 bool ItemDetailsDialog::MemorizeShown() const { return m_memorize && m_memorize->visible; }
 
 size_t ItemDetailsDialog::DescBytes() const { return m_desc ? m_desc->text.size() : 0; }
+
+void ItemDetailsDialog::ForEachShownRow(
+	const std::function<void(std::string_view id, std::string_view value)>& fn) const {
+	for (size_t i = 0; i < kRowCount; ++i) {
+		const Row& row = m_rows[i];
+		if (row.row && row.value && row.row->visible)
+			fn(std::string_view(kRowKeys[i]).substr(kRowPrefix.size()), row.value->text);
+	}
+}
 
 void ItemDetailsDialog::Update(const Input& input, float w, float h, float dt) {
 	if (!m_open) return;

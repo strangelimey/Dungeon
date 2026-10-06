@@ -283,6 +283,24 @@
 #      weapon on the floor, at the tier in force and through two quality swaps,
 #      the albedo its part's DRAWS were handed (DrawPart's stamp, not a material
 #      worked out for the readout) and the details preview's is its set's own.
+#  51. THE KIND CACHES (code-review C302, C330, C347): a dagger's damage saved
+#      through the type editor shows in its details dialog at once (an item's
+#      kind is rebuilt in place; a save used to clear a DECORATION's cache entry
+#      of that id instead) - the save closes the details it was made under
+#      (their preview held the model the rebuild frees), and a dagger in the air
+#      across it still reads as a dagger through the kind its flight holds, then
+#      lands as one; a rune tablet under an id that is not rune_<symbol>
+#      draws as its rune - the carved tablet in a socket, the glyph where a
+#      control asks - and memorizes, once; rune_light renamed, a new game's
+#      casters carry the renamed tablet and `rune light` gives it, and the
+#      Sowilo light's effect icon keeps its glyph though its `icon` named
+#      rune_light (a ward wears its Protect by its class, an item override
+#      still wins, a burn is the tinted square); a door and a
+#      decoration of ONE id, `portcullis`, placed side by side, are two kinds,
+#      each with its own catalog's model and set; and create, duplicate and
+#      rename refuse an id a related catalog holds (an item's in another item
+#      catalog, a prop's in another prop catalog), each in its own words, beside
+#      a free id that is accepted, writing nothing refused.
 #  55. A LEVER'S REVEAL SWAPS IN PRE-BUILT WALLS (code-review C211; phases 28-54
 #      are other lanes'): eval_arena's lever wired to nothing moves no wall; the
 #      one naming the hidden niche opens it, shuts it, and shuts it again after
@@ -4156,6 +4174,224 @@ try:
               f"looks {looks} | set {probe}")
     reloads = [int(n) for n in re.findall(r"Quality switched to .*?(\d+) prop set\(s\) reloaded", log)]
     check(any(n > 0 for n in reloads), "...and the swaps really reloaded the prop sets", str(reloads))
+finally:
+    drop()
+    if settings_before is not None:
+        io.open(SETTINGS, "wb").write(settings_before)
+    elif os.path.isfile(SETTINGS):
+        os.remove(SETTINGS)
+
+
+# --- phase 51: the kind caches ---------------------------------------------------
+print("51 - kind caches: a prop by its catalog, an item rebuilt in place, a rune by its kind")
+PROPKIND = re.compile(r"propkind (\S+) '([^']*)' file=(\S+) set=(\S+) multi=\d authored=\d$")
+DETAIL_ROW = re.compile(r"item details row (\S+) = (.*)$")
+ICON = re.compile(r"itemicon (\S+): (glyph|tablet|icon|none)(?: (\S+))?$")
+EFFECT_ICON = re.compile(r"itemicon effect (\S+): (glyph|tablet|icon|none)(?: (\S+))?$")
+RENAMED = re.compile(r"typeset rename (\S+) '([^']*)': (done|refused)(?: - (.*))?$")
+FLYING = re.compile(r"flooritems flying: (.+?) charge ")
+ON_FLOOR = re.compile(r"flooritems (\d+),(\d+): (\S+) slot ")
+
+
+def append_block(path, block_id, fields):
+    """Appends an [id] block to a .cat file, in the file's own line ending."""
+    raw = io.open(path, "rb").read().decode("utf-8")
+    eol = "\r\n" if "\r\n" in raw else "\n"
+    lines = ["", f"[{block_id}]"] + [f"{k} = {v}" for k, v in fields.items()]
+    text = raw + ("" if raw.endswith(eol) else eol) + eol.join(lines) + eol
+    io.open(path, "wb").write(text.encode("utf-8"))
+
+
+def add_field(path, block_id, key, value):
+    """Adds `key = value` as the first field of an existing [id] block, in the
+    file's own line ending. False when the block is not there."""
+    raw = io.open(path, "rb").read().decode("utf-8")
+    eol = "\r\n" if "\r\n" in raw else "\n"
+    head = f"[{block_id}]{eol}"
+    if head not in raw:
+        return False
+    io.open(path, "wb").write(raw.replace(head, f"{head}{key} = {value}{eol}", 1).encode("utf-8"))
+    return True
+
+
+def detail_rows(lines):
+    """[{row id: value}] - one dict per `itemdetails rows` in the section."""
+    out, cur = [], None
+    for l in lines:
+        m = DETAIL_ROW.match(l)
+        if m:
+            if cur is None:
+                cur = {}
+                out.append(cur)
+            cur[m.group(1)] = m.group(2)
+        else:
+            cur = None
+    return out
+
+
+def packs(lines):
+    """[{member: [slot ids]}] - one per `inventory status` line in the section."""
+    out = []
+    for l in lines:
+        if l.startswith("inventory: "):
+            out.append({int(m): ids.split() for m, ids in re.findall(r"\| (\d+):([^|]*)", l)})
+    return out
+
+
+def tenths(v):
+    """A number as the details dialog shows it (one decimal)."""
+    return f"{float(v):.1f}"
+
+
+en = lang_table("en")
+related = lambda tid, cat: say(en, "newasset.err.related", tid, say(en, f"map.cat.{cat}"))
+settings_before = io.open(SETTINGS, "rb").read() if os.path.isfile(SETTINGS) else None
+fresh()
+try:
+    catalogs = os.path.join(PROJ, "catalog")
+    decos_path = os.path.join(catalogs, "decorations.cat")
+    decos = io.open(decos_path, encoding="utf-8").read()
+    grate = cat_block(decos, "portcullis_grate")
+    check(grate is not None and cat_block(decos, "portcullis") is None,
+          "THE PREMISE: the shipped decoration is portcullis_grate, and no decoration is named "
+          "portcullis (the door's id) any more", str(grate))
+    # The decoration under the door's id, as every world shipped it until the
+    # rename - written by hand, since the editor refuses it now.
+    append_block(decos_path, "portcullis", grate or {})
+    append_block(os.path.join(catalogs, "items.cat"), "et_kenaz",
+                 {"name": "item.rune_air", "category": "rune", "weight": "0.5",
+                  "holdable": "1", "symbol": "air"})
+    # The effect icons: the Sowilo light's `icon = rune_light`, as every world
+    # shipped it until the effect classes carried their own rune (the kit
+    # renames that tablet away), and an item override on poison (a control).
+    effects_path = os.path.join(catalogs, "effects.cat")
+    effects = io.open(effects_path, encoding="utf-8").read()
+    check(all("icon" not in (cat_block(effects, e) or {"icon": 1})
+              for e in ("light", "stoneskin", "sight", "poison", "burn")),
+          "THE PREMISE: no shipped effect names an icon item (a ward, Sight and a light wear "
+          "their own rune)")
+    check(add_field(effects_path, "light", "icon", "rune_light")
+          and add_field(effects_path, "poison", "icon", "apple"),
+          "the scratch effects.cat takes [light] icon = rune_light and [poison] icon = apple")
+    weapons_before = io.open(os.path.join(catalogs, "weapons.cat"), encoding="utf-8").read()
+    dagger_damage = (cat_block(weapons_before, "dagger") or {}).get("damage")
+    log = run("kindcaches.eval")
+    check(passed(log), "the script ran clean (each refusal it probes refused)")
+    sec = console_sections(log)
+    check("end" in sec, "...to its end")
+
+    # THE WEAPON: its details read before and after a type-editor save made with
+    # them open, and a dagger in the air across that save.
+    thrown, saved, landed = (sec.get(s, []) for s in ("weapon", "weapon saved", "weapon landed"))
+    rows = detail_rows(thrown) + detail_rows(landed)
+    before = rows[0].get("damage") if rows else None
+    after = rows[1].get("damage") if len(rows) > 1 else None
+    check(dagger_damage is not None and before == tenths(dagger_damage),
+          f"the dagger's details show its catalog damage ({dagger_damage}) before the save",
+          str(rows))
+    check(answers(thrown, FLYING) == [("dagger",)],
+          "a dagger thrown in the frozen corridor is in the air before the save", str(thrown[-3:]))
+    status = [l for l in saved if l.startswith("item details: ")]
+    check(status[:1] and status[0].startswith("item details: closed"),
+          "the save closed the open details dialog - its preview held the model the rebuild "
+          "frees (it stayed open, drawing freed meshes)", str(status))
+    check(answers(saved, FLYING) == [("dagger",)],
+          "after the save the flight still reads `dagger` through the kind it holds - rebuilt IN "
+          "PLACE (an erased and rebuilt kind leaves it holding freed memory)", str(saved))
+    floor = answers(landed, ON_FLOOR)
+    check(not answers(landed, FLYING) and [f[2] for f in floor] == ["dagger"],
+          "...and it lands as a dagger", str(landed[:4]))
+    check(after == "9.5" and after != before,
+          "...and the reopened details show 9.5 after `typeset weapons dagger damage 9.5`, with "
+          "no reload (the save never rebuilt an item's kind)", str(rows))
+
+    # THE RUNE under an id that is not rune_<symbol>.
+    rune = sec.get("rune", [])
+    icons = answers(rune, ICON)
+    check(icons[:2] == [("et_kenaz", "tablet", "air"), ("et_kenaz", "glyph", "air")],
+          "et_kenaz draws as the air rune: its carved tablet in a socket, the glyph where a "
+          "control asks (by the id's `rune_` spelling it drew nothing)", str(icons))
+    slots = [p.get(2, []) for p in packs(rune)]
+    shown = [l.endswith("memorize=1") for l in rune if l.startswith("item details: open")]
+    pressed = [l for l in rune if l.startswith("item details: memorized")
+               or l.startswith("item details: no Memorize")]
+    check(len(slots) == 2 and slots[0][3:4] == ["et_kenaz"],
+          "given to Maren, it lies in her pack's fourth slot (what the script opens)", str(slots))
+    check(shown[:1] == [True] and pressed[:1] == ["item details: memorized"]
+          and len(slots) == 2 and slots[1][3:4] == ["-"],
+          "its details offer Memorize, and pressing it learns the rune and spends the tablet "
+          "(Memorize asked the id's spelling)", f"{shown} {pressed} {slots}")
+    check(len(shown) == 2 and not shown[1],
+          "...a second et_kenaz then offers none: Maren knows air, by the kind's symbol", str(shown))
+
+    # THE STARTER KIT names the world's tablets.
+    kit = sec.get("kit", [])
+    check(answers(kit, RENAMED)[:1] == [("items", "rune_light", "done", None)],
+          "rune_light is renamed et_sowilo", str(answers(kit, RENAMED)))
+    kpacks = packs(kit)
+    casters = [kpacks[0].get(m, []) for m in (2, 3)] if kpacks else []
+    check(len(casters) == 2 and all("et_sowilo" in p and "rune_light" not in p for p in casters),
+          "a new game's two casters each carry et_sowilo, not rune_light (the kit named "
+          "rune_<symbol> ids outright)", str(casters))
+    check("pack += et_sowilo" in kit and answers(kit, ICON)[:1] == [("et_sowilo", "tablet", "light")],
+          "`rune light` gives et_sowilo, and it draws as the light tablet", str(kit[-8:]))
+    effect_icons = {e: (look, rune) for e, look, rune in answers(kit, EFFECT_ICON)}
+    check(effect_icons.get("light") == ("glyph", "light"),
+          "the Sowilo light's effect icon still wears the Sowilo glyph, its `icon = rune_light` "
+          "naming a tablet the rename took away (it fell to the tinted square)", str(effect_icons))
+    check(effect_icons.get("stoneskin") == ("glyph", "protect"),
+          "a ward naming no icon wears its own rune, Protect", str(effect_icons))
+    check(effect_icons.get("poison") == ("icon", None) and effect_icons.get("burn") == ("none", None),
+          "THE CONTROLS: poison's `icon = apple` wins as the apple's icon, and burn - no item, no "
+          "rune - is the tinted square", str(effect_icons))
+
+    # THE PORTCULLISES: a door and a decoration of one id, side by side.
+    doors = io.open(os.path.join(catalogs, "doors.cat"), encoding="utf-8").read()
+    door = cat_block(doors, "portcullis") or {}
+    kinds = {(c, i): (f, s) for c, i, f, s in answers(sec.get("portcullis", []), PROPKIND)}
+    deco_kind, door_kind = kinds.get(("decorations", "portcullis")), kinds.get(("doors", "portcullis"))
+    stem = lambda f: f.rsplit(".", 1)[0] if f else None
+    check(deco_kind is not None and door_kind is not None,
+          "the door portcullis and the decoration portcullis are TWO kinds, one per catalog "
+          "(one cache by bare id gave the second the first's)", str(sorted(kinds)))
+    check(deco_kind is not None and stem(deco_kind[0]) == (grate or {}).get("model")
+          and deco_kind[1] == (grate or {}).get("texture"),
+          f"the decoration wears its own model and set ({(grate or {}).get('model')}, "
+          f"{(grate or {}).get('texture')})", str(deco_kind))
+    check(door_kind is not None and stem(door_kind[0]) == door.get("model")
+          and door_kind[1] == door.get("texture"),
+          f"...and the door its own ({door.get('model')}, {door.get('texture')})", str(door_kind))
+
+    # RELATED CATALOGS: create, duplicate and rename refuse an id one of them holds.
+    rel = sec.get("related", [])
+    made = {tid: (key, outcome, why or "") for key, tid, src, outcome, why in answers(rel, CREATED)}
+    for tid, key, cat, what in (("wooden_door", "decorations", "doors", "a decoration named for a door"),
+                                ("torch", "weapons", "items", "a weapon named for an item"),
+                                ("portcullis_grate", "doors", "decorations",
+                                 "a door DUPLICATED under a decoration's id")):
+        got = made.get(tid, ("",) * 3)
+        check(got[:2] == (key, "refused") and got[2] == related(tid, cat),
+              f"create refuses {what} ({tid}), saying so in its own words", str(got))
+    check(made.get("et_free_weapon", ("",) * 3)[1] == "created",
+          "THE CONTROL: a weapon under a free id is created", str(made.get("et_free_weapon")))
+    renames = {(key, tid): (outcome, why) for key, tid, outcome, why in answers(rel, RENAMED)}
+    check(renames.get(("doors", "wooden_door")) == ("refused", related("portcullis_grate", "decorations")),
+          "a door renamed onto a decoration's id is refused", str(renames))
+    check(renames.get(("weapons", "dagger")) == ("refused", related("apple", "items")),
+          "a weapon renamed onto an item's id is refused", str(renames))
+    check(renames.get(("weapons", "khukri"), ("",))[0] == "done",
+          "THE CONTROL: a weapon renamed to a free id is renamed", str(renames))
+    disk = {n: io.open(os.path.join(catalogs, n + ".cat"), encoding="utf-8").read()
+            for n in ("decorations", "weapons", "doors")}
+    check(cat_block(disk["decorations"], "wooden_door") is None
+          and cat_block(disk["weapons"], "torch") is None
+          and cat_block(disk["doors"], "portcullis_grate") is None
+          and cat_block(disk["doors"], "wooden_door") is not None
+          and cat_block(disk["weapons"], "dagger") is not None
+          and cat_block(disk["weapons"], "et_free_weapon") is not None
+          and cat_block(disk["weapons"], "et_free_khukri") is not None
+          and cat_block(disk["weapons"], "khukri") is None,
+          "on disk: nothing refused was written, and both controls were")
 finally:
     drop()
     if settings_before is not None:

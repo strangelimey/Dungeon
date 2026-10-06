@@ -1,0 +1,29 @@
+; worldwear.eval - the doll's wear slots follow the world in hand (code-review
+; C330). Judged by tools/WorldTest.py phase 51. The UI keeps its own copy of
+; each item's catalog fields (category, weight, holdable, `wear`), rebuilt when
+; a world loads - and the wear slots were the one map that rebuild never
+; cleared, so after a switch to a world where an item had lost its `wear` the
+; doll still took it in the slot the last world gave it.
+;
+; `wear` puts an item on the doll by the doll's own rule (the UI's bank), so it
+; is the doll asked from a script. WorldTest makes wt_wear, a copy of its scratch
+; world whose padded_jack has no `wear`, and runs this with the scratch world
+; open (`dungeon-demo` below is replaced by its name).
+;
+;   --- here ---    the jack is worn, on the body (THE CONTROL: it can be).
+;   --- there ---   after the switch to wt_wear, wearing it is REFUSED.
+;   --- back ---    and back in the first world it is worn again.
+logecho on
+reset
+echo --- here ---
+wear padded_jack 0
+wear none 0
+worlds load wt_wear
+reset
+echo --- there ---
+expect-refuse wear padded_jack 0
+worlds load dungeon-demo
+reset
+echo --- back ---
+wear padded_jack 0
+echo --- end ---

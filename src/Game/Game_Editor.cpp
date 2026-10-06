@@ -539,6 +539,14 @@ std::string Game::CreateCatalogEntry(const AssetDialog::CreateRequest& req) {
 		log::Warn("asset create: unknown catalog '{}'", req.catalogKey);
 		return loc::Format("map.type.unknown", req.catalogKey);
 	}
+	// AN ID A RELATED CATALOG HAS is refused (code-review C302) - the form says
+	// so first; this is the check a pick gone stale, or a console create, meets.
+	// Catalog::Add would accept it, and one item id in two item catalogs is half
+	// unreachable (FindItem finds one).
+	if (const std::string why = RelatedIdRefusal(req.catalogKey, req.name); !why.empty()) {
+		log::Warn("create {} '{}' refused: {}", req.catalogKey, req.name, why);
+		return why;
+	}
 	CatalogEntry e;
 	// Duplicate starts from the source entry, so everything hand-authored on it
 	// (fields no schema row covers included) comes along.
@@ -617,7 +625,17 @@ std::string Game::CreateCatalogEntry(const AssetDialog::CreateRequest& req) {
 	if (MapEditor::SurfaceCat(pcat)) m_mapEditor.AddToPalette(pcat, req.name);
 	else if (m_world->onMessage)
 		m_world->onMessage(loc::FormatLine("newasset.created", req.name));
+	// A new ITEM is in the catalog but not yet in the UI's banks - its icon,
+	// weight, holdable and wear - until they are rebuilt (code-review C330).
+	if (Project::IsItemCatalog(req.catalogKey)) RefreshItemBanks();
 	return {};
+}
+
+std::string Game::RelatedIdRefusal(const std::string& catalogKey, const std::string& id) const {
+	const std::string_view other = m_project.RelatedCatalogUsing(catalogKey, id);
+	if (other.empty()) return {};
+	return loc::Format("newasset.err.related", id,
+					   loc::Tr(MapEditor::CategoryNameKey(MapEditor::CatForCatalogKey(other))));
 }
 
 std::string Game::UnloadableModelReason(const std::string& catalogKey,
@@ -673,7 +691,7 @@ std::string Game::CreateAuthoredType(MapEditor::PaletteCat cat) {
 	std::string id;
 	for (int n = 1;; ++n) {
 		id = stem + std::to_string(n);
-		if (!catalog->Contains(id)) break;
+		if (!catalog->Contains(id) && m_project.RelatedCatalogUsing(key, id).empty()) break;
 	}
 
 	CatalogEntry e;
@@ -1155,6 +1173,9 @@ bool Game::RenameType(const std::string& catalogKey, const std::string& id,
 		problem = loc::Format("newasset.err.dup", newId);
 		return false;
 	}
+	// ...or in a RELATED catalog (code-review C302): a door renamed onto a
+	// decoration's id, a weapon onto an item's.
+	if (problem = RelatedIdRefusal(catalogKey, newId); !problem.empty()) return false;
 	// The entry itself, renamed WHERE IT SITS — a remove + re-add would drop it
 	// at the end of the file and take its lead comments (the first entry's are
 	// the file's header) with it.
@@ -1192,6 +1213,8 @@ bool Game::RenameType(const std::string& catalogKey, const std::string& id,
 	if (m_world->onMessage)
 		m_world->onMessage(loc::FormatLine("map.type.renamed", id, newId, used.count));
 	WarnStaleSaves(id);
+	// An item's banks are keyed by its id (code-review C330).
+	if (Project::IsItemCatalog(catalogKey)) RefreshItemBanks();
 	return true;
 }
 
@@ -1274,6 +1297,7 @@ bool Game::DeleteType(const std::string& catalogKey, const std::string& id,
 	log::Info("Deleted type '{}' from {}", id, catalogKey);
 	if (m_world->onMessage) m_world->onMessage(loc::FormatLine("map.type.deleted", id));
 	WarnStaleSaves(id); // a save's spawn rows are outside the level sweep
+	if (Project::IsItemCatalog(catalogKey)) RefreshItemBanks(); // keyed by id (C330)
 	return true;
 }
 

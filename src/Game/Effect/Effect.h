@@ -355,8 +355,15 @@ public:
 	Category Kind() const { return m_category; }
 	Stacking Stack() const { return m_stacking; }
 	// The item id whose baked icon this effect borrows in the HUD strip
-	// ("rune_protect"); empty = the school-tinted square fallback.
+	// (effects.cat `icon`, an override; none by default). When it names no item
+	// that draws, the kind's own rune (IconRune) shows, else the school-tinted
+	// square (PartyHudDraw's ResolveEffectIcon).
 	const std::string& IconItem() const { return m_iconItem; }
+	// The RUNE whose glyph this effect wears in the HUD strip: a ward's Protect,
+	// Sight's, a light's Sowilo - the form it IS, so the class's to say. It used
+	// to be an item id ("rune_light"), which a renamed tablet left naming nothing
+	// (code-review C347's rule: a rune by what it is, never by an id's spelling).
+	std::optional<SpellSymbol> IconRune() const { return m_iconRune; }
 	// Whether a bearer of this effect visibly BURNS: a flame plume rising off
 	// the body plus its own coloured light. Presentation only — the host reads
 	// it to decide what to draw, and the effect list stays the single truth of
@@ -400,6 +407,7 @@ protected:
 	std::string m_id;
 	std::string m_nameKey;
 	std::string m_iconItem;
+	std::optional<SpellSymbol> m_iconRune; // IconRune - set by the class
 	std::string m_applyParty, m_applyMonster;
 	std::string m_fadeParty = "log.effect_fades", m_fadeMonster = "log.effect_fades";
 	std::string m_damageTypeId; // resolved into m_damageType at ApplyOverrides

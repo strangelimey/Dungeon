@@ -13,7 +13,7 @@ LightEffect::LightEffect()
 	: EffectKind("light", Category::Marker, "spell.firelight", Stacking::RefreshPerSchool),
 	  m_schoolNames{"spell.firelight", "spell.stonelight", "spell.skylight",
 					"spell.tidelight"} {
-	m_iconItem = "rune_light"; // wears the Sowilo tablet's face
+	m_iconRune = SpellSymbol::Light; // wears the Sowilo glyph
 	// Its OWN fade line, naming the light ("Maren's Firelight fades."). As a
 	// Marker it once took the Sight spell's, by category (code-review C9).
 	m_fadeParty = "log.light_fades";

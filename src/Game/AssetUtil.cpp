@@ -208,6 +208,9 @@ namespace {
 // slot is still alive. A static would destruct at exit, after the device.
 std::unique_ptr<gfx::Texture> g_closeIcon;
 bool g_closeIconTried = false;
+// The radial glow, the same way (GlowIcon).
+std::unique_ptr<gfx::Texture> g_glowIcon;
+bool g_glowIconTried = false;
 // The control library's own glyphs (ui::ControlIcons) — owned here, borrowed
 // there. Same explicit lifetime: ReleaseSharedIcons clears the registry BEFORE
 // dropping the texture, so no widget can name a freed SRV slot.
@@ -231,6 +234,16 @@ const gfx::Texture* CloseIcon(gfx::GraphicsDevice& device) {
 		if (!g_closeIcon) log::Warn("close icon missing: {}(.dds|.png)", stem);
 	}
 	return g_closeIcon.get();
+}
+
+const gfx::Texture* GlowIcon(gfx::GraphicsDevice& device) {
+	if (!g_glowIconTried) {
+		g_glowIconTried = true;
+		const std::string stem = paths::Asset("ui\\glow_radial");
+		g_glowIcon = TryLoadTextureFile(device, stem);
+		if (!g_glowIcon) log::Warn("glow missing: {}(.dds|.png)", stem);
+	}
+	return g_glowIcon.get();
 }
 
 const gfx::Texture* ToolbarIcon(gfx::GraphicsDevice& device,
@@ -265,10 +278,12 @@ void ReleaseSharedIcons() {
 	g_dropDownIcon.reset();
 	g_dropDownOpenIcon.reset();
 	g_closeIcon.reset();
+	g_glowIcon.reset();
 	g_toolbarIcons.clear(); // borrowed by both toolbars; they are gone by now
 	// Re-arm: a later device (the adapter-change relaunch builds a fresh one)
 	// must reload rather than be handed the dead texture.
 	g_closeIconTried = false;
+	g_glowIconTried = false;
 }
 
 // An 8x8 magenta/black checker texture, built in memory. Stands in for any
