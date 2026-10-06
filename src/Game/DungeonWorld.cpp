@@ -983,14 +983,20 @@ void DungeonWorld::UpdateLights(float time) {
 	// (`floor_glow`), in step with the tablet's emissive glow: both are a sine at
 	// the same frequency with the item's id as the phase. An ENCHANTED weapon on
 	// the floor does the same in its own element - the tell that this blade is
-	// the fiery one.
+	// the fiery one. It glows where the item LIES (its pose): a rune in a wall
+	// niche glows in the pocket, and in a SHUT niche not at all - it used to
+	// glow at the foot of the wall, giving the secret away (code-review C180).
 	const light::Profile& floorGlow = LightProfileFor("floor_glow");
+	constexpr float kFloorGlowRise = 0.16f * kUnit; // above where it rests
 	for (const Item& item : m_items) {
-		if (item.collected || !(item.kind->isRune || item.kind->enchanted)) continue;
-		const Vec3 c = SlotCenter(item.x, item.z, SizeClass::Medium, item.slot);
+		if (!item.kind || !(item.kind->isRune || item.kind->enchanted)) continue;
+		ItemPose pose;
+		if (!FloorItemPose(item, pose)) continue; // lifted, or in a shut niche
+		const Vec3& c = pose.spot;
 		const Vec4& g = item.kind->glow;
 		PushLight(floorGlow, "glow", LightKey(LightKind::Glow, static_cast<u32>(item.id)),
-				  {c.x, 0.4f, c.z}, time, static_cast<float>(item.id), {g.x, g.y, g.z});
+				  {c.x, c.y + kFloorGlowRise, c.z}, time, static_cast<float>(item.id),
+				  {g.x, g.y, g.z});
 	}
 
 	// `lightstress`: the measuring load, after everything else (`lightstress

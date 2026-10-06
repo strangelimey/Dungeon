@@ -21,7 +21,7 @@
 #   .\tools\AllocTest.ps1 -Sheet             # the sheet: hover, tabs, item dialog
 #   .\tools\AllocTest.ps1 -Panels            # drag and resize the floating HUD
 #   .\tools\AllocTest.ps1 -Minimal [-Sheet]  # any mode, under the party-card layout
-#   .\tools\AllocTest.ps1 -Items             # pack -> cursor -> floor -> cursor -> pack
+#   .\tools\AllocTest.ps1 -Items             # pack -> cursor -> floor -> cursor -> pack; the item pose + picks
 #   .\tools\AllocTest.ps1 -Packs             # swap a 4-slot and an 8-slot bag
 #   .\tools\AllocTest.ps1 -Throw             # lift a rock, throw it at a wall, again
 #   .\tools\AllocTest.ps1 -Throw -ThrowItem torch_lit   # ...a lit torch (its light and flame)
@@ -255,6 +255,13 @@
 # not warm-up (the -Impact lesson). It refuses a PASS unless the window's tally
 # counts at least two drops and two lifts, which also puts the put-back between
 # them inside the window.
+# BEFORE that game, -Items runs tools\EvalScripts\itempose.eval headless
+# (Test-ItemPose, code-review C180 / C359 / C258): a rune in a shut wall niche
+# throws no floor glow and in an open one glows in the pocket over it, and
+# `pickprobe` shoots every click target - floor items across a quarter at their
+# drawn box, a niche item, a door's hand-hold, a wall torch - from where it is
+# DRAWN, through the real click tests. A failure there is the result PICKS,
+# whatever the window said.
 #
 # -Packs IS -Items' KNOWN-LEFT CASE: equipping a bag with more slots than the
 # one it replaces. A pack's slots were a std::vector, so a bigger bag grew it,
@@ -384,7 +391,8 @@ param(
 	# code-review C178 / C187) and passes only if BOTH shadow checks then FAIL:
 	# the proof each can see a stale cube.
 	[switch]$ShadowSelfTest,
-	# Moves an item pack -> floor -> pack inside the window. See the note above.
+	# Moves an item pack -> floor -> pack inside the window; before the game,
+	# itempose.eval checks the item pose and the click picks. See the note above.
 	[switch]$Items,
 	# The warm-up item and the measured one: two different kinds, the second
 	# never dropped before the window opens.
@@ -942,6 +950,103 @@ function Test-FloorGlows {
 	return [pscustomobject]@{ Verdict = $(if ($ok) { 'PASS' } else { 'FAIL' }); Notes = $notes }
 }
 
+# -Items: a floor item's POSE and the click PICKS (code-review C180 / C359 /
+# C258), from tools\EvalScripts\itempose.eval run headless BEFORE the window's
+# game, like Test-FloorGlows. A rune in an open wall niche must glow (one glow
+# row) IN THE POCKET, over the rune where it is drawn, and in a SHUT one must not
+# (none - it glowed at the foot of the wall either way); then every `pickprobe`
+# section must end RESULT=PASS with exactly the targets it set up - a torch and
+# a rune shot at five points across a quarter centred on their drawn boxes at
+# their drawn height, an upright potion and a model-less key likewise, the niche
+# rune, the wall torch, a chain and a pad at their drawn middles, each with a
+# point that must miss. A section that probed nothing (RESULT=NONE, or a kind missing)
+# set nothing up, which is a FAIL here, not a pass. Killed BY PID past its
+# timeout.
+function Test-ItemPose {
+	$notes = @()
+	$script = Join-Path $root 'tools\EvalScripts\itempose.eval'
+	Remove-Item $log -ErrorAction SilentlyContinue
+	$p = Start-Process -FilePath $exe -WorkingDirectory $bin -PassThru `
+		-ArgumentList @('-project', 'dungeon-demo', '-headless', '-eval', $script)
+	if (-not $p.WaitForExit(240000)) {
+		$p.Kill(); $p.WaitForExit(5000) | Out-Null
+		$notes += 'itempose.eval did not finish in 240 s (killed)'
+		return [pscustomobject]@{ Verdict = 'FAIL'; Notes = $notes }
+	}
+	$lines = if (Test-Path $log) { @(Get-Content $log -Encoding UTF8) } else { @() }
+	if (-not ($lines -match 'eval RESULT=PASS script=itempose\.eval')) {
+		$notes += "itempose.eval did not run clean (exit $($p.ExitCode))"
+		return [pscustomobject]@{ Verdict = 'FAIL'; Notes = $notes }
+	}
+	# Per section: its glow rows (each one's position, from the `(light at x y z)`
+	# line `lights` prints just before it), its probe lines and its verdict line.
+	$glows = @{}; $probes = @{}; $verdicts = @{}
+	$current = $null
+	$lightAt = $null
+	foreach ($line in $lines) {
+		if ($line -match 'console: --- ([\w ]+) ---') {
+			$current = $Matches[1]; $glows[$current] = @(); $probes[$current] = @(); continue
+		}
+		if (-not $current) { continue }
+		if ($line -match '\(light at (-?[0-9.]+) (-?[0-9.]+) (-?[0-9.]+)\)') {
+			$lightAt = @([double]$Matches[1], [double]$Matches[2], [double]$Matches[3])
+		}
+		elseif ($line -match 'console:   \[\s*\d+\] glow ') { $glows[$current] += , $lightAt }
+		elseif ($line -match 'console: (pickprobe: .*)$') { $probes[$current] += $Matches[1] }
+		elseif ($line -match 'console: (pickprobe RESULT=.*)$') { $verdicts[$current] = $Matches[1] }
+	}
+	$ok = $true
+	$wantGlows = [ordered]@{ 'niche open' = 1; 'niche shut' = 0 }
+	foreach ($section in $wantGlows.Keys) {
+		$got = if ($glows.ContainsKey($section)) { @($glows[$section]).Count } else { -1 }
+		$good = $got -eq $wantGlows[$section]
+		$notes += "${section}: $got glow rows (want $($wantGlows[$section])) $(if ($good) { 'ok' } else { 'WRONG' })"
+		if (-not $good) { $ok = $false }
+	}
+	# WHERE the open niche's glow is (C180's other half: it glows IN the pocket).
+	# It must stand over the rune where the rune is DRAWN - within 5 cm across, and
+	# above its drawn middle by no more than a metre - read off the `niche pick`
+	# section's probe line (the same rune in the same niche, reopened). The old
+	# glow stood at the item's floor quarter, 0.40 m up: well clear across, and
+	# below the pocket floor.
+	$drawn = $null
+	foreach ($probe in @(if ($probes.ContainsKey('niche pick')) { $probes['niche pick'] })) {
+		if ($probe -match '^pickprobe: niche .* drawn about (-?[0-9.]+) (-?[0-9.]+) (-?[0-9.]+):') {
+			$drawn = @([double]$Matches[1], [double]$Matches[2], [double]$Matches[3])
+		}
+	}
+	$openGlows = @(if ($glows.ContainsKey('niche open')) { $glows['niche open'] })
+	if ($openGlows.Count -ne 1 -or -not $openGlows[0] -or -not $drawn) {
+		$notes += 'niche open: the glow''s place was not read (no single glow row with a position, or no niche probe line)'
+		$ok = $false
+	} else {
+		$g = $openGlows[0]
+		$across = [math]::Sqrt(($g[0] - $drawn[0]) * ($g[0] - $drawn[0]) + ($g[2] - $drawn[2]) * ($g[2] - $drawn[2]))
+		$rise = $g[1] - $drawn[1]
+		$good = $across -le 0.05 -and $rise -gt 0 -and $rise -le 1.0
+		$notes += ('niche open: glow at {0:F2} {1:F2} {2:F2}, the rune drawn about {3:F2} {4:F2} {5:F2} - {6:F2} m across, {7:F2} m above (want <= 0.05 across, 0..1 above) {8}' -f `
+			$g[0], $g[1], $g[2], $drawn[0], $drawn[1], $drawn[2], $across, $rise, $(if ($good) { 'ok' } else { 'WRONG' }))
+		if (-not $good) { $ok = $false }
+	}
+	# Each probe section: the exact counts it set up, and a PASS.
+	$expect = [ordered]@{
+		'niche pick'   = 'targets=1 wrong=0 floor=0 niche=1 opener=0 sconce=0'
+		'floor pick'   = 'targets=2 wrong=0 floor=2 niche=0 opener=0 sconce=0'
+		'upright pick' = 'targets=2 wrong=0 floor=2 niche=0 opener=0 sconce=0'
+		'sconce pick'  = 'targets=1 wrong=0 floor=0 niche=0 opener=0 sconce=1'
+		'chain pick'   = 'targets=1 wrong=0 floor=0 niche=0 opener=1 sconce=0'
+		'pad pick'     = 'targets=1 wrong=0 floor=0 niche=0 opener=1 sconce=0'
+	}
+	foreach ($section in $expect.Keys) {
+		foreach ($probe in @(if ($probes.ContainsKey($section)) { $probes[$section] })) { $notes += "  $probe" }
+		$verdict = if ($verdicts.ContainsKey($section)) { $verdicts[$section] } else { '(no verdict line)' }
+		$good = $verdict -eq "pickprobe RESULT=PASS $($expect[$section])"
+		$notes += "${section}: $verdict $(if ($good) { 'ok' } else { "WRONG (want RESULT=PASS $($expect[$section]))" })"
+		if (-not $good) { $ok = $false }
+	}
+	return [pscustomobject]@{ Verdict = $(if ($ok) { 'PASS' } else { 'FAIL' }); Notes = $notes }
+}
+
 # Throws unless the party stands on x,z facing north (asks `pos`; needs logecho
 # on). -Impact's whole geometry hangs on it: a `tp` or `face` swallowed by a
 # busy console leaves the party firing somewhere else, and the barrage then
@@ -1126,6 +1231,15 @@ if ($Lights -and (-not $SelfTest -or $ShadowSelfTest)) {
 	$glow = Test-FloorGlows
 	foreach ($n in $glow.Notes) { Write-Host "  $n" }
 	Write-Host "  floor glows: $($glow.Verdict)"
+}
+# -Items: the item pose and the click picks, likewise before the game
+# (Test-ItemPose). Not under the guard's own -SelfTest, which is about the guard.
+$pose = $null
+if ($Items -and -not $SelfTest) {
+	Write-Host 'checking the item pose and the picks: itempose.eval, headless'
+	$pose = Test-ItemPose
+	foreach ($n in $pose.Notes) { Write-Host "  $n" }
+	Write-Host "  item pose and picks: $($pose.Verdict)"
 }
 
 try {
@@ -2008,8 +2122,9 @@ try {
 		# 1.55 m up (kEyeHeight), level. A pixel ndc units below the centre sees
 		# the floor at 1.55 / (ndc * tan 35) metres. 3.3 m is the FAR quarter of
 		# the square ahead (2.5 to 3.75), far enough that the lift - which
-		# samples the ray at the item's own mid-height, a rune's 0.23 m, so about
-		# 2.8 m out - is still in it. Left of centre puts both in the west half.
+		# samples the ray at the item's own drawn middle, a rune's 0.016 m (it
+		# was 0.23 m before code-review C359), so about 3.27 m out - is still in
+		# it. Left of centre puts both in the west half.
 		$ndc = (1.55 / 3.3) / [math]::Tan(35 * [math]::PI / 180)
 		$script:floorX = [int]($script:clientW * 0.40)
 		$script:floorY = [int]($script:clientH * (0.5 + $ndc / 2))
@@ -2825,6 +2940,12 @@ try {
 		}
 	}
 
+	# And for -Items: the item pose and the picks, run before the game
+	# (Test-ItemPose). PICKS when they failed, whatever the window said.
+	if ($pose -and $pose.Verdict -ne 'PASS') {
+		if ($result -eq 'PASS' -or $result -eq 'UNMEASURED') { $result = 'PICKS' }
+	}
+
 	# EVERY MODE: an AI pool that GREW in play fails the run, wherever it grew -
 	# inside the window, in the warm-up or in a console frame. The pools are
 	# filled at level load to as many buffers as can be in use at once (C66), so
@@ -2879,6 +3000,9 @@ try {
 		}
 		'LIGHTS' {
 			Write-Host 'FAIL - a light check failed: the candidate ceiling or a floor glow (see above)' -ForegroundColor Red
+		}
+		'PICKS' {
+			Write-Host 'FAIL - an item pose or click pick check failed: a niche glow shut or out of its pocket, or a target missed where it is drawn (see above)' -ForegroundColor Red
 		}
 		default {
 			Write-Host "$result - the game never reached a steady frame" -ForegroundColor Yellow

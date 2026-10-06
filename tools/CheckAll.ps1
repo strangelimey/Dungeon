@@ -243,6 +243,16 @@ $checks = @(
 		selfTest = { & (Join-Path $root 'tools\AllocTest.ps1') -Config $Config -Lights -ShadowSelfTest | Out-Host; $LASTEXITCODE }
 	},
 	@{
+		name = 'alloc-items'; tier = 'full'; needs = "build-$Config"
+		what = 'moving an item allocates nothing; no glow from a shut niche; every click target hits where it is drawn'
+		# The item pose and the click picks (code-review C180 / C359 / C258,
+		# itempose.eval) ride -Items, before its window. Its self-test is the
+		# guard's (allocpoke), which skips those checks - they were mutation-
+		# checked when they landed (batch 63).
+		run      = { & (Join-Path $root 'tools\AllocTest.ps1') -Config $Config -Items | Out-Host; $LASTEXITCODE }
+		selfTest = { & (Join-Path $root 'tools\AllocTest.ps1') -Config $Config -Items -SelfTest | Out-Host; $LASTEXITCODE }
+	},
+	@{
 		name = 'typing'; tier = 'full'; needs = "build-$Config"
 		what = 'typed console text arrives whole and in order (focus loss, heavy frames)'
 		# Every harness here drives the game by typing, so a dropped character

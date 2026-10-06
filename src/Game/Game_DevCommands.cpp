@@ -1204,6 +1204,50 @@ void Game::RegisterDevCommands() {
 						   else
 							   m_console.Refuse(std::format("no button at {},{}", x, z));
 					   });
+	// A niche's runtime open state, or set it: a lever's reveal (ToggleNichesNamed)
+	// without a lever wired to a named niche - a test can shut what it placed.
+	// `put` lays an item in it (AddNicheItem), which the editor's item brush
+	// cannot reach until code-review C351 lands (batch 82).
+	m_console.Register({.name = "niche",
+						.group = CmdGroup::Levels,
+						.params = "<x> <z> <n|e|s|w> [open|shut]\n<x> <z> <n|e|s|w> put <item>",
+						.summary = "a wall niche's open state; open or shut it, or lay an item in it"},
+					   [this](const std::vector<std::string>& args) {
+						   if (!Need(m_console, args, 3)) return;
+						   const int x = std::atoi(args[0].c_str());
+						   const int z = std::atoi(args[1].c_str());
+						   const std::string& d = args[2];
+						   const Direction wall = d == "e"   ? Direction::East
+												  : d == "s" ? Direction::South
+												  : d == "w" ? Direction::West
+															 : Direction::North;
+						   if (!m_world->NicheOn(x, z, wall)) {
+							   m_console.Refuse(std::format("no niche at {},{} {}", x, z, d));
+							   return;
+						   }
+						   if (args.size() > 3 && args[3] == "put") {
+							   if (!Need(m_console, args, 5)) return;
+							   if (!m_world->AddNicheItem(args[4], x, z, wall)) {
+								   m_console.Refuse(std::format("niche: '{}' is not an item", args[4]));
+								   return;
+							   }
+							   m_console.Print(std::format("niche {},{} {}: holds {}", x, z, d, args[4]));
+							   return;
+						   }
+						   if (args.size() > 3)
+							   m_world->SetNicheOpen(x, z, wall, args[3] == "open");
+						   m_console.Print(std::format("niche {},{} {}: {}", x, z, d,
+													   m_world->NicheOpenAt(x, z, wall) ? "open"
+																						: "shut"));
+					   });
+	// Is every click target where it is drawn (DungeonWorld_PickProbe.cpp)?
+	m_console.Register({.name = "pickprobe",
+						.group = CmdGroup::Levels,
+						.summary = "shoot every click target in reach from where it is drawn"},
+					   [this](const std::vector<std::string>&) {
+						   for (const std::string& line : m_world->ProbePicks())
+							   m_console.Print(line);
+					   });
 	m_console.Register({.name = "opendoor",
 						.group = CmdGroup::Levels,
 						.params = "<x> <z>",

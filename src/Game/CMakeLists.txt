@@ -46,6 +46,7 @@ add_library(Game STATIC
 	DungeonWorld_Load.cpp
 	DungeonWorld_Models.cpp
 	DungeonWorld_Move.cpp
+	DungeonWorld_PickProbe.cpp
 	DungeonWorld_Remote.cpp
 	DungeonWorld_Resize.cpp
 	DungeonWorld_Render.cpp

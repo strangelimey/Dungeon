@@ -27,6 +27,24 @@ public:
 	struct Ray {
 		Vec3 origin;
 		Vec3 dir; // normalized
+
+		// Whether the ray passes through a sphere in front of the eye, and how far
+		// along it the first crossing is (`entry`, 0 when the eye is inside). The
+		// ONE click test for a round target (code-review C258) - a door's
+		// hand-hold, a wall torch, a niche's pocket. Centre and radius are world
+		// metres, which in the game means units x kUnit, so a target rescales with
+		// the square.
+		bool HitsSphere(const Vec3& centre, float radius, float* entry = nullptr) const {
+			const Vec3 oc{origin.x - centre.x, origin.y - centre.y, origin.z - centre.z};
+			const float b = oc.x * dir.x + oc.y * dir.y + oc.z * dir.z;
+			const float c = oc.x * oc.x + oc.y * oc.y + oc.z * oc.z - radius * radius;
+			const float disc = b * b - c;
+			if (disc < 0.0f) return false; // passes it by
+			const float root = std::sqrt(disc);
+			if (-b + root <= 0.0f) return false; // wholly behind the eye
+			if (entry) *entry = -b - root > 0.0f ? -b - root : 0.0f;
+			return true;
+		}
 	};
 	Ray ScreenRay(float px, float py, float width, float height) const {
 		using namespace DirectX;

@@ -442,14 +442,14 @@ std::vector<std::string> DungeonWorld::FloorTorchReport() const {
 void DungeonWorld::AppendFloorTorchLights(float time) {
 	for (size_t i = 0; i < m_items.size(); ++i) {
 		const Item& it = m_items[i];
-		if (it.collected || !it.kind || !it.kind->Lit()) continue;
-		// In a shut niche it is hidden, and its light with it.
-		if (it.niche >= 0 && !NicheOpenAt(it.x, it.z, static_cast<Direction>(it.niche))) continue;
+		// Lifted, or in a shut niche: hidden, and its light with it.
+		ItemPose pose;
+		if (!it.kind || !it.kind->Lit() || !FloorItemPose(it, pose)) continue;
 		const ItemKind& kind = *it.kind;
 		const light::Profile& profile =
 			LightProfileFor(kind.light.empty() ? std::string_view("torch") : kind.light);
 		const float brightness = TorchBrightness(kind, it.charge);
-		const Vec3 head = FloorTorchHead(it);
+		const Vec3 head = FloorTorchHead(kind, pose);
 		if (gfx::PointLight* l =
 				PushLight(profile, "floor", LightKey(LightKind::FloorTorch, static_cast<u32>(i)),
 						  {head.x, head.y + 0.12f, head.z}, time, static_cast<float>(i) * 1.3f,

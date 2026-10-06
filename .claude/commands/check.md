@@ -39,6 +39,7 @@ harness refuses a stale exe on its own (exit 4).
   alloc-rest     full   self-testable  resting, a monster behind a shut door: its inline searches allocate nothing
   alloc-rest-reach full   self-testable  resting, a frozen monster with a way through: its inline paths allocate nothing
   alloc-lights   full   self-testable  64 lights allocate nothing; a full light list, element floor glows; a door or a walking Firelight re-renders its shadow cube
+  alloc-items    full   self-testable  moving an item allocates nothing; no glow from a shut niche; every click target hits where it is drawn
   typing         full   self-testable  typed console text arrives whole and in order (focus loss, heavy frames)
   health         full   self-testable  crashes, faults and stalls are caught, recorded and explained
   evalrunner     full   no self-test   the eval runner: reset = new game, batched = solo, headless = windowed, knobs move numbers

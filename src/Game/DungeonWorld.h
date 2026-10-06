@@ -1970,6 +1970,21 @@ public:
 	// World position an item sitting in the (x,z)/wall niche renders + pick-tests
 	// at (the pocket centre — recessed into the wall, at pocket-floor height).
 	Vec3 NicheItemPos(int x, int z, Direction wall) const;
+	// A niche's POCKET as a click target (code-review C258): a ball this far
+	// above NicheItemPos and this wide, in UNITS (x kUnit at the test) - what
+	// lies in it is picked by it, and a held item is dropped into it.
+	static constexpr float kNichePocketRise = 0.14f;
+	static constexpr float kNichePocketRadius = 0.16f;
+	// Opens or shuts the (x,z)/wall niche in play, re-stamping its wall - a
+	// lever's reveal without the lever (the `niche` dev command). False if
+	// there is no niche there.
+	bool SetNicheOpen(int x, int z, Direction wall, bool open);
+	// THE PICK PROBE (`pickprobe`, code-review C258 / C359): every click target
+	// in reach - each floor item at its drawn height across its quarter, a niche
+	// item, the door ahead's opener and the wall torch ahead at their drawn
+	// middles - shot at through the screen with the real click tests, one line
+	// each, then a verdict line `pickprobe RESULT=PASS|FAIL|NONE ...`.
+	std::vector<std::string> ProbePicks() const;
 	// Places an item into the (x,z)/wall niche (record-backed, piles at the
 	// pocket). False if there is no niche there. Editor placement + in-game drop.
 	bool AddNicheItem(const std::string& type, int x, int z, Direction wall);
@@ -2819,11 +2834,9 @@ private:
 		// details dialog stands a weapon on this axis, handle up.
 		int longAxis = 1;
 		float handleSign = 1.0f;
-		// Grounded height (min y -> 0) and the y-offset that grounds the model.
-		// One source for "where it sits / how tall it is", so the floor draw and
-		// the pick test can't disagree (and a non-grounded .glb still sits right).
-		float Height() const { return boundsMax.y - boundsMin.y; }
-		float GroundOffsetY() const { return -boundsMin.y; }
+		// How an ITEM of this model lies on the floor (and how tall it then
+		// stands) is the item kind's, not the model's: ItemKind::floorLay /
+		// floorHeight, worked out from these bounds by LayOnFloor.
 	};
 	// they implicitly get the "memorize" command. Other categories so far reuse
 	// the tablet mesh, tinted, as a placeholder (see ItemKindFor).
@@ -2956,6 +2969,15 @@ private:
 		// Uniform size trim (items.cat `scale`) over the model's authored unit
 		// size — the DecorationKind knob, for floor/niche draws. 1 = as authored.
 		float modelScale = 1.0f;
+		// HOW IT LIES ON THE FLOOR, worked out once when the kind is built
+		// (LayOnFloor; code-review C359): the floor draw's matrix for a spot at
+		// the origin - its model, or the tablet, scaled to metres, laid on its
+		// flattest side or standing for `upright`, grounded and centred - and the
+		// height it then stands to, in metres. FloorItemPose moves the one to the
+		// item's spot; half the other is its drawn middle, where a click ray is
+		// measured.
+		Mat4 floorLay = Mat4Identity();
+		float floorHeight = 0.0f;
 		SpellSymbol runeSymbol = SpellSymbol::Fire;
 		Vec4 glow{1, 1, 1, 1};   // accent-glow tint (element colour / category tint)
 		// Carved-stone tablet look: the shared tablet mesh (m_runeMesh) drawn with
@@ -2984,8 +3006,9 @@ private:
 		int x = 0, z = 0;
 		bool collected = false; // picked up — hidden + saved so it stays gone
 		// Sub-cell quarter (Medium 2x2 slot, 0..3) the tablet rests in — a dropped
-		// item snaps to the quarter nearest the cursor; up to 4 share a cell. Render
-		// + pick + the glow light use SlotCenter(x,z,Medium,slot). See SlotGrid.h.
+		// item snaps to the quarter nearest the cursor; up to 4 share a cell. The
+		// draw, the pick and its lights all take it through FloorItemPose
+		// (SlotCenter(x,z,Medium,slot)). See SlotGrid.h.
 		int slot = 0;
 		// The wall NICHE this item sits in (Direction index; -1 = an ordinary floor
 		// item). Niche items pile at the pocket centre (NicheItemPos), ignore `slot`,
@@ -3398,10 +3421,16 @@ private:
 						   const std::string& openerParam,
 						   const std::string& sideParam);
 	// Where an opener hangs in WORLD space, for `face` = +1 / -1 (the two sides
-	// of the door). Declared down here rather than beside ToggleDoorAhead
-	// because a member's SIGNATURE can only name nested types already declared,
-	// and Door is defined further down the class.
-	Vec3 OpenerPos(const Door& door, float face) const;
+	// of the door): its grip, or `local`, a point in the opener model's own
+	// space (the far face's copy turned a half turn, as the draw turns it).
+	// Declared down here rather than beside ToggleDoorAhead because a member's
+	// SIGNATURE can only name nested types already declared, and Door is defined
+	// further down the class.
+	Vec3 OpenerPos(const Door& door, float face, const Vec3& local = {}) const;
+	// Whether `ray` takes hold of the door's opener on either face: a ball round
+	// the middle of what is drawn (Camera::Ray::HitsSphere). ToggleDoorAhead's
+	// test, which the pick probe (`pickprobe`) asks too.
+	bool OpenerUnderRay(const Door& door, const gfx::Camera::Ray& ray) const;
 	Door* DoorAt(int x, int z);
 	const Door* DoorAt(int x, int z) const;
 	// (DoorwayFacing moved to DungeonMap — it only ever read the map, and the
@@ -4784,8 +4813,31 @@ private:
 	// mote on each, drifting the way its maker went, fewer and dimmer as the
 	// track ages. `strength` 0..1 scales how many (a stone's dimming).
 	void ShowTracks(int x, int z, float power, float strength);
-	// Where a lit floor item's flame burns (its model's head, as it lies).
-	Vec3 FloorTorchHead(const Item& item) const;
+	// --- a floor item's pose (code-review C180) ---------------------------------
+	// Where a floor item lies and how it is laid there: the ONE answer the draw,
+	// a rune's or an enchanted blade's floor glow, a lit torch's light and flame,
+	// and the click pick all take, so none of them can drift from the others (the
+	// glow used to stand at the foot of the wall for a rune in a SHUT niche, and
+	// the flame's head ignored `upright`). `spot` is the rest point - the centre
+	// of its quarter, or the pocket of the wall niche it sits in - `world` the
+	// floor draw's matrix (the kind's floorLay moved there) and `midY` the height
+	// of its drawn middle.
+	struct ItemPose {
+		Vec3 spot{};
+		Mat4 world = Mat4Identity();
+		float midY = 0.0f;
+	};
+	// False when the item is not on show - lifted, or in a shut niche - and then
+	// nothing of it is drawn, lit, flamed or picked.
+	bool FloorItemPose(const Item& item, ItemPose& out) const;
+	// The rest point alone, shown or not: an item just lifted still needs its
+	// spot for the shadow cache's note (NoteItemCaster).
+	Vec3 FloorItemSpot(const Item& item) const;
+	// Fills a freshly built kind's floorLay / floorHeight (ItemKindFor calls it
+	// once the model, the tablet's bounds and the scale are known).
+	void LayOnFloor(ItemKind& kind) const;
+	// Where a lit floor item's flame burns: its model's head, as its pose lays it.
+	Vec3 FloorTorchHead(const ItemKind& kind, const ItemPose& pose) const;
 	// THE TORCH FLAMES: a lit torch on the floor or in flight burns with a
 	// small fixture-style flame (FireEffect), from one fixed pool - reserved
 	// at construction, so a torch catching or landing allocates nothing. In

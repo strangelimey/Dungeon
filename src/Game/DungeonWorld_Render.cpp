@@ -130,9 +130,7 @@ void DungeonWorld::NoteDoorCaster(const Door& door) {
 }
 
 void DungeonWorld::NoteItemCaster(const Item& item) {
-	const Vec3 c = item.niche >= 0
-					   ? NicheItemPos(item.x, item.z, static_cast<Direction>(item.niche))
-					   : SlotCenter(item.x, item.z, SizeClass::Medium, item.slot);
+	const Vec3 c = FloorItemSpot(item);
 	m_shadows.NoteCasterChanged({c.x, c.y + 0.12f * kUnit, c.z}, 0.5f * kUnit);
 }
 
@@ -248,13 +246,14 @@ void DungeonWorld::DrawMultiMaterial(ID3D12GraphicsCommandList* list,
 //   * ROD / blade (one axis clearly longest): rest it along its length. A blade
 //     already horizontal (a dagger) is untouched; only a rod standing on end is
 //     tipped down.
-// After any tip it re-grounds (min-y to the rest height cy — 0 on the floor,
-// the pocket-floor height for an item sitting in a wall niche) and re-centres
-// the footprint over the slot, so no per-item authoring is needed and every
-// current or future item lands right. An UPRIGHT kind (items.cat `upright`, a
-// bottle) skips all of that and stands as authored.
-static Mat4 FloorItemWorld(const Vec3& bmin, const Vec3& bmax, float scale,
-						   float cx, float cy, float cz, bool upright = false) {
+// After any tip it re-grounds (min-y to 0) and re-centres the footprint over
+// the origin, so no per-item authoring is needed and every current or future
+// item lands right; FloorItemPose then moves it onto its spot (a quarter of the
+// floor, or a wall niche's pocket floor). An UPRIGHT kind (items.cat `upright`,
+// a bottle) skips the tip and stands as authored. `height` is how tall it then
+// stands (the grounded box's top).
+static Mat4 FloorItemWorld(const Vec3& bmin, const Vec3& bmax, float scale, bool upright,
+						   float& height) {
 	const float ex = bmax.x - bmin.x;
 	const float ey = bmax.y - bmin.y;
 	const float ez = bmax.z - bmin.z;
@@ -288,12 +287,46 @@ static Mat4 FloorItemWorld(const Vec3& bmin, const Vec3& bmax, float scale,
 	XMFLOAT3 mn, mx;
 	XMStoreFloat3(&mn, lo);
 	XMStoreFloat3(&mx, hi);
-	const XMMATRIX world = sr * XMMatrixTranslation(cx - 0.5f * (mn.x + mx.x),
-													cy - mn.y,
-													cz - 0.5f * (mn.z + mx.z));
+	height = mx.y - mn.y;
+	const XMMATRIX world =
+		sr * XMMatrixTranslation(-0.5f * (mn.x + mx.x), -mn.y, -0.5f * (mn.z + mx.z));
 	Mat4 w;
 	XMStoreFloat4x4(&w, world);
 	return w;
+}
+
+// The floor draw's lay for a kind, worked out ONCE (code-review C359): its
+// model, or the shared tablet - a rune at its own size, any other placeholder
+// scaled up (kItemPlaceholderScale) so it reads on a dark floor - through
+// FloorItemWorld. Every floor item of the kind is then this, moved to its spot
+// (FloorItemPose), and its click plane is half the height.
+void DungeonWorld::LayOnFloor(ItemKind& kind) const {
+	const bool tablet = !kind.model;
+	const Vec3& lo = tablet ? m_runeBoundsMin : kind.model->boundsMin;
+	const Vec3& hi = tablet ? m_runeBoundsMax : kind.model->boundsMax;
+	const float scale =
+		kUnit * kind.modelScale * (tablet && !kind.isRune ? kItemPlaceholderScale : 1.0f);
+	kind.floorLay = FloorItemWorld(lo, hi, scale, kind.upright, kind.floorHeight);
+}
+
+Vec3 DungeonWorld::FloorItemSpot(const Item& item) const {
+	return item.niche >= 0 ? NicheItemPos(item.x, item.z, static_cast<Direction>(item.niche))
+						   : SlotCenter(item.x, item.z, SizeClass::Medium, item.slot);
+}
+
+bool DungeonWorld::FloorItemPose(const Item& item, ItemPose& out) const {
+	if (item.collected || !item.kind) return false;
+	// Niche items sit in the wall pocket (piled at one spot) and only show while
+	// the niche is OPEN - a closed niche conceals its treasure, light and all.
+	if (item.niche >= 0 && !NicheOpenAt(item.x, item.z, static_cast<Direction>(item.niche)))
+		return false;
+	out.spot = FloorItemSpot(item);
+	out.world = item.kind->floorLay; // row vectors: the spot is the translation row
+	out.world._41 += out.spot.x;
+	out.world._42 += out.spot.y;
+	out.world._43 += out.spot.z;
+	out.midY = out.spot.y + 0.5f * item.kind->floorHeight;
+	return true;
 }
 
 // A THROWN item in flight (Phase 10): centred on its bounds at `pos`, tumbling
@@ -334,16 +367,12 @@ static Vec3 TransformPoint(const Mat4& m, const Vec3& p) {
 			p.x * m._13 + p.y * m._23 + p.z * m._33 + m._43};
 }
 
-Vec3 DungeonWorld::FloorTorchHead(const Item& item) const {
-	const Vec3 c = item.niche >= 0
-					   ? NicheItemPos(item.x, item.z, static_cast<Direction>(item.niche))
-					   : SlotCenter(item.x, item.z, SizeClass::Medium, item.slot);
-	if (!item.kind || !item.kind->model) return {c.x, c.y + 0.1f * kUnit, c.z};
-	const MultiMaterialModel& mm = *item.kind->model;
-	// Where the floor draw lays it (FloorItemWorld), so the flame sits on it.
-	return TransformPoint(FloorItemWorld(mm.boundsMin, mm.boundsMax,
-										 kUnit * item.kind->modelScale, c.x, c.y, c.z),
-						  BurningEnd(mm.boundsMin, mm.boundsMax));
+Vec3 DungeonWorld::FloorTorchHead(const ItemKind& kind, const ItemPose& pose) const {
+	const Vec3& c = pose.spot;
+	if (!kind.model) return {c.x, c.y + 0.1f * kUnit, c.z};
+	const MultiMaterialModel& mm = *kind.model;
+	// Where the floor draw lays it (its pose), so the flame sits on it.
+	return TransformPoint(pose.world, BurningEnd(mm.boundsMin, mm.boundsMax));
 }
 
 void DungeonWorld::UpdateTorchFlames(float dt) {
@@ -389,9 +418,9 @@ void DungeonWorld::UpdateTorchFlames(float dt) {
 	constexpr float kFlameSight = 8.0f * kCellSize;
 	for (size_t i = 0; i < m_items.size(); ++i) {
 		const Item& it = m_items[i];
-		if (it.collected || !it.kind || !it.kind->Lit()) continue;
-		if (it.niche >= 0 && !NicheOpenAt(it.x, it.z, static_cast<Direction>(it.niche))) continue;
-		const Vec3 head = FloorTorchHead(it);
+		ItemPose pose;
+		if (!it.kind || !it.kind->Lit() || !FloorItemPose(it, pose)) continue;
+		const Vec3 head = FloorTorchHead(*it.kind, pose);
 		const Vec3 d = Sub(head, eye);
 		if (d.x * d.x + d.y * d.y + d.z * d.z > kFlameSight * kFlameSight) continue;
 		burn(LightKey(LightKind::FloorTorch, static_cast<u32>(i)), head, *it.kind);
@@ -603,37 +632,21 @@ void DungeonWorld::SubmitSceneGeometry(ID3D12GraphicsCommandList* list,
 	// with a soft steady self-glow so they read on a dark floor (no cast light).
 	if (m_runeMesh) {
 		for (const Item& item : m_items) {
-			if (item.collected) continue;
-			// Niche items sit in the wall pocket (piled at one spot) and only show
-			// while the niche is OPEN — a closed niche conceals its treasure.
-			Vec3 c;
-			if (item.niche >= 0) {
-				const Direction wall = static_cast<Direction>(item.niche);
-				if (!NicheOpenAt(item.x, item.z, wall)) continue;
-				c = NicheItemPos(item.x, item.z, wall);
-			} else {
-				c = SlotCenter(item.x, item.z, SizeClass::Medium, item.slot);
-			}
+			// Lifted, or in a shut niche (a closed niche conceals its treasure):
+			// not drawn. Otherwise laid as its pose says (FloorItemPose).
+			ItemPose pose;
+			if (!FloorItemPose(item, pose)) continue;
+			const Vec3& c = pose.spot;
 			if (!visible({c.x, c.y + 0.12f * kUnit, c.z}, 0.35f * kUnit)) continue;
 			// A model item (e.g. a weapon) draws as its actual 3D model, grounded on
-			// the floor (or the pocket floor c.y) via GroundOffsetY, each part with
-			// its own material — not the tablet.
+			// the floor (or the pocket floor c.y), each part with its own material,
+			// not the tablet.
 			if (item.kind->model) {
-				const MultiMaterialModel& mm = *item.kind->model;
-				DrawMultiMaterial(
-					list, mm,
-					FloorItemWorld(mm.boundsMin, mm.boundsMax,
-								   kUnit * item.kind->modelScale, c.x, c.y, c.z,
-								   item.kind->upright));
+				DrawMultiMaterial(list, *item.kind->model, pose.world);
 				continue;
 			}
-			// Non-rune placeholders render scaled UP (kItemPlaceholderScale) — bigger
-			// than the rune tablet so they read on a dark floor (pickup is a
-			// floor-quarter click test, independent of the rendered size).
-			const float scale = kUnit * item.kind->modelScale *
-								(item.kind->isRune ? 1.0f : kItemPlaceholderScale);
-			Mat4 world = FloorItemWorld(m_runeBoundsMin, m_runeBoundsMax, scale,
-										c.x, c.y, c.z);
+			// The tablet: a rune at its own size, a non-rune placeholder scaled UP
+			// (kItemPlaceholderScale, in its lay) so it reads on a dark floor.
 			gfx::MaterialParams material;
 			material.doubleSided = false; // authored slab: back-cull
 			const Vec4& g = item.kind->glow;
@@ -655,7 +668,7 @@ void DungeonWorld::SubmitSceneGeometry(ID3D12GraphicsCommandList* list,
 				constexpr float kSelf = 0.55f;
 				material.emissive = {g.x * kSelf, g.y * kSelf, g.z * kSelf};
 			}
-			m_renderer.DrawMesh(list, *m_runeMesh, world, material);
+			m_renderer.DrawMesh(list, *m_runeMesh, pose.world, material);
 		}
 	}
 
@@ -752,8 +765,10 @@ void DungeonWorld::DrawLightStones(ID3D12GraphicsCommandList* list, const ViewCu
 		// It glows in the light's own colour, fading as the light does.
 		const float share = s.duration > 0.0f ? s.timeLeft / s.duration : 1.0f;
 		const float glow = 0.35f + 0.65f * std::min(1.0f, share * 10.0f);
-		const Mat4 world = FloorItemWorld(mm.boundsMin, mm.boundsMax,
-										  kUnit * stone->modelScale, c.x, 0.0f, c.z);
+		// Laid as the stone item lies on the floor (its kind's lay).
+		Mat4 world = stone->floorLay;
+		world._41 += c.x;
+		world._43 += c.z;
 		// Tinted toward the light's colour as well as glowing in it - a full-strength
 		// glow over grey stone came out nearly white in its own pool of light.
 		constexpr float kGlow = 0.5f;

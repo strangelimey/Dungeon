@@ -1583,6 +1583,9 @@ DungeonWorld::ItemKind& DungeonWorld::ItemKindFor(const std::string& type) {
 		}
 		// Uniform size trim over the authored unit size, like DecorationKind's.
 		kind->modelScale = def ? def->GetFloat("scale", 1.0f) : 1.0f;
+		// How it lies on the floor, worked out once now that the model (or the
+		// tablet's bounds) and the scale are known (code-review C359).
+		LayOnFloor(*kind);
 		it = m_itemKinds.emplace(type, std::move(kind)).first;
 	}
 	return *it->second;
@@ -1692,29 +1695,23 @@ int DungeonWorld::PickItemIndex(float mx, float my, float w, float h) const {
 	int best = -1;
 	for (size_t i = 0; i < m_items.size(); ++i) {
 		const Item& item = m_items[i];
-		if (item.collected || !InReach(item.x, item.z, px, pz)) continue;
-		if (!IsSeen(item.x, item.z)) continue;
+		if (!InReach(item.x, item.z, px, pz) || !IsSeen(item.x, item.z)) continue;
+		// Lifted, or in a shut niche: not there to pick (its pose says so, as it
+		// does for the draw and the lights).
+		ItemPose pose;
+		if (!FloorItemPose(item, pose)) continue;
 		if (item.niche >= 0) {
-			// Niche item: a small sphere at the pocket (the player looks roughly
-			// level at the wall, so no floor-plane test), and only while open.
-			const Direction wall = static_cast<Direction>(item.niche);
-			if (!NicheOpenAt(item.x, item.z, wall)) continue;
-			const Vec3 p = NicheItemPos(item.x, item.z, wall);
-			const Vec3 oc{ray.origin.x - p.x, ray.origin.y - (p.y + 0.35f),
-						  ray.origin.z - p.z};
-			const float bb = oc.x * ray.dir.x + oc.y * ray.dir.y + oc.z * ray.dir.z;
-			const float cc = oc.x * oc.x + oc.y * oc.y + oc.z * oc.z - 0.4f * 0.4f;
-			const float disc = bb * bb - cc;
-			if (disc >= 0.0f && -bb - std::sqrt(disc) > 0.0f) best = static_cast<int>(i);
+			// Niche item: the pocket's ball (the player looks roughly level at the
+			// wall, so no floor-plane test) - the same ball a drop aims at.
+			const Vec3 p{pose.spot.x, pose.spot.y + kNichePocketRise * kUnit, pose.spot.z};
+			if (ray.HitsSphere(p, kNichePocketRadius * kUnit)) best = static_cast<int>(i);
 			continue;
 		}
 		if (ray.dir.y >= -1e-4f) continue; // floor pick needs a look down at the floor
-		// Plane at the item's visible mid-height — a model spans 0..Height; the
-		// tablet placeholders sit low (rune slab shorter than the scaled-up others).
-		const float centreY = item.kind->model
-								  ? std::max(item.kind->model->Height(), 0.1f) * 0.5f
-								  : (item.kind->isRune ? 0.23f : 0.45f);
-		const float t = (centreY - ray.origin.y) / ray.dir.y;
+		// Plane at the item's DRAWN middle - half the height its kind lies to
+		// (ItemKind::floorHeight, code-review C359): a torch laid flat is a few
+		// centimetres, a standing bottle most of a metre.
+		const float t = (pose.midY - ray.origin.y) / ray.dir.y;
 		if (t <= 0.0f) continue;
 		const float wx = ray.origin.x + ray.dir.x * t;
 		const float wz = ray.origin.z + ray.dir.z * t;
@@ -1743,14 +1740,12 @@ bool DungeonWorld::DropItemAt(const std::string& typeId, float mx, float my,
 	for (size_t i = 0; i < niches.size(); ++i) {
 		const WallNiche& n = niches[i];
 		if (!n.open || !InReach(n.x, n.z, px, pz) || !IsSeen(n.x, n.z)) continue;
+		// The pocket's ball, the one PickItemIndex lifts from.
 		const Vec3 p = NicheItemPos(n.x, n.z, n.wall);
-		const Vec3 oc{ray.origin.x - p.x, ray.origin.y - (p.y + 0.35f), ray.origin.z - p.z};
-		const float bb = oc.x * ray.dir.x + oc.y * ray.dir.y + oc.z * ray.dir.z;
-		const float cc = oc.x * oc.x + oc.y * oc.y + oc.z * oc.z - 0.4f * 0.4f;
-		const float disc = bb * bb - cc;
-		if (disc < 0.0f) continue;
-		const float t = -bb - std::sqrt(disc);
-		if (t > 0.0f && t < bestT) { bestT = t; bestNiche = static_cast<int>(i); }
+		float t = 0.0f;
+		if (!ray.HitsSphere({p.x, p.y + kNichePocketRise * kUnit, p.z}, kNichePocketRadius * kUnit, &t))
+			continue;
+		if (t < bestT) { bestT = t; bestNiche = static_cast<int>(i); }
 	}
 	if (bestNiche >= 0) {
 		const WallNiche& n = niches[static_cast<size_t>(bestNiche)];

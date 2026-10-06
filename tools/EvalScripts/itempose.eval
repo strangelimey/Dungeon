@@ -1,0 +1,100 @@
+; itempose.eval - a floor item's POSE and the click PICKS (code-review C180,
+; C359, C258), read by tools\AllocTest.ps1 -Items.
+;
+; One pose (DungeonWorld::FloorItemPose) now answers where an item lies for the
+; draw, its floor glow, a lit one's light and flame, and the pick; and every
+; round click target is one ball test (Camera::Ray::HitsSphere). Each section
+; below sets one thing up in an arena (`arena open 9 9`: floor 10,8..18,16) and
+; reads it back:
+;
+;   --- niche open ---   a fire rune in an open wall niche: ONE glow row, and it
+;                        stands over the rune in the pocket (the harness reads
+;                        its `light at` against the rune's drawn middle from
+;                        the niche pick below)
+;   --- niche shut ---   the same niche shut: NO glow row (C180 - it glowed at
+;                        the foot of the wall, giving a secret niche away)
+;   --- niche pick ---   `pickprobe`: the rune is clicked at its drawn middle
+;   --- floor pick ---   a torch and a rune side by side on the floor, each hit
+;                        at five points across a quarter centred on its DRAWN
+;                        box, at that box's middle height (C359 - the pick was
+;                        measured at the model's height in model units, laid
+;                        flat or not)
+;   --- upright pick --- an upright potion and an iron key (a model-less item:
+;                        the tablet, scaled up - picked at 0.45 m before, its
+;                        drawn middle is a few centimetres), likewise
+;   --- sconce pick ---  the wall torch ahead, clicked at its drawn middle
+;   --- chain pick ---   a wooden door's chain, clicked at its drawn middle
+;   --- pad pick ---     a stone door's pad, likewise
+;
+; The floor items lie in the FAR quarters of the square ahead, or alone: a
+; taller item in the quarter in front of another rightly takes a click on that
+; one's near edge (its column is in front), which is not what is measured here.
+; Every `pickprobe` ends `pickprobe RESULT=PASS|FAIL|NONE` with counts by kind.
+; The rune goes in with `niche ... put`: the editor's item brush cannot reach a
+; niche until code-review C351 lands. One line runs per frame and `lights` reads
+; the last frame's lights, so the echoes are the wait.
+logecho on
+reset
+timescale 0
+arena open 9 9
+tp 14 9
+face n
+editor place wallfeatures niche 14 8 north
+mappage close
+niche 14 8 n put rune_fire
+echo frame
+echo frame
+echo --- niche open ---
+lights
+niche 14 8 n shut
+echo frame
+echo frame
+echo --- niche shut ---
+lights
+niche 14 8 n open
+echo frame
+echo frame
+echo --- niche pick ---
+pickprobe
+tp 14 14
+face n
+editor place items torch 14 13
+editor place items rune_fire 14 13
+mappage close
+echo frame
+echo frame
+echo --- floor pick ---
+pickprobe
+tp 11 14
+face n
+editor place items potion_health 11 13
+editor place items iron_key 11 13
+mappage close
+echo frame
+echo frame
+echo --- upright pick ---
+pickprobe
+tp 12 8
+face n
+editor place fixtures sconce 12 8 north
+mappage close
+echo frame
+echo frame
+echo --- sconce pick ---
+pickprobe
+arena corridor 11
+tp 14 12
+face e
+editor place doors wooden_door 15 12
+mappage close
+echo frame
+echo frame
+echo --- chain pick ---
+pickprobe
+editor erase 15 12
+editor place doors stone_door 15 12
+mappage close
+echo frame
+echo frame
+echo --- pad pick ---
+pickprobe

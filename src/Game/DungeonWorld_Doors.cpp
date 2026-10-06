@@ -243,19 +243,42 @@ bool DungeonWorld::ToggleDoor(Door& door) {
 	return true;
 }
 
-Vec3 DungeonWorld::OpenerPos(const Door& door, float face) const {
+Vec3 DungeonWorld::OpenerPos(const Door& door, float face, const Vec3& local) const {
 	// The render's own placement, in world terms: the opener sits at
 	// (openerX, kOpenerY, face * kOpenerFaceZ) in the door's UNIT model space,
 	// which the door's base matrix scales, turns by its facing and drops on the
 	// cell. Kept in step with DungeonWorld_Render's door loop by construction —
-	// both read the same four constants.
+	// both read the same four constants. A point of the opener's own model
+	// (`local`) rides on that, turned a half turn on the far face as the draw
+	// turns that copy.
 	const float s = kUnit * (door.frame ? door.frame->modelScale : 1.0f);
 	const Vec3 c = m_map.CellCenter(door.x, door.z);
 	const float yaw = DirYaw(door.facing);
 	const float ca = std::cos(yaw), sa = std::sin(yaw);
-	const float lx = door.openerX * s, lz = face * kOpenerFaceZ * s;
+	const float qx = face > 0.0f ? local.x : -local.x, qz = face > 0.0f ? local.z : -local.z;
+	const float lx = (door.openerX + qx) * s, lz = (face * kOpenerFaceZ + qz) * s;
 	// Row-vector convention (v' = v * RotY), matching the render's matrices.
-	return {c.x + lx * ca + lz * sa, kOpenerY * s, c.z - lx * sa + lz * ca};
+	return {c.x + lx * ca + lz * sa, (kOpenerY + local.y) * s, c.z - lx * sa + lz * ca};
+}
+
+bool DungeonWorld::OpenerUnderRay(const Door& door, const gfx::Camera::Ray& ray) const {
+	if (!door.opener) return false;
+	// A ball round the hand-hold rather than the mesh: a chain is a thin thing
+	// to ask somebody to hit exactly. Both faces are tested because the party
+	// may be on either side and only one copy is theirs; the far one is behind
+	// the door and cannot be hit through it anyway.
+	const float s = kUnit * (door.frame ? door.frame->modelScale : 1.0f);
+	const bool chain = door.openerStyle == OpenerStyle::Chain;
+	// Centred on the middle of what is DRAWN, not on the origin: a chain runs
+	// upward from its grip, so a ball on the grip would leave the links
+	// unclickable - the part of it most people would aim at.
+	const float rise = chain ? 0.17f * s : 0.0f;
+	const float radius = (chain ? 0.26f : 0.13f) * s;
+	for (const float face : {-1.0f, 1.0f}) {
+		const Vec3 p = OpenerPos(door, face);
+		if (ray.HitsSphere({p.x, p.y + rise, p.z}, radius)) return true;
+	}
+	return false;
 }
 
 bool DungeonWorld::ToggleDoorAhead(float mx, float my, float w, float h) {
@@ -272,30 +295,11 @@ bool DungeonWorld::ToggleDoorAhead(float mx, float my, float w, float h) {
 		if (onMessage) onMessage(loc::FormatLine("log.door_nohandle", LeaderName()));
 		return true; // the click WAS for the door; it just found nothing to pull
 	}
-	// THE RAY HAS TO HIT THE HAND-HOLD. A sphere around it rather than the mesh:
-	// the same test the niche items use, and a chain is a thin thing to ask
-	// somebody to hit exactly. Both faces are tested because the party may be on
-	// either side and only one copy is theirs; the far one is behind the door
-	// and cannot be hit through it anyway.
-	const gfx::Camera::Ray ray = m_camera.ScreenRay(mx, my, w, h);
-	const float s = kUnit * (door->frame ? door->frame->modelScale : 1.0f);
-	const bool chain = door->openerStyle == OpenerStyle::Chain;
-	// Centre on the middle of what is DRAWN, not on the origin: a chain runs
-	// upward from its grip, so a sphere on the grip would leave the links
-	// unclickable — the part of it most people would aim at.
-	const float rise = chain ? 0.17f * s : 0.0f;
-	const float radius = (chain ? 0.26f : 0.13f) * s;
-	bool hit = false;
-	for (const float face : {-1.0f, 1.0f}) {
-		const Vec3 p = OpenerPos(*door, face);
-		const Vec3 oc{ray.origin.x - p.x, ray.origin.y - (p.y + rise),
-					  ray.origin.z - p.z};
-		const float bb = oc.x * ray.dir.x + oc.y * ray.dir.y + oc.z * ray.dir.z;
-		const float cc = oc.x * oc.x + oc.y * oc.y + oc.z * oc.z - radius * radius;
-		const float disc = bb * bb - cc;
-		if (disc >= 0.0f && -bb + std::sqrt(disc) > 0.0f) hit = true;
-	}
-	if (!hit) return false; // missed the hand-hold: not this door's click
+	// THE RAY HAS TO HIT THE HAND-HOLD: a ball round what is drawn of it
+	// (OpenerUnderRay) - the one round-target test (Camera::Ray::HitsSphere) a
+	// wall torch and a niche's pocket are clicked by too.
+	if (!OpenerUnderRay(*door, m_camera.ScreenRay(mx, my, w, h)))
+		return false; // missed the hand-hold: not this door's click
 	door->pullT = 0.0f;     // the throw; DungeonWorld::Update runs it and eases
 	door->pullRising = true; // it back afterwards, slower
 	HandOnDoor(*door);
@@ -614,6 +618,12 @@ bool DungeonWorld::AddItem(const std::string& type, int x, int z, int slot) {
 bool DungeonWorld::NicheOpenAt(int x, int z, Direction wall) const {
 	const WallNiche* n = m_map.NicheAt(x, z, DirDX(wall), DirDZ(wall));
 	return n && n->open;
+}
+
+bool DungeonWorld::SetNicheOpen(int x, int z, Direction wall, bool open) {
+	if (!m_map.SetNicheOpenAt(x, z, wall, open)) return false;
+	RebuildChunksAround(x, z); // the pocket, or the blank wall that hides it
+	return true;
 }
 
 Vec3 DungeonWorld::NicheItemPos(int x, int z, Direction wall) const {

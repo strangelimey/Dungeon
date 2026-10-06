@@ -1546,6 +1546,24 @@ CaptureState/ApplyState + the SaveData look line), so a reload restores the exac
 camera angle. Every duration, the hold, and both curves are user-tunable on the
 Settings → Controls "Mouse Look" section (LookSettings, pushed in via SetLook).
 
+WHERE A FLOOR ITEM IS has ONE answer, `DungeonWorld::FloorItemPose` (code-review
+C180): its spot (its quarter, or a wall niche's pocket), the draw's matrix (the
+kind's `floorLay`, worked out once by LayOnFloor - laid flat, or standing
+`upright`) and its drawn middle; false when it is lifted or in a SHUT niche. The
+draw, a rune's or an enchanted blade's floor glow, a lit torch's light and flame
+and the pick all take it, so a shut niche hides its glow too (it used to glow at
+the foot of the wall). The pick measures the click ray at that drawn middle
+(`ItemKind::floorHeight`, C359 - it used the model's height in model units, laid
+flat or not). Every ROUND click target - a niche's pocket, a door's hand-hold, a
+wall torch - is one ball test, `Camera::Ray::HitsSphere`, sized in units x kUnit
+(C258). Dev: `pickprobe` shoots every target in reach from where it is DRAWN,
+through the real tests - an item's drawn box is its model's bounds through the
+pose's matrix, never the pick's own inputs (`floorHeight`, the slot's quarter),
+since a probe built from those intersects at the height it projected from and
+hits for any camera; `niche <x> <z> <dir> [open|shut|put <item>]`. Checked by
+AllocTest -Items (tools/EvalScripts/itempose.eval, before its window), which
+also wants an open niche's glow over its rune, in the pocket.
+
 ## Threading & async monster AI
 
 Monster AI runs OFF the main thread. Core/ThreadManager (namespace
@@ -2688,7 +2706,9 @@ Michael's notes and answers: docs/ui-updates-notes.md; the plan: -plan.md.
   front), not a vector, so equipping a bigger bag only moves a count; a catalog
   `capacity` past the cap is clamped with a warning. CHECKED: `AllocTest.ps1
   -Items` (pack -> floor -> pack through the inventory window; dev `inventory
-  [off|status]`; tally `drops=`/`lifts=`), mutation-checked both ways, and
+  [off|status]`; tally `drops=`/`lifts=`; before its game, itempose.eval - the
+  item pose and the click picks; CheckAll's `alloc-items`), mutation-checked
+  both ways, and
   `-Packs` (a 4- and an 8-slot bag swapped in the pack row; `sheet status`
   prints the row and an `equips=` count), which FAILed on the vector first.
 

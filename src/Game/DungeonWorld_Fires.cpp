@@ -90,18 +90,16 @@ bool DungeonWorld::SetSconceEmpty(int x, int z, int wall, bool empty, bool burni
 bool DungeonWorld::SconceUnderCursor(float mx, float my, float w, float h, int& x, int& z,
 									 int& wall) const {
 	// The wall torch the party FACES, from its own square - the lever's rule -
-	// and the click has to be ON it: a ball round the torch, as a door's panel
-	// is hit-tested, so a click elsewhere in the view is not a grab.
+	// and the click has to be ON it: a ball round the torch below its flame (the
+	// one round-target test, Camera::Ray::HitsSphere, a door's hand-hold takes
+	// too), so a click elsewhere in the view is not a grab. In units of the
+	// fixture's own size, like its flame's offsets.
 	if (!FireAheadCell(x, z, wall) || wall < 0) return false;
 	for (const Fire& f : m_fires) {
 		if (f.x != x || f.z != z || f.wall != wall) continue;
-		const gfx::Camera::Ray ray = m_camera.ScreenRay(mx, my, w, h);
-		const Vec3 c{f.flamePos.x, f.flamePos.y - 0.15f * kUnit, f.flamePos.z};
-		const Vec3 oc{ray.origin.x - c.x, ray.origin.y - c.y, ray.origin.z - c.z};
-		const float r = 0.22f * kUnit;
-		const float b = oc.x * ray.dir.x + oc.y * ray.dir.y + oc.z * ray.dir.z;
-		const float cc = oc.x * oc.x + oc.y * oc.y + oc.z * oc.z - r * r;
-		return b * b - cc >= 0.0f && -b > 0.0f;
+		const float s = kUnit * (f.kind ? f.kind->modelScale : 1.0f);
+		return m_camera.ScreenRay(mx, my, w, h)
+			.HitsSphere({f.flamePos.x, f.flamePos.y - 0.15f * s, f.flamePos.z}, 0.22f * s);
 	}
 	return false;
 }
