@@ -210,9 +210,10 @@ $checks = @(
 	},
 	@{
 		name = 'spells'; tier = 'quick'; needs = 'build-debug'
-		what = 'every spell tier does what it says: hand spells, bolts, modifiers, wards'
+		what = 'every spell tier does what it says: hand spells, bolts, modifiers, wards; descriptions shown whole'
 		# The debug build only (it reads build\debug), like LevelBuildTest. Its
-		# self-test cuts every cast and demands exactly the spell-free checks pass.
+		# self-test cuts every cast, makes every `lang` English, and demands
+		# exactly the spell-free checks pass.
 		run      = { python (Join-Path $root 'tools\SpellTest.py') | Out-Host; $LASTEXITCODE }
 		selfTest = { python (Join-Path $root 'tools\SpellTest.py') --selftest | Out-Host; $LASTEXITCODE }
 	},

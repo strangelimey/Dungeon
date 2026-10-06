@@ -1157,6 +1157,14 @@ private:
 	// one wired to no niche and a reveal, each checked (code-review C211).
 	u32 m_allocTestLevers = 0;
 	u32 m_allocTestNiches = 0;
+	// AllocTest -Sheet -AllSpells', counted the same way: the most Known Spells
+	// rows a bake REACHED FOR THE FIRST TIME in a measured frame - on the sheet,
+	// and on a party-window card (CharacterSheet::SpellRowsMost rising across
+	// the frame). A list's rows grow only on its first bake that long, so a
+	// count since setup also took a first bake in the warm-up, which the guard
+	// never saw (code-review C220).
+	size_t m_allocTestSheetSpells = 0;
+	size_t m_allocTestCardSpells = 0;
 	// The party's Act count when the window opened (Party::ActCount): the
 	// verdict's moves= is the difference, -Walk's evidence that it moved.
 	unsigned m_allocTestActsAt = 0;

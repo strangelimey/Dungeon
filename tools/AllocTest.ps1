@@ -24,6 +24,7 @@
 #   .\tools\AllocTest.ps1 -Exit              # Help clicked, an exit stair's "Leave?" answered No, a pit fall
 #   .\tools\AllocTest.ps1 -Lever             # a quest token lifted twice, a sets= lever, one revealing a secret niche
 #   .\tools\AllocTest.ps1 -Sheet             # the sheet: hover, tabs, item dialog
+#   .\tools\AllocTest.ps1 -Sheet -AllSpells  # ...and a member who knows every spell, on Known Spells and the party window
 #   .\tools\AllocTest.ps1 -Panels            # drag and resize the floating HUD
 #   .\tools\AllocTest.ps1 -Minimal [-Sheet]  # any mode, under the party-card layout
 #   .\tools\AllocTest.ps1 -Items             # pack -> cursor -> floor -> cursor -> pack; the item pose + picks
@@ -324,6 +325,22 @@
 # comparing tooltip (`sheet armortip: compared=`, counted where it is drawn - a
 # point that missed the armor still names something on the status bar), since
 # a missed click or hover reports exactly like a clean run.
+# -Sheet -AllSpells IS THE LONGEST KNOWN SPELLS LIST (code-review C220). The
+# sheet warmed 32 spell rows while the registry holds 44, so a member who knew
+# more than 32 grew the row pool, the list's row offsets and its repeater in
+# the armed frame that first showed them - on the sheet, and on that member's
+# party-window card. The warm-up is the registry's size now. Before the window
+# Sera (member 1) learns every symbol and every spell (`learn 1 all`) while the
+# sheet stays on Brand, so no bake of hers runs outside it. Each cycle then adds,
+# after -Sheet's steps: D to page the sheet to her, Tab three times to Known
+# Spells, the "All" button (the party window opens on that tab, her card with
+# it), Esc, and Brand's portrait - the sheet again, on Inventory (a portrait
+# click opens it there), where the next cycle starts. Only the FIRST bake of her
+# list on each can grow it, so it refuses a PASS unless the verdict's
+# `spellrows=` says both first reached the count `learn` taught in MEASURED
+# frames (armed to the end of their Update, inside the window): the sheet's
+# paging and her card's open. A first bake in the warm-up checks nothing, and
+# no later cycle can make up for it.
 #
 # -Panels IS THE FLOATING HUD'S TURN (docs/ui-panels-plan.md P3a). Every HUD
 # panel moves and resizes under the mouse now, inside armed frames: a drag
@@ -536,6 +553,9 @@ param(
 	[switch]$Lever,
 	# Works the character sheet inside the window. See the note above.
 	[switch]$Sheet,
+	# With -Sheet: Sera knows every spell, and each cycle shows her Known Spells
+	# on the sheet and in the party window (code-review C220). See the note above.
+	[switch]$AllSpells,
 	# Opens the PARTY WINDOW from the sheet's "All" and works every tab of it
 	# inside the window (more-ui-updates Phase 5). See the note above.
 	[switch]$All,
@@ -626,9 +646,13 @@ if ($RestReach) { $Rest = $true } # -RestReach is -Rest with the way left open
 # warm-up after it, and the plunge - then the level load to crypt2 - so it is
 # longer too. -Lever's two presses come after a wait that clears the warm-up
 # at a slow frame rate, and must both land well before the window closes.
-if (($Items -or $Throw -or $All -or $Impact -or $Exit -or $Lever) -and -not $PSBoundParameters.ContainsKey('Seconds')) { $Seconds = 20 }
+# -Sheet -AllSpells adds about four seconds of steps to each -Sheet cycle, and
+# its first cycle's must land inside the window.
+if (($Items -or $Throw -or $All -or $Impact -or $Exit -or $Lever -or $AllSpells) -and -not $PSBoundParameters.ContainsKey('Seconds')) { $Seconds = 20 }
 if ($ShadowSelfTest -and -not $Lights) { throw '-ShadowSelfTest mutates the shadow checks, which only -Lights runs' }
 if ($LongId -and -not $Items) { throw '-LongId changes what -Items moves; give -Items too' }
+if ($AllSpells -and -not $Sheet) { throw '-AllSpells is a -Sheet variant; give -Sheet too' }
+if ($AllSpells -and $Minimal) { throw '-AllSpells reopens the sheet from the party bar, which -Minimal does not have' }
 if ($LongId -and $LongItem.Length -le 15) { throw "-LongItem '$LongItem' fits the 15-character small-string buffer, so it measures nothing" }
 # -Lever's window holds the token's four clicks, two turns and both presses, each
 # after the warm-up has cleared.
@@ -658,6 +682,7 @@ if ($memberCount -lt 1 -or $memberCount -gt 4) { throw "-Party names $memberCoun
 # reach, but demands only the shots).
 if ($GrowRoster -and (-not $Party -or $memberCount -ge 4)) { throw '-GrowRoster needs -Party with fewer than four members' }
 if ($GrowRoster -and -not $Effects) { throw '-GrowRoster needs -Effects: no other mode lands an effect on the grown members inside the window and demands it' }
+if ($AllSpells -and $memberCount -lt 2) { throw '-AllSpells teaches member 1 and pages the sheet to them; the party needs two members' }
 
 # -PartyPage starts no game, and every other mode needs one.
 if ($PartyPage) {
@@ -2402,6 +2427,14 @@ try {
 		Send-Text 'setskill 0 conditioning 0.6'; Send-Key 0x0D
 		# Avoidance worth points, so the armor tooltip's avoidance row has some.
 		Send-Text 'setskill 0 avoid 2'; Send-Key 0x0D
+		if ($AllSpells) {
+			# -AllSpells: Sera learns every spell BEFORE the sheet opens on Brand, so
+			# the first bake of her list is the window's.
+			$taught = Get-ConsoleAnswer 'learn 1 all' 'learned every symbol and '
+			if ($taught -notmatch 'and (\d+) of (\d+) spells' -or [int]$Matches[1] -ne [int]$Matches[2] -or
+				[int]$Matches[1] -lt 1) { throw "``learn 1 all`` did not teach every spell: $taught" }
+			$script:spellsTaught = [int]$Matches[1]
+		}
 		Send-Text 'sheet 0'; Send-Key 0x0D
 		# WARM-UP: one open of the dialog, and a moment for it to draw, bakes its
 		# fonts and glyphs - a first time for the process, outside the window.
@@ -2411,6 +2444,26 @@ try {
 		$script:opensBefore = Get-DetailOpens
 		if ($script:opensBefore -le 0) { throw 'the warm-up never opened the item details dialog' }
 		$tipsAtOpen = Get-ArmorTips
+		if ($AllSpells) {
+			# Where "All" is, that no bake of Sera's list has run yet (`most` is the
+			# Known Spells rows a bake has made - Brand knows none), and Brand's
+			# portrait (the left end of the party bar, as -All finds it). Whether
+			# her first bakes were MEASURED only the verdict's spellrows= can say.
+			$line = Get-ConsoleAnswer 'sheet status' 'console: sheet spells: '
+			if ($line -notmatch 'most=(\d+)') { throw "unreadable: $line" }
+			if ([int]$Matches[1] -ne 0) { throw "the sheet baked $($Matches[1]) spell rows before the window: $line" }
+			$line = Get-ConsoleAnswer 'sheet status' 'console: sheet all: '
+			if ($line -notmatch 'sheet all: (\d+),(\d+)') { throw "unreadable: $line" }
+			$script:allX = [int]$Matches[1]; $script:allY = [int]$Matches[2]
+			$before = @(Select-String -Path $log -Pattern 'console:   party ').Count
+			Send-Text 'hudpanel list'; Send-Key 0x0D
+			$rows = Wait-NewLogLines 'console:   party ' $before
+			if ($rows.Count -eq 0 -or $rows[-1].Line -notmatch 'px (-?\d+),(-?\d+) (\d+)x(\d+)') {
+				throw 'no party bar rect from `hudpanel list`'
+			}
+			$script:portraitX = [int]$Matches[1] + [int]([int]$Matches[4] * 0.45)
+			$script:portraitY = [int]$Matches[2] + [int]([int]$Matches[4] * 0.5)
+		}
 		Send-Text 'logecho off'; Send-Key 0x0D
 		Send-Key 0xC0 # close the console again; alloctest reopens it below
 		Start-Sleep -Milliseconds 400
@@ -2980,6 +3033,19 @@ try {
 			Send-Mouse $script:runeX $script:slotY 0x207 0x208 0x10 # middle: use menu
 			Start-Sleep -Milliseconds 500
 			Send-Key 0x1B
+			if ($AllSpells) {
+				Start-Sleep -Milliseconds 300
+				Send-Key 0x44                                     # D: the sheet pages to Sera
+				Start-Sleep -Milliseconds 300
+				for ($t = 0; $t -lt 3; $t++) { Send-Key 0x09 }    # Known Spells: every spell, baked and laid out
+				Start-Sleep -Milliseconds 700
+				Send-Click $script:allX $script:allY              # the party window, on Known Spells
+				Start-Sleep -Milliseconds 800
+				Send-Key 0x1B                                     # closed
+				Start-Sleep -Milliseconds 300
+				Send-Click $script:portraitX $script:portraitY    # Brand's sheet, on Inventory for the next cycle
+				Start-Sleep -Milliseconds 500
+			}
 		}
 	}
 
@@ -3566,6 +3632,20 @@ try {
 		if ($tips -le 0 -and $result -eq 'PASS') {
 			Write-Host 'no frame drew the comparing armor tooltip - its hover was not measured' -ForegroundColor Yellow
 			$result = 'UNMEASURED'
+		}
+		# -AllSpells: the first bake of Sera's whole list on the sheet, and on her
+		# party-window card, each in a MEASURED frame (the verdict's spellrows=:
+		# the most rows a bake first reached in one, sheet then card). Only those
+		# first bakes could grow the lists, so one in the warm-up leaves the list
+		# this variant exists for unchecked, whatever the later cycles show.
+		if ($AllSpells) {
+			$sheetRows = -1; $cardRows = -1
+			if ($line -match '\bspellrows=(\d+),(\d+)') { $sheetRows = [int]$Matches[1]; $cardRows = [int]$Matches[2] }
+			Write-Host "  Known Spells first reached in measured frames: sheet $sheetRows, party-window card $cardRows, of $($script:spellsTaught) taught"
+			if (($sheetRows -ne $script:spellsTaught -or $cardRows -ne $script:spellsTaught) -and $result -eq 'PASS') {
+				Write-Host 'Sera''s whole spell list was not first baked in measured frames on the sheet and her card - not measured' -ForegroundColor Yellow
+				$result = 'UNMEASURED'
+			}
 		}
 	}
 

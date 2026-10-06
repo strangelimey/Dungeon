@@ -9,7 +9,7 @@
 // stops a Russian name at half the letters an English one gets.
 //
 // Header-only and Windows-free, so RollTest checks it directly and the party
-// rules (Game/PartyRules.h) count with it. str::Widen / str::Narrow
+// rules (Game/PartyRules.h) count with it, and Core/Loc cuts with it. str::Widen / str::Narrow
 // (Core/StringUtil.h) are the Win32 boundary; this is everything after it.
 //
 // MALFORMED TEXT IS WALKED, NEVER TRUSTED: a byte no sequence starts with, or a
@@ -60,6 +60,24 @@ constexpr size_t Length(std::string_view s) {
 constexpr std::string_view Prefix(std::string_view s, size_t count) {
 	size_t i = 0;
 	for (; i < s.size() && count > 0; --count) i += CharAt(s, i).size();
+	return s.substr(0, i);
+}
+
+// The longest run of whole characters from the start of `s` that is at most
+// `maxBytes` long - a BYTE limit (a fixed buffer, a reserved string) that never
+// cuts a character in half (code-review C371: a description cut at 255 bytes
+// ended on half a Cyrillic letter, which draws as '?'). `s` itself when it
+// fits; otherwise the CharAt walk decides where each character ends, so a
+// caller cutting text it built must hand over the bytes PAST the limit too -
+// up to three - or the walk cannot see that the last character runs on.
+constexpr std::string_view FitBytes(std::string_view s, size_t maxBytes) {
+	if (s.size() <= maxBytes) return s;
+	size_t i = 0;
+	while (i < s.size()) {
+		const size_t n = CharAt(s, i).size();
+		if (i + n > maxBytes) break;
+		i += n;
+	}
 	return s.substr(0, i);
 }
 

@@ -264,4 +264,10 @@ protected:
 // adding a spell = its file pair + one line there + a CMakeLists entry).
 std::vector<std::unique_ptr<Spell>> MakeAllSpells();
 
+// How many spells that registry holds - built once and counted. What sizes a
+// list that can show every spell, so it never grows in play: the sheet's Known
+// Spells rows (code-review C220 - it warmed 32 for 44, and a member who knew
+// them all grew the pool in an armed frame).
+size_t SpellRegistrySize();
+
 } // namespace dungeon::game

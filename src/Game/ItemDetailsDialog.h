@@ -69,6 +69,11 @@ public:
 	// How many times it has opened this run - `itemdetails status` prints it, so
 	// tools\AllocTest.ps1 -Sheet can refuse a PASS when no open was measured.
 	unsigned OpenCount() const { return m_opens; }
+	// The description shown, in bytes, and its .lang entry's - equal unless the
+	// entry outruns loc::kParagraphCapacity (`itemdetails status` prints both;
+	// tools\SpellTest.py holds the shown count to the file's, code-review C371).
+	size_t DescBytes() const;
+	size_t DescEntryBytes() const { return m_descEntryBytes; }
 
 	// Esc closes; otherwise the dialog takes the pointer (it is modal for the
 	// mouse - the keyboard is left to whoever owns it underneath).
@@ -127,6 +132,7 @@ private:
 
 	bool m_open = false;
 	unsigned m_opens = 0;
+	size_t m_descEntryBytes = 0;
 	float m_spin = 0.0f;
 	float m_breath = 0.0f; // a rune tablet's groove glow, radians
 	std::array<gfx::PreviewSubmesh, kMaxSubs> m_subs{};

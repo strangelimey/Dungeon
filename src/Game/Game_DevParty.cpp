@@ -30,14 +30,37 @@ using devargs::ParseSymbolArg;
 void Game::RegisterPartyCommands() {
 	m_console.Register({.name = "learn",
 						.group = CmdGroup::Characters,
-						.params = "<member> <symbol>",
-						.summary = "grant a spell symbol to a member"},
+						.params = "<member> <symbol>\n"
+								  "<member> all",
+						.summary = "grant a spell symbol (or every symbol and spell) to a member"},
 					   [this](const std::vector<std::string>& args) {
 						   if (!Need(m_console, args, 2)) return;
 						   const size_t m = static_cast<size_t>(std::atoi(args[0].c_str()));
 						   SpellSymbol sym;
 						   if (m >= m_characters.size()) {
 							   m_console.Refuse("no such member");
+							   return;
+						   }
+						   // EVERYTHING: every symbol, and every spell in the
+						   // registry learned as a first cast learns it - the
+						   // longest Known Spells list there is (code-review C220:
+						   // AllocTest -Sheet -AllSpells, and C371's Russian
+						   // descriptions in tools\SpellTest.py).
+						   if (args[1] == "all") {
+							   if (!m_world) {
+								   m_console.Refuse("no world - no spell registry");
+								   return;
+							   }
+							   Character& c = m_characters[m];
+							   for (u32 s = 0; s < kSymbolCount; ++s) c.Learn(static_cast<SpellSymbol>(s));
+							   size_t learned = 0;
+							   for (const auto& def : m_world->SpellDefs())
+								   if (c.learnedSpells.Add(def->Id()) || c.HasLearnedSpell(def->Id()))
+									   ++learned;
+							   m_ui.RefreshSheet();
+							   m_console.Print(std::format("{} learned every symbol and {} of {} spells",
+														   c.name, learned,
+														   m_world->SpellDefs().size()));
 							   return;
 						   }
 						   if (!ParseSymbolArg(m_console, args[1], sym)) return;
@@ -956,12 +979,17 @@ void Game::RegisterPartyCommands() {
 							   return;
 						   }
 						   if (args[0] == "status") {
+							   // desc= is the description shown over its .lang
+							   // entry, in bytes (code-review C371); memorize= stays
+							   // last, tools\SpellTest.py reads the line's end.
 							   const ItemDetailsDialog* dlg = m_ui.DetailsDialog();
 							   m_console.Print(std::format(
-								   "item details: {} ({} preview submeshes) opens={} memorize={}",
+								   "item details: {} ({} preview submeshes) opens={} desc={}/{} "
+								   "memorize={}",
 								   m_ui.ItemDetailsOpen() ? "open" : "closed",
 								   dlg ? dlg->PreviewSubs().size() : 0,
-								   dlg ? dlg->OpenCount() : 0u,
+								   dlg ? dlg->OpenCount() : 0u, dlg ? dlg->DescBytes() : 0,
+								   dlg ? dlg->DescEntryBytes() : 0,
 								   dlg && dlg->MemorizeShown() ? 1 : 0));
 							   return;
 						   }
@@ -1114,7 +1142,8 @@ void Game::RegisterPartyCommands() {
 								  "off\n"
 								  "status\n"
 								  "tab inventory|stats|skills|spells|effects\n"
-								  "armor <member> [item]",
+								  "armor <member> [item]\n"
+								  "spells",
 						.summary = "open, close or report the character sheet"},
 					   [this](const std::vector<std::string>& args) {
 						   static constexpr const char* kModes[] = {
@@ -1185,6 +1214,24 @@ void Game::RegisterPartyCommands() {
 							   }
 							   return;
 						   }
+						   // The Known Spells rows as last baked, one line each with
+						   // its description's bytes - tools\SpellTest.py holds them
+						   // to the .lang file's (code-review C371).
+						   if (!args.empty() && args[0] == "spells") {
+							   const CharacterSheet* sheet = m_ui.Sheet();
+							   if (!sheet) {
+								   m_console.Refuse("no sheet");
+								   return;
+							   }
+							   m_console.Print(std::format("sheet spells: rows={} most={} cuts={}",
+														   sheet->SpellRowCount(),
+														   sheet->SpellRowsMost(),
+														   sheet->DescCuts()));
+							   for (size_t i = 0; i < sheet->SpellRowCount(); ++i)
+								   m_console.Print(std::format("  {} desc={}", sheet->SpellRowId(i),
+															   sheet->SpellRowDesc(i).size()));
+							   return;
+						   }
 						   // What the sheet shows - for a harness driving it with
 						   // keys (the strafe keys page members, Tab the tabs).
 						   if (!args.empty() && args[0] == "status") {
@@ -1244,6 +1291,15 @@ void Game::RegisterPartyCommands() {
 							   m_console.Print(std::format("sheet all: {},{}",
 														   static_cast<int>(all.x + all.w * 0.5f),
 														   static_cast<int>(all.y + all.h * 0.5f)));
+							   // The Known Spells rows: shown now, the most one bake
+							   // made, and the descriptions cut (AllocTest -Sheet
+							   // -AllSpells checks `most` is 0 before its window,
+							   // code-review C220).
+							   if (sheet)
+								   m_console.Print(std::format("sheet spells: rows={} most={} cuts={}",
+															   sheet->SpellRowCount(),
+															   sheet->SpellRowsMost(),
+															   sheet->DescCuts()));
 							   return;
 						   }
 						   if (!args.empty() && args[0] == "off") {

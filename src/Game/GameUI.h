@@ -361,10 +361,15 @@ public:
 	}
 	unsigned SheetPackEquips() const { return m_sheet ? m_sheet->PackEquips() : 0u; }
 	// The sheet itself (null before BuildStaticUi), for the rest of the
-	// `sheet` readout and its `tab` verb, which goes through the tab stones'
-	// own SelectMode.
+	// `sheet` readout (`sheet status` / `sheet spells`) and its `tab` verb, which
+	// goes through the tab stones' own SelectMode.
 	CharacterSheet* Sheet() { return m_sheet; }
 	const CharacterSheet* Sheet() const { return m_sheet; }
+	// The most Known Spells rows a bake has made on the sheet, and on any of the
+	// party window's cards - read across each frame of an `alloctest` window
+	// for its spellrows= (AllocTest -Sheet -AllSpells, code-review C220).
+	size_t SheetSpellRowsMost() const { return m_sheet ? m_sheet->SpellRowsMost() : 0; }
+	size_t CardSpellRowsMost() const;
 
 	// --- spellbook (the Magic area) ------------------------------------------------
 	// Opens member `i`'s book exactly as its selector button does, or refuses

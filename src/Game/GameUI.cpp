@@ -1977,6 +1977,14 @@ std::string_view GameUI::InventoryStatusText() const {
 	return m_inventory ? m_inventory->StatusText() : std::string_view{};
 }
 unsigned GameUI::InventoryOpens() const { return m_inventory ? m_inventory->Opens() : 0; }
+size_t GameUI::CardSpellRowsMost() const {
+	size_t most = 0;
+	if (m_inventory)
+		for (size_t i = 0; i < PartyWindow::kMaxCards; ++i)
+			if (const CharacterSheet* card = m_inventory->Card(i))
+				most = std::max(most, card->SpellRowsMost());
+	return most;
+}
 gfx::Rect GameUI::InventoryStoneRect(size_t i) const {
 	return m_inventory ? m_inventory->StoneRect(i) : gfx::Rect{};
 }

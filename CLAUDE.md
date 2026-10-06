@@ -320,7 +320,8 @@ Key conventions (memorize, they bite):
   (`fx::Deflect`, stage 1 alone) - and `threat` prices it by that blast, on
   every member, unrolled. New spell services reach the world only through
   CastServices (each drivable bare with `castsvc`). Checked by `tools\SpellTest.py` (judges
-  spells.eval, CheckAll quick; `--selftest` cuts every cast), `tools\CombatTest.py`
+  spells.eval, CheckAll quick; `--selftest` cuts every cast and makes every
+  `lang` English, which its WORDS checks of whole descriptions rest on), `tools\CombatTest.py`
   (the burst on the party, the ward and the gust, the flare's reach, a ward's
   school by hand), `AllocTest.ps1 -Hand` and
   `AllocTest.ps1 -Burst` (the burst, the ward and every repel outcome inside a
@@ -827,7 +828,13 @@ Key conventions (memorize, they bite):
   assets/lang/<code>.lang (UTF-8 key=value, ';' comments; en.lang is the
   reference — add new strings there). Missing keys render as the key
   itself (visible, never fatal); a missing language file falls back to
-  en.lang. Dev-facing text (log::, DN_ASSERT, asset names, ini keys) stays
+  en.lang. A loc::Line (FormatLine, ViewKey) holds 255 bytes and cuts at a
+  whole UTF-8 character: it is for a MESSAGE. A DESCRIPTION is a paragraph -
+  Russian Sowilo's is 457 bytes - so whatever shows one reserves
+  loc::kParagraphCapacity (1023) and fills it with loc::AssignWithin /
+  FormatWithin, which never grow the string (code-review C371: German Sowilo
+  lost its last sentence; `itemdetails status` prints desc=shown/entry, and
+  SpellTest's WORDS checks hold them to the files). Dev-facing text (log::, DN_ASSERT, asset names, ini keys) stays
   English. Dynamic ids map to keys by convention: monster.<ent type>,
   race.* (races.cat `name`; there are NO classes), facing.* (Party::FacingName returns the
   key). Settings → Game has a Language dropdown (loc::ScanLanguages; each

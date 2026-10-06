@@ -30,10 +30,16 @@
 #   LIGHT   a Firelight running out says its own line, naming the light, and
 #           never the Sight spell's (code-review C9) - read off the HUD's
 #           message log (`messages`) in the game's own language.
+#   WORDS   a description is shown WHOLE in every language (code-review C371):
+#           German Sowilo's in the details dialog, the Russian tablets' and the
+#           amulet's, and the Russian lights' Known Spells rows - each past the
+#           255 bytes a loc::Line holds, each held to the byte count of the
+#           .lang file this judge reads itself, never to the game's own.
 #
-# --selftest runs the same script with every `cast` line removed and demands
-# that EXACTLY the checks resting on a spell fail (SPELL_FREE names the rest,
-# which must still pass), so no check is satisfied by nothing happening.
+# --selftest runs the same script with every `cast` line removed - and every
+# `lang` line made `lang en`, which the WORDS checks rest on - and demands that
+# EXACTLY the checks resting on either fail (SPELL_FREE names the rest, which
+# must still pass), so no check is satisfied by nothing happening.
 import io
 import os
 import re
@@ -52,8 +58,8 @@ NAMES = ["Brand", "Sera", "Maren", "Tilo"]
 
 results = []
 
-# The checks that rest on no spell: with every cast cut (--selftest) these, and
-# ONLY these, may still pass.
+# The checks that rest on no spell and no language: with every cast cut and
+# every `lang` made English (--selftest) these, and ONLY these, may still pass.
 SPELL_FREE = {
 	"the details dialog offers Memorize for a rune its holder does not know",
 	"and pressing it learns the rune and spends the tablet",
@@ -205,6 +211,23 @@ def lang():
 			k, v = l.rstrip("\n").split("=", 1)
 			table[k.strip()] = v
 	return table
+
+
+def lang_bytes(code, key):
+	"""(UTF-8 byte length, has a {} hole) of `key`'s text in
+	assets\\lang\\<code>.lang, read the way Core/Loc's parser reads it (key and
+	text trimmed of spaces and tabs) - or None when the file lacks it. Each WORDS
+	check holds the game to this."""
+	path = os.path.join(ROOT, "assets", "lang", f"{code}.lang")
+	found = None
+	for l in io.open(path, encoding="utf-8-sig"):
+		s = l.rstrip("\r\n").strip(" \t")
+		if not s or s.startswith(";") or "=" not in s:
+			continue
+		k, v = s.split("=", 1)
+		if k.strip(" \t") == key:
+			found = v.strip(" \t\r")  # the LAST definition wins, as in Loc
+	return None if found is None else (len(found.encode("utf-8")), "{" in found)
 
 
 def party(sec):
@@ -401,6 +424,45 @@ def judge(lines):
 		  f"want {own!r} among {lines}")
 	check(cast(sec) and own in lines and not sight.intersection(lines),
 		  "and never the Sight spell's", f"{lines}")
+
+	print("WORDS - a description is shown whole, in every language (code-review C371)")
+	sec = get("descriptions")
+	# Each `itemdetails status` while open: (shown bytes, entry bytes), in the
+	# script's order. Each expectation is the FILE's count, and past 255 - the
+	# bytes a loc::Line holds - or the check could pass on a cut nobody needed.
+	shown = [int(m.group(1)) for l in sec
+			 if l.startswith("item details: open") and (m := re.search(r" desc=(\d+)/\d+ ", l))]
+	want = [("de", "item.rune_light.desc"), ("ru", "item.rune_light.desc"),
+			("ru", "item.rune_explode.desc"), ("ru", "item.rune_multiple.desc"),
+			("ru", "item.moonstone_amulet.desc")]
+	expect = [(lang_bytes(code, key) or (0, False))[0] for code, key in want]
+	premise = all(n > 255 for n in expect)
+	check(premise and shown[:1] == expect[:1],
+		  "German Sowilo's description is shown whole, past 255 bytes",
+		  f"shown {shown[:1]}, de.lang {expect[:1]}")
+	check(premise and shown[1:] == expect[1:],
+		  "the Russian tablets' and the amulet's are shown whole",
+		  f"shown {shown[1:]}, ru.lang {expect[1:]}")
+	# The Known Spells rows (`sheet spells`): every row whose Russian text has no
+	# {} hole (a hole's length depends on the power formatted in) against the
+	# file - the lights' three long ones among them.
+	rows = {m.group(1): int(m.group(2)) for l in sec if (m := re.match(r"  (\w+) desc=(\d+)$", l))}
+	summary = next((l for l in sec if l.startswith("sheet spells: ")), "")
+	cuts = re.search(r"cuts=(\d+)", summary)
+	wrong, compared = [], []
+	for sid, n in sorted(rows.items()):
+		entry = lang_bytes("ru", f"spell.{sid}.desc")
+		if entry is None or entry[1]:
+			continue
+		compared.append(sid)
+		if n != entry[0]:
+			wrong.append(f"{sid} {n}/{entry[0]}")
+	long_lights = [sid for sid in ("firelight", "skylight", "stonelight")
+				   if (lang_bytes("ru", f"spell.{sid}.desc") or (0, False))[0] > 255]
+	check(len(long_lights) == 3 and set(long_lights) <= set(compared) and not wrong
+		  and cuts is not None and cuts.group(1) == "0",
+		  "the Russian Known Spells rows are whole, the lights' long ones too",
+		  f"rows {len(rows)}, compared {len(compared)}, wrong {wrong}, {summary!r}")
 	check("end" in s, "the script ran to its end")
 
 
@@ -411,8 +473,12 @@ def main():
 	selftest = "--selftest" in sys.argv
 	script = SCRIPT
 	if selftest:
+		# Every cast cut, and every language switch made English: the WORDS
+		# checks then see English descriptions, which the files' German and
+		# Russian counts must tell apart.
 		text = io.open(SCRIPT, encoding="utf-8").read()
-		cut = "\n".join(("echo skipped" if l.startswith("cast ") else l) for l in text.splitlines())
+		cut = "\n".join(("echo skipped" if l.startswith("cast ") else
+						 "lang en" if l.startswith("lang ") else l) for l in text.splitlines())
 		fd, script = tempfile.mkstemp(suffix=".eval")
 		with os.fdopen(fd, "w", encoding="utf-8") as fh:
 			fh.write(cut + "\n")
@@ -423,9 +489,9 @@ def main():
 		os.remove(script)
 	failed = sum(1 for _, ok in results if not ok)
 	if selftest:
-		# Every check that rests on a cast must FAIL with the casts cut, and the
-		# spell-free ones must still pass - so the cut run is a real run, not a
-		# broken one that fails everything.
+		# Every check that rests on a cast (or a language) must FAIL with them
+		# cut, and the spell-free ones must still pass - so the cut run is a real
+		# run, not a broken one that fails everything.
 		wrong = [lbl for lbl, ok in results if ok != (lbl in SPELL_FREE)]
 		for lbl in wrong:
 			print(f"  selftest: '{lbl}' {'passed' if lbl not in SPELL_FREE else 'failed'} with no casts")

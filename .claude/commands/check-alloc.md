@@ -117,6 +117,15 @@ only the default):
 - `.\tools\AllocTest.ps1 -Sheet` - the character sheet: hover (the status bar),
   every tab, a right-click opening the item details dialog, the use menu. It
   refuses a PASS unless `itemdetails status` counts an open made in the window
+- `.\tools\AllocTest.ps1 -Sheet -AllSpells` - the LONGEST Known Spells list
+  (code-review C220): Sera learns every spell before the window (`learn 1 all`),
+  and each cycle pages the sheet to her on Known Spells, opens the party window
+  there (her card with it), and comes back through Brand's portrait. The sheet
+  warmed 32 spell rows for a registry of 44; it warms the registry's size now.
+  Only the FIRST bake of her list on each can grow it, so it refuses a PASS
+  unless the verdict's `spellrows=` says the sheet's and her card's first bake
+  of every spell taught both ran in MEASURED frames (armed to the end of their
+  Update, inside the window) - a first bake in the warm-up checks nothing
 - `.\tools\AllocTest.ps1 -Items` - an item moved pack -> cursor -> floor ->
   cursor -> pack through the party inventory window, in eval_arena. The
   measured item is a kind never dropped before the window (a kind's first drop

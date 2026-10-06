@@ -45,10 +45,15 @@ nothing, the guard stops pretending to be two checks.
 - `loc::View(key)` — the same lookup, returning `std::string_view` into the
   table's own storage. No copy. This is the root fix and the thing new code
   should reach for.
-- `loc::Line` — a formatted line held INLINE (255 chars, no heap, no lifetime
+- `loc::Line` - a formatted line held INLINE (255 bytes, no heap, no lifetime
   rules, cheap to pass). Longer text is clipped rather than grown: a log line
-  past 255 characters is a bug in the line, and paying an allocation to print it
-  is worse than clipping it.
+  past 255 bytes is a bug in the line, and paying an allocation to print it
+  is worse than clipping it. The clip lands on a whole UTF-8 character
+  (`utf8::FitBytes`; it used to cut a Cyrillic letter in half, drawn as '?').
+  A Line is for a MESSAGE: a description is a paragraph and runs past 255 bytes
+  in translation, so it goes into a string reserved at `loc::kParagraphCapacity`
+  through `loc::AssignWithin` / `FormatWithin`, which never grow it (code-review
+  C371 - German Sowilo's last sentence and four Russian texts were cut).
 - `loc::FormatLine` / `VFormatLine` — `View()` + `vformat` into a `Line`. The
   clipping lives in a small output iterator (`ClipIter`) because `vformat_to` is
   the only type-erased formatting sink the standard offers — `format_to_n` wants

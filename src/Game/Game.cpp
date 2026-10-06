@@ -1972,7 +1972,11 @@ void Game::UpdateAllocTest(float dt, bool steady) {
 	// the Help line and the fall's step were checked, not merely made. levers= and
 	// niches= are lever presses and the presses that flipped a niche, counted the
 	// same way: -Lever's proof that a press wired to no niche and a reveal were
-	// both checked (code-review C211).
+	// both checked (code-review C211). spellrows= is the most Known Spells rows a
+	// bake reached for the first time in a measured frame, on the sheet and then
+	// on a party-window card: -Sheet -AllSpells' proof that the longest list's
+	// first bake on each was checked - the only bake that could grow it
+	// (code-review C220).
 	// effectsrose= is, per member in roster order, how far past its count at the
 	// window's first armed frame its effect list rose in an armed frame of it:
 	// -Effects' proof that an effect strip grew inside the window (code-review
@@ -1986,11 +1990,12 @@ void Game::UpdateAllocTest(float dt, bool steady) {
 	const std::string line =
 		std::format("alloctest RESULT={} frames={} violations={} violating_frames={} "
 					"transitions={} moves={} prompts={} helps={} falls={} levers={} niches={} "
-					"effectsrose={}{}",
+					"spellrows={},{} effectsrose={}{}",
 					timedOut ? "SKIP" : (violations == 0 ? "PASS" : "FAIL"),
 					m_allocTestFrames, violations, badFrames, m_allocTestTransitions, moves,
 					m_allocTestPrompts, m_allocTestHelps, m_allocTestFalls, m_allocTestLevers,
-					m_allocTestNiches, rose.empty() ? "-" : rose,
+					m_allocTestNiches, m_allocTestSheetSpells, m_allocTestCardSpells,
+					rose.empty() ? "-" : rose,
 					timedOut ? " reason=never_reached_a_steady_frame" : "");
 	log::Info("{}", line);
 	m_console.Print(line);
@@ -2035,15 +2040,19 @@ void Game::Update(float dt) {
 			m_inputPokeMidLine = !input.DiscardTypedForTest(/*throughEnter=*/!open);
 	}
 
-	// What AllocTest -Exit and -Lever must show was checked, read before the
-	// frame's work and differenced after it (the end of this function): a Help
-	// press, a pit fall's step and a lever press count only in a frame that is
-	// still armed when it ends.
+	// What AllocTest -Exit, -Lever and -Sheet -AllSpells must show was checked,
+	// read before the frame's work and differenced after it (the end of this
+	// function): a Help press, a pit fall's step, a lever press and a longer
+	// Known Spells bake count only in a frame that is still armed when it ends.
 	const u32 helpsAtTop = m_ui.HelpPresses();
 	const DungeonWorld* worldAtTop = m_world.get();
 	const u32 fallsAtTop = worldAtTop ? worldAtTop->GetHarness().fallsBegun : 0u;
 	const u32 leversAtTop = worldAtTop ? worldAtTop->GetHarness().leverPresses : 0u;
 	const u32 nichesAtTop = worldAtTop ? worldAtTop->GetHarness().nicheFlips : 0u;
+	// And -Sheet -AllSpells': the Known Spells rows the sheet's and the party
+	// window's bakes had ever reached, so a first longer bake can be seen.
+	const size_t sheetSpellsAtTop = m_ui.SheetSpellRowsMost();
+	const size_t cardSpellsAtTop = m_ui.CardSpellRowsMost();
 
 	UpdateStates(dt);
 
@@ -2098,6 +2107,10 @@ void Game::Update(float dt) {
 			m_allocTestLevers += h.leverPresses - leversAtTop;
 			m_allocTestNiches += h.nicheFlips - nichesAtTop;
 		}
+		if (const size_t s = m_ui.SheetSpellRowsMost(); s > sheetSpellsAtTop)
+			m_allocTestSheetSpells = std::max(m_allocTestSheetSpells, s);
+		if (const size_t c = m_ui.CardSpellRowsMost(); c > cardSpellsAtTop)
+			m_allocTestCardSpells = std::max(m_allocTestCardSpells, c);
 	}
 }
 

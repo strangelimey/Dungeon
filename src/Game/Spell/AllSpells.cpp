@@ -85,4 +85,10 @@ std::vector<std::unique_ptr<Spell>> MakeAllSpells() {
 	return all;
 }
 
+size_t SpellRegistrySize() {
+	// Counted off the list itself, so a spell added above is counted with it.
+	static const size_t count = MakeAllSpells().size();
+	return count;
+}
+
 } // namespace dungeon::game

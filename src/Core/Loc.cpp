@@ -4,6 +4,7 @@
 #include "Core/Loc.h"
 
 #include "Core/Log.h"
+#include "Core/Utf8.h"
 
 #include <algorithm>
 #include <cstring>
@@ -64,6 +65,23 @@ bool LoadFile(const std::string& path) {
 	}
 	g_table = std::move(table);
 	log::Info("Loaded {} strings from {}", g_table.size(), path);
+	// An entry past a paragraph's room is cut wherever it is shown (at a whole
+	// character), so say which, once, at load - not silently on screen.
+	std::vector<std::string_view> tooLong;
+	for (const auto& [key, value] : g_table)
+		if (value.size() > kParagraphCapacity) tooLong.push_back(key);
+	if (!tooLong.empty()) {
+		std::ranges::sort(tooLong);
+		std::string list;
+		for (const std::string_view key : tooLong) {
+			if (!list.empty()) list += ", ";
+			list += key;
+		}
+		log::Warn("{}: {} entr{} longer than the {} bytes a description is shown in "
+				  "(cut where shown): {}",
+				  path, tooLong.size(), tooLong.size() == 1 ? "y" : "ies", kParagraphCapacity,
+				  list);
+	}
 	return true;
 }
 
@@ -106,9 +124,17 @@ Line ViewKey(std::string_view prefix, std::string_view id) {
 }
 
 void Line::Assign(std::string_view text) {
-	m_len = std::min(text.size(), kCapacity);
+	// At a whole character: a byte cut once ended four Russian descriptions on
+	// half a letter, drawn as '?' (code-review C371).
+	m_len = utf8::FitBytes(text, kCapacity).size();
 	std::memcpy(m_buf, text.data(), m_len);
 	m_buf[m_len] = '\0';
+}
+
+bool AssignWithin(std::string& out, std::string_view text) {
+	const std::string_view fit = utf8::FitBytes(text, out.capacity());
+	out.assign(fit); // within the capacity: no allocation
+	return fit.size() == text.size();
 }
 
 std::string VFormat(std::string_view key, std::format_args args) {
@@ -136,30 +162,58 @@ struct ClipIter {
 	char* buf = nullptr;
 	size_t cap = 0;
 	size_t* len = nullptr;
+	bool* dropped = nullptr; // set once anything did not fit
 
 	ClipIter& operator=(char c) {
 		if (*len < cap) buf[(*len)++] = c;
+		else *dropped = true;
 		return *this;
 	}
 	ClipIter& operator*() { return *this; }
 	ClipIter& operator++() { return *this; }
 	ClipIter operator++(int) { return *this; }
 };
+
+// The bytes a formatting buffer keeps PAST its limit: the rest of a character
+// the limit lands in (a UTF-8 character is at most four bytes), so the cut
+// back to a whole one can see where that character ends (utf8::FitBytes).
+constexpr size_t kCharTail = 3;
 } // namespace
 
 Line VFormatLine(std::string_view key, std::format_args args) {
 	const std::string_view pattern = View(key);
-	char buf[Line::kCapacity];
+	char buf[Line::kCapacity + kCharTail];
 	size_t len = 0;
+	bool dropped = false;
 	Line out;
 	try {
-		std::vformat_to(ClipIter{buf, Line::kCapacity, &len}, pattern, args);
-		out.Assign({buf, len});
+		std::vformat_to(ClipIter{buf, sizeof(buf), &len, &dropped}, pattern, args);
+		out.Assign({buf, len}); // cut to kCapacity at a whole character
 	} catch (const std::format_error&) {
 		log::Warn("Bad format placeholders in language entry '{}'", key);
 		out.Assign(pattern);
 	}
 	return out;
+}
+
+bool VFormatWithin(std::string& out, std::string_view key, std::format_args args) {
+	const std::string_view pattern = View(key);
+	// No room past a paragraph's, whatever `out` has: the buffer is on the stack.
+	const size_t room = std::min(out.capacity(), kParagraphCapacity);
+	char buf[kParagraphCapacity + kCharTail];
+	size_t len = 0;
+	bool dropped = false;
+	std::string_view text;
+	try {
+		std::vformat_to(ClipIter{buf, room + kCharTail, &len, &dropped}, pattern, args);
+		text = {buf, len};
+	} catch (const std::format_error&) {
+		log::Warn("Bad format placeholders in language entry '{}'", key);
+		text = pattern;
+	}
+	const std::string_view fit = utf8::FitBytes(text, room);
+	out.assign(fit); // within the capacity: no allocation
+	return fit.size() == text.size() && !dropped;
 }
 
 std::vector<LanguageInfo> ScanLanguages(const std::string& dir) {

@@ -9,6 +9,7 @@
 
 #include "Core/Loc.h"
 #include "Game/PartyHudTypes.h"
+#include "Game/SpellIdList.h" // kIdCapacity, a spell row's id
 #include "Game/Spells.h"
 #include "UI/Controls.h"
 
@@ -322,6 +323,16 @@ public:
 	unsigned PackEquips() const { return m_packEquips; }
 	// Frames that drew the COMPARING armor tooltip so far (see m_armorTipsCompared).
 	unsigned ArmorTipsCompared() const { return m_armorTipsCompared; }
+	// The Known Spells rows as last baked, for `sheet spells` / `sheet status`:
+	// how many, row i's spell id and description, the most one bake has made
+	// (the `alloctest` verdict's spellrows= watches it rise in measured frames,
+	// for AllocTest -Sheet -AllSpells), and the descriptions a bake had to cut
+	// (none, unless a .lang entry outruns loc::kParagraphCapacity).
+	size_t SpellRowCount() const { return m_spellRows.size(); }
+	std::string_view SpellRowId(size_t i) const { return m_spellRows[i].id; }
+	std::string_view SpellRowDesc(size_t i) const { return m_spellRows[i].desc; }
+	size_t SpellRowsMost() const { return m_spellRowsMost; }
+	unsigned DescCuts() const { return m_descCuts; }
 
 	// Which body the sheet shows; the mode buttons under the portrait switch it.
 	// (Order == the mode-button strip order — Spells sits before Effects.)
@@ -556,17 +567,25 @@ private:
 	// Resolved through the `spells` registry callback.
 	struct SpellRow {
 		std::vector<SpellSymbol> symbols; // the recipe, drawn as rune icons first
+		std::string id;                   // the spell's, for the `sheet spells` readout
 		std::string name, desc;
 		Vec4 tint{1, 1, 1, 1};
-		// A description is a loc::Line at most (loc::kCapacity), so it fits.
+		// A description is a PARAGRAPH, given a paragraph's room and filled by
+		// loc::FormatWithin - not a loc::Line, whose 255 bytes cut the Russian
+		// lights' descriptions short (code-review C371).
 		void Reserve() {
 			symbols.reserve(8);
+			id.reserve(SpellIdList::kIdCapacity);
 			name.reserve(63);
-			desc.reserve(loc::Line::kCapacity);
+			desc.reserve(loc::kParagraphCapacity);
 		}
 	};
 	RowPool<SpellRow> m_spellRows;
 	std::vector<const Spell*> m_spellOrder; // BakeSpells' sort scratch
+	// For the readouts (`sheet status` / `sheet spells`): the most Known Spells
+	// rows one bake has made, and the descriptions any bake had to cut.
+	size_t m_spellRowsMost = 0;
+	unsigned m_descCuts = 0;
 	// Effects-tab rows, likewise baked by SetCharacter and then again every
 	// frame in UpdateSelf (the world runs under the sheet): what the icon
 	// needs - drawn by DrawEffectIcon, the HUD strip's own (kind art + school
@@ -581,7 +600,7 @@ private:
 		std::string name, desc, time;
 		void Reserve() {
 			name.reserve(63);
-			desc.reserve(loc::Line::kCapacity);
+			desc.reserve(loc::kParagraphCapacity); // a paragraph, as a spell's
 			time.reserve(63);
 		}
 	};

@@ -5,6 +5,7 @@
 #include "Game/CharacterSheet.h"
 #include "Game/CharacterSheetLayout.h"
 #include "Game/PartyHudDraw.h"
+#include "Game/Spell/Spell.h" // SpellRegistrySize, the Known Spells warm-up
 #include "UI/Skin.h"
 
 #include "Core/Loc.h"
@@ -47,19 +48,22 @@ CharacterSheet::CharacterSheet(const gfx::Rect& rect,
 					loc::Tr("attr.intelligence")};
 	BuildParts();
 	// Room for a member's rows before the first open (RowPool): skills are
-	// the schools + weapon classes + the three practices + two headings, the
-	// spells are bounded by the registry (16 in the demo), and the effects by
-	// the list's own ceiling - fx::Apply evicts past it, so a member can never
-	// show more rows than that and the pool never grows in play.
-	constexpr size_t kSkillRows = 24, kSpellRows = 32;
+	// the schools + weapon classes + the three practices + two headings; the
+	// spells are bounded by the registry, counted (44 with the Sowilo lights -
+	// a fixed 32 grew the pool in an armed frame for a member who knew them
+	// all, code-review C220); and the effects by the list's own ceiling -
+	// fx::Apply evicts past it. A member can never show more rows than those,
+	// so the pools never grow in play.
+	constexpr size_t kSkillRows = 24;
+	const size_t spellRows = SpellRegistrySize();
 	constexpr size_t kEffectRows = fx::kMaxEffects;
 	m_skillRows.Warm(kSkillRows);
-	m_spellRows.Warm(kSpellRows);
+	m_spellRows.Warm(spellRows);
 	m_effectRows.Warm(kEffectRows);
-	m_spellOrder.reserve(64);
+	m_spellOrder.reserve(spellRows);
 	// And the list widgets that show them (m_lists is in Mode order after
 	// Stats: Skills, Spells, Effects).
-	const size_t listRows[] = {kSkillRows, kSpellRows, kEffectRows};
+	const size_t listRows[] = {kSkillRows, spellRows, kEffectRows};
 	for (size_t n = 0; n < m_lists.size(); ++n)
 		if (m_lists[n]) m_lists[n]->Warm(listRows[n]);
 }

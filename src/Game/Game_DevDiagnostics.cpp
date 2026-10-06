@@ -90,6 +90,7 @@ void Game::RegisterDiagnosticCommands() {
 			m_allocTestPrompts = 0;
 			m_allocTestHelps = m_allocTestFalls = 0;
 			m_allocTestLevers = m_allocTestNiches = 0;
+			m_allocTestSheetSpells = m_allocTestCardSpells = 0;
 			m_allocTestFxAt = {};
 			m_allocTestFxPeak = {};
 			m_allocTestStart = alloc::Stats();

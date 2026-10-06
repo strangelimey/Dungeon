@@ -416,4 +416,32 @@ cast 2 fire light
 char 2
 step 400
 messages 30
+
+; --- DESCRIPTIONS ARE SHOWN WHOLE (code-review C371) ----------------------------
+; A description is a paragraph, not a message line. The details dialog and the
+; sheet's Known Spells rows took one through a 255-byte loc::Line, which cut
+; German Sowilo's last sentence (that memorizing spends the tablet) and ended
+; four Russian texts on half a letter. `itemdetails status` gives the shown
+; description's bytes over its entry's (desc=N/M), `sheet spells` each Known
+; Spells row's; the judge holds the shown counts to the .lang files it reads
+; itself. A scripted `lang` is drawn and never saved; this ends back on en.
+echo === descriptions ===
+lang de
+itemdetails rune_light
+itemdetails status
+lang ru
+itemdetails rune_light
+itemdetails status
+itemdetails rune_explode
+itemdetails status
+itemdetails rune_multiple
+itemdetails status
+itemdetails moonstone_amulet
+itemdetails status
+itemdetails off
+learn 2 all
+sheet 2
+sheet spells
+sheet off
+lang en
 echo === end ===

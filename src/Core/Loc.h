@@ -23,7 +23,8 @@ namespace dungeon::loc {
 
 // Replaces the active table with the file's contents. Returns false (table
 // left empty) when the file is missing or unreadable — callers fall back to
-// the shipped English file.
+// the shipped English file. Warns once, naming them, of any entry longer than
+// kParagraphCapacity (below): no screen can show one whole.
 bool LoadFile(const std::string& path);
 
 // Compares the active table against a reference file (en.lang) and logs one
@@ -57,12 +58,18 @@ std::string Tr(std::string_view key);
 // normally handed; it is not safe for a key assembled on the fly.
 std::string_view View(std::string_view key);
 
-// A formatted line, held INLINE — no heap, no lifetime rules, cheap to pass.
+// A formatted line, held INLINE - no heap, no lifetime rules, cheap to pass.
 //
 // Message text is short and bounded, so it does not need an allocation to
 // exist. Anything longer than the buffer is truncated rather than growing:
-// a log line that runs past 256 characters is a bug in the line, and silently
-// costing an allocation to print it is worse than clipping it.
+// a log line that runs past 255 bytes is a bug in the line, and silently
+// costing an allocation to print it is worse than clipping it. The cut lands
+// on a whole UTF-8 character (utf8::FitBytes), never inside one.
+//
+// A LINE IS FOR A MESSAGE, NOT A PARAGRAPH. A description - an item's, a
+// spell's, an effect's - runs past 255 bytes in translation (Russian Sowilo is
+// 457), and through a Line it lost its end (code-review C371). That is what
+// kParagraphCapacity and AssignWithin / FormatWithin below are for.
 class Line {
 public:
 	Line() = default;
@@ -72,7 +79,8 @@ public:
 	const char* c_str() const { return m_buf; }
 	size_t size() const { return m_len; }
 	bool empty() const { return m_len == 0; }
-	// Writes `text`, clipped to capacity. Public because VFormat fills one.
+	// Writes `text`, cut to capacity at a whole character. Public because
+	// VFormatLine fills one.
 	void Assign(std::string_view text);
 	static constexpr size_t kCapacity = 255;
 
@@ -113,6 +121,29 @@ Line VFormatLine(std::string_view key, std::format_args args);
 template <typename... Args>
 Line FormatLine(std::string_view key, Args&&... args) {
 	return VFormatLine(key, std::make_format_args(args...));
+}
+
+// THE ROOM A PARAGRAPH IS GIVEN: an item's, a spell's or an effect's
+// description (code-review C371). Whatever SHOWS one reserves this much in a
+// string of its own and fills it through AssignWithin / FormatWithin, so
+// showing it never allocates and never cuts it - the longest shipped (Russian
+// Sowilo, 457 bytes) has room to double. LoadFile warns of any entry longer.
+inline constexpr size_t kParagraphCapacity = 1023;
+
+// Writes `text` into `out` WITHOUT GROWING IT: cut, at a whole UTF-8 character,
+// to what out's capacity already holds - so reserve first (a default string
+// holds 15). True when all of it fit.
+bool AssignWithin(std::string& out, std::string_view text);
+
+// The key's text formatted into `out` the same way: FormatLine for a string the
+// caller owns, and no shorter than kParagraphCapacity when `out` has that room.
+// A bad placeholder shows the raw pattern, as FormatLine does. True when the
+// whole text fit.
+bool VFormatWithin(std::string& out, std::string_view key, std::format_args args);
+
+template <typename... Args>
+bool FormatWithin(std::string& out, std::string_view key, Args&&... args) {
+	return VFormatWithin(out, key, std::make_format_args(args...));
 }
 
 // One installed language: the file stem ("en") and its self-declared display

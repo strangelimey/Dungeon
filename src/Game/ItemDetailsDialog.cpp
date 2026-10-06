@@ -4,6 +4,7 @@
 #include "Game/ItemDetailsDialog.h"
 
 #include "Core/Loc.h"
+#include "Core/Utf8.h"
 #include "Game/AssetUtil.h"
 #include "Game/DialogLayout.h"
 #include "Game/PartyHudDraw.h" // the rune groove's breath (kRuneGroove*)
@@ -15,6 +16,7 @@
 #include <cmath>
 #include <format>
 #include <numbers>
+#include <span>
 
 namespace dungeon::game {
 
@@ -40,9 +42,13 @@ constexpr float kLabelFill = 0.6f;
 constexpr float kValueFill = 1.5f;
 // One slow full turn, the way a thing is turned over in the hand to look at it.
 constexpr float kSpinSeconds = 20.0f;
-// Room reserved in each assigned string, so opening never grows one.
-constexpr size_t kValueCap = 160;
-constexpr size_t kDescCap = 600;
+// Room reserved in each assigned string, so opening never grows one. A value
+// line is at most a loc::Line: the resist and cure lines are built to that
+// length below, and a lookup arrives as one. It was 160 (code-review C220).
+// The description is a paragraph, and gets a paragraph's room (C371).
+constexpr size_t kValueCap = loc::Line::kCapacity;
+static_assert(kValueCap >= loc::Line::kCapacity, "a value row must hold a whole loc::Line");
+constexpr size_t kDescCap = loc::kParagraphCapacity;
 
 // `v` as tenths ("1.5"), formatted as integers - MSVC's float precision path
 // allocates in debug (the carry-load line's reason).
@@ -56,21 +62,40 @@ std::string_view Tenths(std::span<char> buf, float v) {
 	return {buf.data(), static_cast<size_t>(end - buf.data())};
 }
 
-// "<prefix><id><suffix>" looked up, copied into a Line (a missing key comes back
-// as the key, which here is a stack buffer). `missing` says whether it was.
-loc::Line Lookup(std::string_view prefix, std::string_view id, std::string_view suffix,
-				 bool* missing = nullptr) {
-	char key[128];
+// "<prefix><id><suffix>" assembled in `key`; its length.
+size_t BuildKey(std::span<char> key, std::string_view prefix, std::string_view id,
+				std::string_view suffix) {
 	size_t n = 0;
 	for (std::string_view part : {prefix, id, suffix}) {
-		const size_t k = std::min(part.size(), sizeof(key) - n);
-		std::copy_n(part.data(), k, key + n);
+		const size_t k = std::min(part.size(), key.size() - n);
+		std::copy_n(part.data(), k, key.data() + n);
 		n += k;
 	}
-	const std::string_view k(key, n);
+	return n;
+}
+
+// That key looked up and copied into a Line (a missing key comes back as the
+// key, which here is a stack buffer) - for a short value: a category, a skill.
+loc::Line Lookup(std::string_view prefix, std::string_view id, std::string_view suffix) {
+	char key[128];
+	return loc::Line(loc::View(std::string_view(key, BuildKey(key, prefix, id, suffix))));
+}
+
+// The same lookup NOT copied: the table's own text, or empty when the key is
+// missing. For a paragraph, which a Line would cut (code-review C371).
+std::string_view LookupView(std::string_view prefix, std::string_view id,
+							std::string_view suffix) {
+	char key[128];
+	const std::string_view k(key, BuildKey(key, prefix, id, suffix));
 	const std::string_view text = loc::View(k);
-	if (missing) *missing = text == k;
-	return loc::Line(text);
+	return text.data() == k.data() ? std::string_view{} : text; // the key back = missing
+}
+
+// `buf[0, n)` as a value line: at most kValueCap bytes, cut at a whole
+// character. The buffers below keep three bytes past kValueCap so the cut can
+// see where a character the limit lands in ends (utf8::FitBytes).
+std::string_view ValueLine(const char* buf, size_t n) {
+	return utf8::FitBytes(std::string_view(buf, n), kValueCap);
 }
 
 } // namespace
@@ -216,7 +241,7 @@ void ItemDetailsDialog::Open(const ItemDetails& d, float weightKg) {
 							: std::string_view{});
 	SetRow(kWorn, d.wear != WearSlot::None ? Lookup("wear.", WearSlotId(d.wear), "").View()
 										   : std::string_view{});
-	char resists[loc::Line::kCapacity];
+	char resists[kValueCap + 3]; // + the rest of a character the cap lands in
 	size_t n = 0;
 	for (size_t i = 0; i < d.resistCount; ++i) {
 		const ItemDetails::Resist& r = d.resists[i];
@@ -227,7 +252,7 @@ void ItemDetailsDialog::Open(const ItemDetails& d, float weightKg) {
 			static_cast<int>(std::lround(r.value * 100.0f)));
 		n = std::min(static_cast<size_t>(end.out - resists), sizeof(resists));
 	}
-	SetRow(kResists, std::string_view(resists, n));
+	SetRow(kResists, ValueLine(resists, n));
 
 	// Food and drink.
 	SetRow(kNutrition, d.nutrition > 0.0f ? std::string_view(Tenths(a, d.nutrition))
@@ -245,7 +270,7 @@ void ItemDetailsDialog::Open(const ItemDetails& d, float weightKg) {
 								: std::string_view{});
 	SetRow(kRestoreMana, d.restoreMana > 0.0f ? std::string_view(Tenths(m, d.restoreMana))
 											  : std::string_view{});
-	char cures[loc::Line::kCapacity];
+	char cures[kValueCap + 3];
 	size_t c = 0;
 	for (size_t i = 0; i < d.cureCount; ++i) {
 		const ItemDetails::Cure& cure = d.cures[i];
@@ -259,14 +284,16 @@ void ItemDetailsDialog::Open(const ItemDetails& d, float weightKg) {
 								   static_cast<int>(std::lround(cure.share * 100.0f)));
 		c = std::min(static_cast<size_t>(end.out - cures), sizeof(cures));
 	}
-	SetRow(kCures, std::string_view(cures, c));
+	SetRow(kCures, ValueLine(cures, c));
 
 	// item.<id>.desc by the name key's convention; an item without one simply has
-	// no paragraph rather than printing its key.
+	// no paragraph rather than printing its key. The table's text goes straight
+	// into the paragraph's room - through a loc::Line it lost German Sowilo's
+	// last sentence and ended Russian texts on half a letter (code-review C371).
 	if (m_desc) {
-		bool missing = false;
-		const loc::Line desc = Lookup(d.nameKey, "", ".desc", &missing);
-		m_desc->text.assign(missing ? std::string_view{} : desc.View());
+		const std::string_view desc = LookupView(d.nameKey, "", ".desc");
+		m_descEntryBytes = desc.size();
+		loc::AssignWithin(m_desc->text, desc);
 	}
 	m_spin = 0.0f;
 	ShowMemorize(false); // the caller shows it, for a rune its holder can learn
@@ -279,6 +306,8 @@ void ItemDetailsDialog::ShowMemorize(bool shown) {
 }
 
 bool ItemDetailsDialog::MemorizeShown() const { return m_memorize && m_memorize->visible; }
+
+size_t ItemDetailsDialog::DescBytes() const { return m_desc ? m_desc->text.size() : 0; }
 
 void ItemDetailsDialog::Update(const Input& input, float w, float h, float dt) {
 	if (!m_open) return;

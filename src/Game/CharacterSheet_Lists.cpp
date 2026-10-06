@@ -189,7 +189,8 @@ void SheetList::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 
 // Each bake rewinds its RowPool and assign()s into the rows it hands back, so a
 // re-bake allocates nothing (CharacterSheet.h, RowPool): labels are loc views,
-// numbers and formatted lines go through stack buffers / loc::FormatLine.
+// numbers and formatted lines go through stack buffers / loc::FormatLine, and a
+// description - a paragraph - through loc::FormatWithin into the row's room.
 
 void CharacterSheet::BakeSkills() {
 	m_skillRows.Reset();
@@ -270,16 +271,17 @@ void CharacterSheet::BakeEffects() {
 		row.tint = {c.x, c.y, c.z, 1.0f};
 		row.frac = EffectTimeLeft(e);
 		row.name.assign(loc::View(e.NameKey()));
-		// The description's key is <nameKey>.desc, assembled on the stack.
+		// The description's key is <nameKey>.desc, assembled on the stack. A
+		// paragraph, formatted into the row's own room (code-review C371).
 		constexpr std::string_view kDesc = ".desc";
 		char key[96];
 		const std::string_view nameKey = e.NameKey();
 		const size_t n = std::min(nameKey.size(), sizeof(key) - kDesc.size());
 		std::copy_n(nameKey.data(), n, key);
 		std::copy(kDesc.begin(), kDesc.end(), key + n);
-		row.desc.assign(loc::FormatLine(std::string_view(key, n + kDesc.size()),
-										static_cast<int>(e.magnitude + 0.5f))
-							.View());
+		if (!loc::FormatWithin(row.desc, std::string_view(key, n + kDesc.size()),
+							   static_cast<int>(e.magnitude + 0.5f)))
+			++m_descCuts;
 		row.time.assign(
 			loc::FormatLine("sheet.effect_time", static_cast<int>(e.timeLeft + 0.5f))
 				.View());
@@ -305,11 +307,15 @@ void CharacterSheet::BakeSpells() {
 		const Vec4 c = ElementColor(def->School());
 		SpellRow& row = m_spellRows.Next();
 		row.symbols.assign(def->Sequence().begin(), def->Sequence().end());
+		row.id.assign(def->Id());
 		row.name.assign(loc::View(def->NameKey()));
-		row.desc.assign(
-			loc::FormatLine(def->DescKey(), static_cast<int>(def->Power() + 0.5f)).View());
+		// A paragraph, formatted into the row's own room: through a loc::Line it
+		// lost the end of every Russian light's (code-review C371).
+		if (!loc::FormatWithin(row.desc, def->DescKey(), static_cast<int>(def->Power() + 0.5f)))
+			++m_descCuts;
 		row.tint = {c.x, c.y, c.z, 1.0f};
 	}
+	m_spellRowsMost = std::max(m_spellRowsMost, m_spellRows.size());
 }
 
 // --- rows: measure + draw --------------------------------------------------

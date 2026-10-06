@@ -52,6 +52,8 @@
 // ============================================================================
 #include "Assets/Model.h"
 #include "Common/Verdict.h"
+#include "Core/Loc.h"
+#include "Core/Utf8.h"
 #include "Game/BalanceKnobs.h"
 #include "Game/Blast.h"
 #include "Game/Combat.h"
@@ -2653,6 +2655,78 @@ int main(int argc, char** argv) {
 		CheckTrue("a lone lead byte is not", !utf8::Valid("ab\xD0"));
 		CheckTrue("an overlong '/' (C0 AF) is not", !utf8::Valid("\xC0\xAF"));
 		CheckTrue("an encoded surrogate (ED A0 80) is not", !utf8::Valid("\xED\xA0\x80"));
+		CheckTrue("FitBytes keeps what fits", utf8::FitBytes("ab\xD0\x96", 4) == "ab\xD0\x96");
+		CheckTrue("...and never half a letter", utf8::FitBytes("ab\xD0\x96", 3) == "ab");
+		CheckTrue("...nor three quarters of a 4-byte character",
+				  utf8::FitBytes("a\xF0\x90\x8D\x88", 4) == "a");
+	}
+
+	// --- Loc lines and paragraphs (Core/Loc.h) -------------------------------
+	// A loc::Line holds 255 bytes, and a translated DESCRIPTION runs past that
+	// (Russian Sowilo is 457 - code-review C371): a Line cuts at a WHOLE character,
+	// never mid-letter, and a paragraph goes into a string's own reserved room
+	// (AssignWithin / FormatWithin), whole up to loc::kParagraphCapacity and never
+	// grown. Nothing loads a language here, so a key is its own text: a test's key
+	// IS its pattern. Spelled as escapes: this file is ASCII.
+	{
+		std::printf("\nLoc lines and paragraphs (Core/Loc.h)\n");
+		namespace loc = dungeon::loc;
+		namespace utf8 = dungeon::utf8;
+		const std::string zhe = "\xD0\x96";             // Cyrillic Zhe, 2 bytes
+		const std::string euro = "\xE2\x82\xAC";        // 3 bytes
+		const std::string hwair = "\xF0\x90\x8D\x88";   // 4 bytes
+		const auto ascii = [](size_t n) { return std::string(n, 'a'); };
+		const auto letters = [&](size_t n) {
+			std::string s;
+			for (size_t i = 0; i < n; ++i) s += zhe;
+			return s;
+		};
+		const auto lineBytes = [](const std::string& s) {
+			return static_cast<double>(loc::Line(s).size());
+		};
+		Check("a Line holds 255 bytes", static_cast<double>(loc::Line::kCapacity), 255.0, 0.0);
+		Check("300 ASCII bytes keep 255", lineBytes(ascii(300)), 255.0, 0.0);
+		Check("253 + a 2-byte letter (255) is whole", lineBytes(ascii(253) + zhe), 255.0, 0.0);
+		Check("254 + a 2-byte letter (256) keeps 254", lineBytes(ascii(254) + zhe), 254.0, 0.0);
+		Check("253 + a 3-byte char (256) keeps 253", lineBytes(ascii(253) + euro), 253.0, 0.0);
+		Check("252 + a 4-byte char (256) keeps 252", lineBytes(ascii(252) + hwair), 252.0, 0.0);
+		Check("254 + a 4-byte char (258) keeps 254", lineBytes(ascii(254) + hwair), 254.0, 0.0);
+		const loc::Line cut(letters(200)); // 400 bytes
+		CheckTrue("200 letters keep 127 whole ones, valid UTF-8",
+				  cut.size() == 254 && utf8::Valid(cut.View()));
+		// FormatLine formats into a buffer and cuts the same way - the formatted
+		// text, not only an assigned one.
+		const std::string ru200 = letters(200);
+		const loc::Line fx = loc::FormatLine("x{}", ru200);
+		CheckTrue("FormatLine 'x' + 200 letters keeps 'x' + 127",
+				  fx.size() == 255 && utf8::Valid(fx.View()));
+		const loc::Line f0 = loc::FormatLine("{}", ru200);
+		CheckTrue("FormatLine of 200 letters keeps 127", f0.size() == 254 && utf8::Valid(f0.View()));
+
+		std::string para;
+		para.reserve(loc::kParagraphCapacity);
+		const size_t room = para.capacity();
+		const std::string sowilo = letters(228) + "a"; // 457 bytes, the Russian tablet's
+		CheckTrue("a 457-byte description is kept whole",
+				  loc::AssignWithin(para, sowilo) && para == sowilo);
+		CheckTrue("...in the room it had", para.capacity() == room);
+		const std::string huge = letters(1000); // 2000 bytes
+		const bool hugeWhole = loc::AssignWithin(para, huge);
+		CheckTrue("a 2000-byte text is cut to the room, at a whole letter",
+				  !hugeWhole && para.size() <= room && para.size() + 2 > room &&
+					  utf8::Valid(para));
+		CheckTrue("...and the string never grew", para.capacity() == room);
+		const int seven = 7;
+		CheckTrue("FormatWithin keeps a 459-byte paragraph whole",
+				  loc::FormatWithin(para, "{} {}", sowilo, seven) && para.size() == 459 &&
+					  para.ends_with(" 7"));
+		const bool fHuge = loc::FormatWithin(para, "{}", huge);
+		CheckTrue("FormatWithin cuts past its room, at a whole letter, and says so",
+				  !fHuge && para.size() <= loc::kParagraphCapacity && utf8::Valid(para) &&
+					  para.capacity() == room);
+		std::string bare; // never reserved: its small-string room only
+		CheckTrue("an unreserved string keeps only what it already holds",
+				  !loc::AssignWithin(bare, ascii(40)) && bare.size() == bare.capacity());
 	}
 
 	// --- party creation (Game/PartyRules.h) ---------------------------------
