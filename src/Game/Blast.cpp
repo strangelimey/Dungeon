@@ -4,6 +4,7 @@
 #include "Game/Blast.h"
 
 #include <algorithm>
+#include <cmath> // std::floor
 
 namespace dungeon::game::blast {
 
@@ -65,9 +66,11 @@ Result Propagate(int cx, int cz, const Rules& rules, const PassableFn& passable)
 	};
 
 	// --- detonation ---------------------------------------------------------
-	// The centre may be solid (a bolt that burst against stone). Nothing stands in
-	// a wall, so it takes no effect and spends no force — but the blast still
-	// starts from it, so the squares beyond are at distance 1.
+	// The centre may be solid: a spared one (a burst round the caster) is asked
+	// as solid on purpose. Nothing stands in it, so it takes no effect and spends
+	// no force - but the blast still starts from it, so the squares beyond are at
+	// distance 1, on EVERY side (see PassableFn - a stopped flight's burst is
+	// centred by LastOpenCell, never in what stopped it).
 	const bool centreOpen = !passable || passable(cx, cz);
 	std::array<Occupied, kMaxCells> frontier{};
 	int frontCount = 0;
@@ -195,6 +198,25 @@ Result Propagate(int cx, int cz, const Rules& rules, const PassableFn& passable)
 	out.leftover = std::max(0, force);
 	if (out.ticks >= kMaxTicks) out.clamped = true;
 	return out;
+}
+
+bool LastOpenCell(float px, float pz, float dx, float dz, float cellSize,
+				  const PassableFn& open, int& x, int& z) {
+	// Half a square back at a time: a point deep in the wall needs two steps to
+	// reach the square in front, a point just inside it one, and a half step can
+	// never jump a whole square on a cardinal flight.
+	for (int step = 0; step < kLastOpenSteps; ++step) {
+		const int cx = static_cast<int>(std::floor(px / cellSize));
+		const int cz = static_cast<int>(std::floor(pz / cellSize));
+		if (!open || open(cx, cz)) {
+			x = cx;
+			z = cz;
+			return true;
+		}
+		px -= dx * cellSize * 0.5f;
+		pz -= dz * cellSize * 0.5f;
+	}
+	return false;
 }
 
 } // namespace dungeon::game::blast

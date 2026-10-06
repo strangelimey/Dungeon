@@ -269,22 +269,11 @@ void DungeonWorld::LandThrown(const ProjectileExpiry& expiry) {
 		StrikeDoorWithThrow(static_cast<int>(std::floor(expiry.pos.x / kCellSize)),
 							static_cast<int>(std::floor(expiry.pos.z / kCellSize)), expiry);
 	// The last OPEN square along the flight: a wall's square (or a shut door's)
-	// is never one - the flight has already stepped into it when it stops - so
-	// back off along it, half a square at a time, to the party's own at worst.
-	Vec3 p = expiry.pos;
+	// is never one - the flight has already stepped into it when it stops - so it
+	// comes down in front (FlightEnd, the rule a bolt's end shares), at worst in
+	// the party's own square, never inside the stone where it would be lost.
 	int cx = m_party.GridX(), cz = m_party.GridZ();
-	for (int step = 0; step < 16; ++step) {
-		const int x = static_cast<int>(std::floor(p.x / kCellSize));
-		const int z = static_cast<int>(std::floor(p.z / kCellSize));
-		const Door* door = DoorAt(x, z);
-		if (m_map.IsWalkable(x, z) && !(door && !door->open)) {
-			cx = x;
-			cz = z;
-			break;
-		}
-		p.x -= expiry.dir.x * kCellSize * 0.5f;
-		p.z -= expiry.dir.z * kCellSize * 0.5f;
-	}
+	FlightEnd(expiry, cx, cz);
 	++m_harness.tally.throwLandings;
 	// A thing that SHATTERS lets go of what it carries where it stops - a fire
 	// flask's blast, a poison flask's cloud - as a spent bolt does.

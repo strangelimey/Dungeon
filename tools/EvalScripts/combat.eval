@@ -145,4 +145,107 @@ char 1
 char 2
 char 3
 
+; --- WHERE A FLIGHT ENDS (code-review C43, C44) --------------------------------
+; A flight steps and is tested afterwards, so one that met a wall or a shut door
+; stopped INSIDE it, a square nobody stands in. Its end is the last open square
+; in front (DungeonWorld::FlightEnd): that is where a burst goes off and where a
+; bolt's on-hit catches whoever stands there.
+;
+; A BURST BOLT THAT BREAKS ON A SHUT DOOR goes off on the caster's side of it.
+; Maren's Fire Burst (fire project explode) down the corridor at a fresh wooden
+; door, a mummy (fire -1, flammable) standing just beyond it. Before C43 the
+; burst went off INSIDE the door, a phantom centre that filled both sides of it.
+; A firebolt flies 8 m (3.2 squares), so Maren casts from 12,12, 2.25 squares
+; short of the door. The judge reads the TALLY's `wallstops=` / `stoppedin=` to
+; know the flight stopped IN the door: one whose reach ran out short of it ends
+; in the same square in front, and its burst would spare the mummy under the
+; old code too - a pass that tested nothing.
+
+echo === burst-door ===
+reset
+timescale 0
+lockstep on
+seed 23
+goto eval_arena
+arena corridor 11
+heal
+tp 12 12
+face e
+freeze on
+editor place doors wooden_door 15 12
+mappage close
+spawn mummy 16 12 west up
+learn 2 fire
+learn 2 project
+learn 2 explode
+setskill 2 fire 5
+monsters
+breakables 15 12
+tally reset
+cast 2 fire project explode
+step 4
+tally
+monsters
+breakables 15 12
+
+; The control: the same burst with the door OPEN reaches the mummy, so the
+; section above cannot pass by the mummy being out of the burst's reach or its
+; readout going unread.
+
+echo === burst-door-open ===
+reset
+timescale 0
+lockstep on
+seed 23
+goto eval_arena
+arena corridor 11
+heal
+tp 12 12
+face e
+freeze on
+editor place doors wooden_door 15 12
+mappage close
+opendoor 15 12
+step 1
+spawn mummy 16 12 west up
+learn 2 fire
+learn 2 project
+learn 2 explode
+setskill 2 fire 5
+monsters
+tally reset
+cast 2 fire project explode
+step 4
+tally
+monsters
+
+; A BOLT THAT BREAKS ON THE WALL BEHIND YOU STILL CATCHES YOU (code-review C44).
+; Brand alone - a party of one stands front-left - with his back to the dead
+; end's closed end (rock at 13,12). A firebolt launched at him down the EMPTY
+; front-right lane (`bolt`, slot 1) flies past him and breaks on the rock behind;
+; its flight ends in his square, the last open one, and its burn catches him
+; there. Before C44 the burn went to the rock's own square, where nobody stands,
+; so only a bolt running out of reach in open air ever delivered one - which is
+; why the judge demands the flight stopped IN the rock behind him (`pos` and the
+; TALLY's `stoppedin=`): one whose reach ran out in his square would burn him
+; under the old code as well.
+
+echo === bolt-behind ===
+reset
+newparty premade=0
+timescale 0
+lockstep on
+seed 23
+goto eval_arena
+arena deadend 7
+heal
+tp 14 12
+face e
+pos
+tally reset
+bolt firebolt 16 12 1
+step 3
+tally
+char 0
+
 echo === end ===

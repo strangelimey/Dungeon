@@ -199,6 +199,10 @@ struct ProjectileImpact {
 // telling nobody anything was the hole P7 exists to close: a carrier is defined
 // by causing something when it stops, and half of "when it stops" was dead.
 struct ProjectileExpiry {
+	// Where it STOPPED. For a Wall expiry that is INSIDE the wall or shut door
+	// (the item steps before it is tested), a square nothing stands in - so the
+	// host backs off along `dir` to the last open square to end it there
+	// (blast::LastOpenCell, DungeonWorld::FlightEnd).
 	Vec3 pos{};
 	Vec3 dir{};
 	ExpiryCause cause = ExpiryCause::Range;

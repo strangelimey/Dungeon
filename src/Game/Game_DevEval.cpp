@@ -240,6 +240,38 @@ void Game::RegisterEvalCommands() {
 													   x, z));
 					   });
 
+	// Launch a spell's bolt at the party from a cell, as a monster casts it, down
+	// the QUADRANT LANE of a roster slot - the one thing a real caster will not
+	// do: aim at a lane nobody stands in. That is how a script stages the shot
+	// that flies past the party and breaks on the wall behind it (code-review
+	// C44). Like `blast` it needs a `step` afterwards to fly.
+	m_console.Register({.name = "bolt",
+						.group = CmdGroup::Combat,
+						.params = "<spell> <x> <z> [slot 0-3]",
+						.summary = "launch a spell's bolt at the party down a slot's lane, no caster"},
+					   [this](const std::vector<std::string>& args) {
+						   if (!Need(m_console, args, 3)) return;
+						   const int x = std::atoi(args[1].c_str());
+						   const int z = std::atoi(args[2].c_str());
+						   const int slot = args.size() > 3 ? std::atoi(args[3].c_str()) : -1;
+						   if (slot > 3) {
+							   m_console.Refuse(std::format("bolt: slot {} is not 0-3", slot));
+							   return;
+						   }
+						   if (!m_world->ShootSpellBolt(args[0], x, z, slot)) {
+							   m_console.Refuse(std::format(
+								   "bolt: refused '{}' from {},{} (unknown spell, no bolt, "
+								   "or off the party's row and column)",
+								   args[0], x, z));
+							   return;
+						   }
+						   m_console.Print(slot >= 0
+											   ? std::format("bolt {} from {},{} in slot {}'s lane",
+															 args[0], x, z, slot)
+											   : std::format("bolt {} from {},{} down the middle",
+															 args[0], x, z));
+					   });
+
 	// Place a monster, live. The editor's placement path (AddMonster) refuses an
 	// unwalkable or occupied cell, and so does this — reported rather than
 	// silent, because a spawn that did not happen is an encounter that is not
@@ -419,6 +451,11 @@ void Game::RegisterEvalCommands() {
 						   //   struck/pierced  the MONSTERS' melee blows that
 						   //           landed on a member, and the criticals among
 						   //           them a piercing edge drove under the armour.
+						   //   wallstops/stoppedin  the expiries that stopped
+						   //           against a wall or a shut door, and the
+						   //           square the last one stopped IN (`-`
+						   //           with none) - not the open square in
+						   //           front, where its flight ended.
 						   m_console.Print(TallyLine());
 					   });
 
@@ -556,6 +593,11 @@ std::string Game::TallyLine() const {
 	const std::string rate =
 		swings > 0 ? std::format("{:.3f}", static_cast<float>(t.hits) / swings)
 				   : std::string("n/a");
+	// The square the last wall stop stopped IN, `x,z`, or `-` with none - never
+	// a -1,-1 a parser could take for a square.
+	const std::string stoppedIn =
+		t.wallStops > 0 ? std::format("{},{}", t.wallStopX, t.wallStopZ)
+						: std::string("-");
 	// The carrier counts go AFTER secs: Eval.ps1 parses the fields before it as
 	// one fixed sequence.
 	return std::format(
@@ -563,11 +605,12 @@ std::string Game::TallyLine() const {
 		"crits={} fumbles={} slain={} downed={} secs={:.1f} bolthits={} "
 		"boltmisses={} expired={} blasts={} drops={} lifts={} throws={} "
 		"throwstrikes={} throwlandings={} sceneryticks={} doused={} struck={} "
-		"pierced={}",
+		"pierced={} wallstops={} stoppedin={}",
 		t.dealt, t.taken, swings, t.hits, t.misses, rate, t.crits, t.fumbles,
 		t.monstersSlain, t.membersDowned, t.seconds, t.boltHits, t.boltMisses,
 		t.expiries, t.blasts, t.drops, t.lifts, t.throws, t.throwStrikes,
-		t.throwLandings, t.sceneryTicks, t.fixturesDoused, t.struck, t.pierced);
+		t.throwLandings, t.sceneryTicks, t.fixturesDoused, t.struck, t.pierced,
+		t.wallStops, stoppedIn);
 }
 
 } // namespace dungeon::game

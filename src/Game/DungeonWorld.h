@@ -638,6 +638,15 @@ public:
 		// because a run that means to measure an impact must be able to show one
 		// happened: `dealt` cannot tell a bolt from the burn it left behind.
 		int boltHits = 0, boltMisses = 0, expiries = 0, blasts = 0;
+		// Of those expiries, the ones that stopped AGAINST something - a wall or a
+		// shut door (ExpiryCause::Wall), not their reach running out - and the
+		// square the last of them stopped IN: the stone's or the door's own, which
+		// FlightEnd then backs off to the open square in front. A flight whose
+		// reach ran out short of the wall ENDS in that same open square, so only
+		// these say which happened; tools\CombatTest.py's flight-end checks rest on
+		// them (code-review C43, C44). -1 = no wall stop since the last reset.
+		int wallStops = 0;
+		int wallStopX = -1, wallStopZ = -1;
 		// FLOOR ITEMS: a held item laid on the floor (the cursor drop; not a
 		// weapon a fumble knocks loose) and a floor item lifted onto the cursor.
 		// Counted for tools\AllocTest.ps1 -Items, which must show the moves it
@@ -810,6 +819,17 @@ public:
 	// because a blast that did not happen would otherwise read as a blast that
 	// did nothing, and those are opposite answers.
 	bool DetonateSpell(std::string_view spellId, int cx, int cz);
+	// LAUNCH A NAMED SPELL'S BOLT AT THE PARTY from (x, z), as a monster casts it
+	// (Spell::MonsterBolt, accuracy kHarnessBoltAccuracy) but with no monster:
+	// down the row or column it shares with the party, in the QUADRANT LANE of
+	// roster slot `slot` (AimAtLane, the monsters' own aim; an empty slot of a
+	// short roster is a lane nobody stands in), or down the middle for slot < 0.
+	// The harness's way of putting a bolt on a lane a real caster would not
+	// choose - a shot flying past the party to break on the wall behind it
+	// (`bolt <spell> <x> <z> [slot]`). False, warned, for an unknown spell, one
+	// with no bolt, or a cell off the party's row and column.
+	bool ShootSpellBolt(std::string_view spellId, int x, int z, int slot);
+	static constexpr float kHarnessBoltAccuracy = 75.0f; // a skel_mage's
 
 	// (The four pieces of harness STATE those used to be are fields on
 	// `Harness` above; the operations that need the world — an arena, a spawn,
@@ -3408,6 +3428,11 @@ private:
 	// monster shot's lane test, the ranged lane aim and a crowding monster's
 	// slot pick; PickMeleeVictim reads SlotSide itself.
 	Vec3 PartyMemberSubPos(size_t member) const;
+	// A cardinal bolt's launch point slid onto roster slot `slot`'s QUADRANT
+	// LANE: its LATERAL coordinate (the one LaneOffset measures) moved onto that
+	// slot's sub-cell position, the rest left alone. The ranged aim, one statement
+	// for MonsterRangedAttack and the `bolt` instrument.
+	Vec3 AimAtLane(Vec3 origin, const Vec3& dir, size_t slot) const;
 	// Resolves a spell bolt reaching `impact.pos` with its strike profile: finds
 	// a live monster in that cell, runs the strike (combat + log + slain), and
 	// returns true if a monster was there (the bolt is consumed). A landed hit
@@ -3429,9 +3454,18 @@ private:
 	bool ResolveMonsterProjectileHit(const ProjectileImpact& impact);
 	// The moving-item engine's EXPIRY hook: a carrier stopped without striking
 	// anything (a wall, or out of reach). Fizzles audibly as it always did, and
-	// lands its payload on every combatant of its target side in the cell it died
-	// in — CELL-WIDE, where a hit is lane-wide (see the definition for why).
+	// lands its payload on every combatant of its target side in the square its
+	// flight ENDED in (FlightEnd: the last open one, never the wall's own) -
+	// CELL-WIDE, where a hit is lane-wide (see the definition for why).
 	void ResolveProjectileExpiry(const ProjectileExpiry& expiry);
+	// An OPEN square: walkable, with no shut door. What a blast may enter and
+	// where a flight may end - one test for both (Detonate, FlightEnd).
+	bool OpenSquare(int x, int z) const;
+	// Where a flight that stopped ENDS: the last open square along it
+	// (blast::LastOpenCell over OpenSquare) - a wall's or a shut door's square
+	// never is, though a Wall expiry's position lies inside one (code-review C43,
+	// C44). Leaves (cx, cz) as the caller set them when none is within reach.
+	void FlightEnd(const ProjectileExpiry& expiry, int& cx, int& cz) const;
 	// A bolt that broke against a SHUT, BREAKABLE door in (cx, cz) strikes it
 	// (its damage, then its procs - a fire bolt may set it alight) and returns
 	// true. False when there is no such door: an immune door is not a target.
@@ -3443,9 +3477,9 @@ private:
 	// the lane takes the blow through fx::Deal as a swing's (a carried blast
 	// bursts instead), the thrower trains `throwing` on a landed one, and the
 	// item falls in that cell either way. A landing: the item comes down in the
-	// last OPEN square it flew through (a wall's square is never one), so a
-	// thrown item is never lost - unless it shatters (`throw_breaks`), when what
-	// it carried is let go there.
+	// last OPEN square it flew through (FlightEnd - a wall's square is never one),
+	// so a thrown item is never lost - unless it shatters (`throw_breaks`), when
+	// what it carried is let go there.
 	bool ResolveThrowHit(const ProjectileImpact& impact);
 	void LandThrown(const ProjectileExpiry& expiry);
 	// Every member's throw wait, by roster slot (throw_interval after a throw).

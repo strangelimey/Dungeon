@@ -2692,7 +2692,9 @@ docs/ui-panels-notes.md / -plan.md. What exists, and the rules it rests on:
   lingering gas). The flight is a projectile carrying the item's kind as CARGO
   (Projectiles.h - opaque to the engine; no billboard, the item draws itself
   tumbling via ForEachCargo). IT IS NEVER LOST: it lands in the struck monster's
-  square, before the wall it hit, or where its range ran out, and a save, a
+  square, before the wall it hit (DungeonWorld::FlightEnd: the last open square,
+  where a stopped BOLT's burst and on-hit land too, never inside the stone -
+  code-review C43/C44), or where its range ran out, and a save, a
   level change (StashActive) and the inspector's Remove LAND it first
   (LandCargo). The rock is script-built (tools/BuildRock.py -> assets/models/
   rock.glb, committed by a .gitignore exception: an item loads only .glb). Dev:

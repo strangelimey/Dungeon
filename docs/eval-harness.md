@@ -375,6 +375,7 @@ played one never does.
 
 ```
 blast  <spell id> <x> <z>
+bolt   <spell id> <x> <z> [slot 0-3]
 freeze on|off|hold
 ```
 
@@ -384,6 +385,24 @@ what a measurement describes is the content that ships rather than numbers the
 harness invented. It refuses a spell with no `blast_force` rather than detonating
 a nothing, because "not an area effect" and "reached nobody" produce the same
 empty table and mean opposite things.
+
+`bolt` launches a spell's bolt **at the party** from a cell, as a monster casts
+it (`Spell::MonsterBolt` at a skel_mage's accuracy, with no monster behind it),
+down the row or column it shares with the party, in roster slot `slot`'s
+quadrant lane (`AimAtLane`, the monsters' own aim) or down the middle with no
+slot. Its point is the lane a real caster never picks, one nobody stands in: a
+party of one stands front-left, so slot 1's lane is empty, and the bolt flies
+past and breaks on the wall behind - the case code-review C44 fixed (a bolt's
+burn then catches whoever stands in the last open square; tools\CombatTest.py
+`bolt-behind`). A firebolt flies 8 m, about three squares, so launch it close.
+
+Launching it close is not enough to KNOW it broke on the wall: a flight whose
+reach runs out just short of the wall ends in the same open square, and does the
+same things there, under the old rule as well as the new. So the tally says how
+each expiry stopped: `wallstops=` counts those that stopped against a wall or a
+shut door (`ExpiryCause::Wall`) and `stoppedin=x,z` is the square the last of
+them stopped IN - the stone's or the door's own, not the square in front where
+its flight ended (`-` with none). CombatTest's flight-end checks demand it.
 
 **The monsters are the instrument.** Each is a fixed-hp probe parked on a known
 cell, so the hp left after the blast reads the falloff and the convergence

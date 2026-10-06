@@ -103,11 +103,33 @@ struct Result {
 };
 
 // May the blast enter this square? A wall, off-map and a closed door all say no.
-// The detonation square is asked too — a bolt that burst against stone has its
-// centre inside the wall, and nothing stands there.
+// The detonation square is asked too: a centre that answers no is a PHANTOM -
+// nothing standing there is hit, but the blast still starts from it and emits
+// all four ways. That is what a burst round the caster wants (the party's own
+// square spared, DungeonWorld::Detonate's `spareCentre`), and it is why a flight
+// that stopped is never detonated INSIDE what stopped it: a phantom in a
+// one-thick wall or a shut door reaches BOTH sides of it (code-review C43) -
+// LastOpenCell below says where it goes off instead.
 using PassableFn = std::function<bool(int x, int z)>;
 
 // Propagate `rules` from (cx, cz).
 Result Propagate(int cx, int cz, const Rules& rules, const PassableFn& passable);
+
+// WHERE A FLIGHT THAT STOPPED ENDS: the last OPEN square along it (code-review
+// C43, C44). A flight steps and is tested afterwards (ProjectileSystem::Update),
+// so one that met a wall or a shut door has already stepped INSIDE it when it
+// stops - a square nothing stands in. Whatever it does at its end it does from
+// the square in front: a burst goes off there, a bolt's on-hit catches whoever
+// stands there, a thrown thing comes down there.
+//
+// (px, pz) is where it stopped and (dx, dz) its unit direction of travel, both in
+// world units, `cellSize` a square's edge. It backs off against the travel half a
+// square at a time - never far enough to skip a square on a cardinal flight - for
+// at most kLastOpenSteps steps; a point already open is its own answer. Writes the
+// square to (x, z) and returns true, or returns false having written nothing when
+// every square it tried was closed, so the caller's fallback stands.
+inline constexpr int kLastOpenSteps = 16; // half-squares: 8 squares back
+bool LastOpenCell(float px, float pz, float dx, float dz, float cellSize,
+				  const PassableFn& open, int& x, int& z);
 
 } // namespace dungeon::game::blast

@@ -185,6 +185,37 @@ bool DungeonWorld::DetonateSpell(std::string_view spellId, int cx, int cz) {
 	return true;
 }
 
+bool DungeonWorld::ShootSpellBolt(std::string_view spellId, int x, int z, int slot) {
+	const Spell* spell = m_magic.FindSpell(spellId);
+	if (!spell) {
+		log::Warn("bolt: no spell '{}'", spellId);
+		return false;
+	}
+	// Down the row or column it shares with the party, as MonsterRangedAttack
+	// fires: the cardinal rule every flight keeps.
+	const int px = m_party.GridX(), pz = m_party.GridZ();
+	Vec3 dir{0.0f, 0.0f, 0.0f};
+	if (z == pz && x != px)
+		dir.x = px > x ? 1.0f : -1.0f;
+	else if (x == px && z != pz)
+		dir.z = pz > z ? 1.0f : -1.0f;
+	else {
+		log::Warn("bolt: {},{} is not on the party's row or column ({},{})", x, z, px, pz);
+		return false;
+	}
+	Vec3 origin = m_map.CellCenter(x, z);
+	origin.y += 0.6f; // a caster's hand height, as MonsterRangedAttack's
+	if (slot >= 0) origin = AimAtLane(origin, dir, static_cast<size_t>(slot));
+	std::optional<ProjectileSpec> bolt = spell->MonsterBolt(origin, dir, kHarnessBoltAccuracy);
+	if (!bolt) {
+		// A ward, a light, a hand spell: nothing that flies.
+		log::Warn("bolt: spell '{}' has no bolt", spellId);
+		return false;
+	}
+	Launch(*bolt); // no shooter: no monster's powers, no threat to read
+	return true;
+}
+
 // ============================================================================
 // Casting on a clock (Harness::autoCast, the `autocast` command)
 // ============================================================================

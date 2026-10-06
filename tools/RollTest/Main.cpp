@@ -1693,6 +1693,40 @@ int main(int argc, char** argv) {
 			CheckTrue("...but the room beyond is reached", hitAt(r, 11, 10, 1));
 		}
 		{
+			// A ONE-THICK WALL WITH OPEN SQUARES ON BOTH SIDES (code-review C43): the
+			// case above opens one side only, so it could not see the leak. A flight
+			// heading east stopped inside the wall at x = 10. Centred IN the stone,
+			// the phantom reaches both sides; centred where the flight ENDS
+			// (LastOpenCell), the far side is never reached.
+			const PassableFn wall = [](int x, int z) { return z == 10 && x != 10; };
+			const Result inStone = Propagate(10, 10, fire, wall);
+			CheckTrue("a centre inside a one-thick wall reaches BOTH sides (the phantom)",
+					  hitAt(inStone, 9, 10, 1) && hitAt(inStone, 11, 10, 1));
+			int ex = -1, ez = -1;
+			const bool ended = LastOpenCell(10.3f, 10.5f, 1.0f, 0.0f, 1.0f, wall, ex, ez);
+			CheckTrue("a flight stopped inside the wall ends in front of it",
+					  ended && ex == 9 && ez == 10);
+			int deepX = -1, deepZ = -1;
+			LastOpenCell(10.95f, 10.5f, 1.0f, 0.0f, 1.0f, wall, deepX, deepZ);
+			CheckTrue("...however far into it it stepped", deepX == 9 && deepZ == 10);
+			int backX = -1, backZ = -1;
+			LastOpenCell(10.7f, 10.5f, -1.0f, 0.0f, 1.0f, wall, backX, backZ);
+			CheckTrue("...and flying the other way, on the other side", backX == 11 && backZ == 10);
+			const Result inFront = Propagate(ex, ez, fire, wall);
+			bool farSide = false;
+			for (int i = 0; i < inFront.count; ++i) farSide = farSide || inFront.hits[i].x > 10;
+			CheckTrue("a burst where the flight ended stays on its own side",
+					  ended && inFront.count > 0 && !farSide);
+			int openX = -1, openZ = -1;
+			CheckTrue("a point already open is its own answer",
+					  LastOpenCell(12.5f, 10.5f, 1.0f, 0.0f, 1.0f, wall, openX, openZ) &&
+						  openX == 12 && openZ == 10);
+			int noneX = 7, noneZ = 7;
+			const bool none = LastOpenCell(10.5f, 3.5f, 1.0f, 0.0f, 1.0f, wall, noneX, noneZ);
+			CheckTrue("nothing open within reach: no answer, and the fallback stands",
+					  !none && noneX == 7 && noneZ == 7);
+		}
+		{
 			Rules huge = fire;
 			huge.force = kMaxCells + 40;
 			const Result r = Propagate(0, 0, huge, open);

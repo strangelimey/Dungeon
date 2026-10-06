@@ -283,6 +283,10 @@ void ProjectileSystem::Update(float dt) {
 		it.rangeLeft -= step;
 		it.age += dt;
 
+		// Stepped, THEN tested: an item that met a wall or a shut door is already
+		// inside it here, and so is the position its expiry carries. The host
+		// ends the flight in the last open square in front (DungeonWorld::
+		// FlightEnd - code-review C43, C44); nothing here moves it back.
 		if (isBlocked && isBlocked(it.pos, it.dir)) { // hit a wall (or left the map)
 			SpawnSparkBurst(it.pos, it.color, 8);
 			LeaveFlash(it);

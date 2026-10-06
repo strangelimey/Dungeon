@@ -20,13 +20,22 @@
 #              plate, the lessons counted from the heavy-armour xp against the
 #              tally's blows landed (struck) and criticals that went under
 #              (pierced), one lesson's xp measured by the same fight unpierced.
+#   FLIGHT END a flight that stopped against a wall or a shut door ends in the
+#              last open square in front (FlightEnd): a burst bolt broken on a
+#              shut door goes off on the caster's side and never reaches the
+#              mummy beyond it (C43; the door opened, it does - the control), and
+#              a firebolt flying past a lone member down the empty lane to break
+#              on the rock behind him leaves its burn on him (C44). Both demand
+#              the flight STOPPED in the door or the rock (the tally's
+#              `wallstops=` / `stoppedin=`), since one whose reach ran out just
+#              short ends in the same open square and passes under the old code.
 #
 # Each later combat batch adds its sections to combat.eval and its checks here.
 #
 # --selftest runs the same script with every line that SETS UP a claim cut (the
-# effects, spawns, equips and wears) and demands that EXACTLY the checks resting
-# on one fail (SETUP_FREE names the rest, which must still pass), so no check is
-# satisfied by nothing happening.
+# effects, spawns, equips, wears, casts and bolts) and demands that EXACTLY the
+# checks resting on one fail (SETUP_FREE names the rest, which must still pass),
+# so no check is satisfied by nothing happening.
 import io
 import os
 import re
@@ -43,7 +52,7 @@ SCRIPT = os.path.join(ROOT, r"tools\EvalScripts\combat.eval")
 NAMES = ["Brand", "Sera", "Maren", "Tilo"]
 
 # What --selftest cuts: the lines that put a claim's cause in place.
-CUT = ("effect ", "spawn ", "equip ", "wear ")
+CUT = ("effect ", "spawn ", "equip ", "wear ", "cast ", "bolt ")
 
 # The checks that rest on none of the cut lines: with them cut, these, and ONLY
 # these, may still pass.
@@ -132,6 +141,49 @@ def tally(sec):
 		if l.startswith("TALLY "):
 			return {k: v for k, v in re.findall(r"(\w+)=(\S+)", l)}
 	return {}
+
+
+def monster_rows(sec, kind):
+	"""Every `monsters` row for monsters of `kind` in the section, in order: a
+	dict per row with its cell, hp, whether it is dead and its effects
+	{id: magnitude}."""
+	out = []
+	for l in sec:
+		m = re.match(r"\s+(\S+) @ (\d+),(\d+)\s+hp ([\d.-]+)(.*)$", l)
+		if m and m.group(1) == kind:
+			out.append({"cell": (int(m.group(2)), int(m.group(3))), "hp": float(m.group(4)),
+						"dead": "(dead)" in m.group(5),
+						"effects": {k: float(v) for k, v in
+									re.findall(r"\[(\w+) ([\d.-]+) ", m.group(5))}})
+	return out
+
+
+def door_rows(sec):
+	"""Every door `breakables` listed in the section, in order: a (cell, hp)
+	pair per row."""
+	return [((int(m.group(1)), int(m.group(2))), float(m.group(3))) for m in
+			(re.match(r"\s+door \S+ @ (\d+),(\d+) hp=([\d.-]+)/", l) for l in sec) if m]
+
+
+def stopped_in(t):
+	"""The square the tally's last WALL stop stopped in, or None with none: the
+	stone's or the shut door's own, not the open square in front where the
+	flight ended (DungeonWorld::Tally::wallStops)."""
+	m = re.match(r"(\d+),(\d+)$", t.get("stoppedin", ""))
+	return (int(m.group(1)), int(m.group(2))) if m else None
+
+
+def party_pos(sec):
+	"""The party's square and facing from the section's `pos` line, or None."""
+	for l in sec:
+		m = re.match(r"(\d+),(\d+) facing (north|east|south|west)$", l)
+		if m:
+			return (int(m.group(1)), int(m.group(2))), m.group(3)
+	return None
+
+
+# A facing's step, +x east and +z south (Party's grid).
+STEP = {"north": (0, -1), "east": (1, 0), "south": (0, 1), "west": (-1, 0)}
 
 
 def num(t, key):
@@ -253,6 +305,60 @@ def judge(lines):
 	check(ok_p and pn is not None and p_struck - p_pierced >= 1 and sum(pn) >= 1,
 		  "and the piercing edge's ordinary blows, which the plate met, still teach",
 		  f"lessons {pn}, struck {p_struck}, pierced {p_pierced}")
+
+	print("FLIGHT END - a burst broken on a shut door stays on the caster's side (C43)")
+	sec = get("burst-door")
+	t = tally(sec)
+	mummy = monster_rows(sec, "mummy")
+	doors = door_rows(sec)
+	# The one bolt STOPPED IN the door's square, against it. An expiry and a
+	# blast alone would not say so: a flight whose reach ran out short of the
+	# door ends in the same open square in front, and its burst, going off there
+	# with the door shut, spares the mummy under the old code as well - so the
+	# claim below would pass having tested nothing.
+	stop = stopped_in(t)
+	on_door = (num(t, "expired") == 1 and num(t, "wallstops") == 1 and len(doors) == 2
+			   and stop == doors[0][0])
+	check(on_door, "the burst bolt stopped against the shut door, not short of it",
+		  f"expired={t.get('expired')} wallstops={t.get('wallstops')} "
+		  f"stoppedin={t.get('stoppedin')} door at {doors[0][0] if doors else None}")
+	went_off = on_door and num(t, "blasts") >= 1
+	check(went_off, "and went off", f"blasts={t.get('blasts')}")
+	check(went_off and doors[1][1] < doors[0][1],
+		  "the door's face took the blast", f"door hp before/after {[hp for _, hp in doors]}")
+	# The claim itself: with the burst centred INSIDE the door (the phantom) the
+	# square beyond took three arrivals at distance 1; centred in front, none.
+	check(went_off and len(mummy) == 2 and mummy[1]["hp"] == mummy[0]["hp"]
+		  and not mummy[1]["dead"] and not mummy[1]["effects"],
+		  "and nothing of it reached the mummy beyond the door", f"mummy before/after {mummy}")
+	ctl = get("burst-door-open")
+	ct = tally(ctl)
+	cm = monster_rows(ctl, "mummy")
+	check(num(ct, "blasts") >= 1 and len(cm) == 2
+		  and (cm[1]["dead"] or cm[1]["hp"] < cm[0]["hp"]),
+		  "with the door open the same burst reaches the mummy (the control)",
+		  f"blasts={ct.get('blasts')} mummy before/after {cm}")
+
+	print("FLIGHT END - a bolt broken on the wall behind you still catches you (C44)")
+	sec = get("bolt-behind")
+	t = tally(sec)
+	cs = chars(sec)
+	brand = cs[0] if len(cs) == 1 and cs[0]["name"] == "Brand" else None
+	# One expiry and no strike: a bolt that met Brand would have been spent on
+	# him (hit or miss) and never expired. And it STOPPED IN the rock directly
+	# behind him: a flight whose reach ran out inside his own square would
+	# deliver its burn there under the old code as well.
+	at = party_pos(sec)
+	behind = ((at[0][0] - STEP[at[1]][0], at[0][1] - STEP[at[1]][1]) if at else None)
+	stop = stopped_in(t)
+	flew_past = (num(t, "expired") == 1 and num(t, "wallstops") == 1 and brand is not None
+				 and behind is not None and stop == behind)
+	check(flew_past, "the bolt flew past Brand down the empty lane and broke on the rock behind him",
+		  f"expired={t.get('expired')} wallstops={t.get('wallstops')} "
+		  f"stoppedin={t.get('stoppedin')} party at {at} char readouts {[c['name'] for c in cs]}")
+	check(flew_past and "burn" in brand["effects"],
+		  "its burn caught him in the last open square, his own",
+		  f"effects {brand['effects'] if brand else None}")
 	check("end" in s, "the script ran to its end")
 
 

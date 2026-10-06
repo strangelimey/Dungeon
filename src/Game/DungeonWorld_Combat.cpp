@@ -1410,6 +1410,15 @@ Vec3 DungeonWorld::PartyMemberSubPos(size_t member) const {
 				static_cast<float>(DirDZ(lateral)) * q};
 }
 
+Vec3 DungeonWorld::AimAtLane(Vec3 origin, const Vec3& dir, size_t slot) const {
+	const Vec3 aim = PartyMemberSubPos(slot);
+	if (dir.x != 0.0f)
+		origin.z = aim.z;
+	else
+		origin.x = aim.x;
+	return origin;
+}
+
 int DungeonWorld::PickMeleeVictim(Monster& monster) {
 	if (!m_roster) return -1;
 	// The standing members (the old candidate list).
@@ -1791,13 +1800,8 @@ void DungeonWorld::MonsterRangedAttack(Monster& monster) {
 	// lateral never changes) onto the target's quadrant. The shift is at most
 	// a quarter-cell, and the shared row/column means the aligned coordinate
 	// stays inside the monster's own cell. No target → the old slot lane.
-	if (const int aimAt = ThreatTarget(monster); aimAt >= 0) {
-		const Vec3 aim = PartyMemberSubPos(static_cast<size_t>(aimAt));
-		if (dir.x != 0.0f)
-			origin.z = aim.z;
-		else
-			origin.x = aim.x;
-	}
+	if (const int aimAt = ThreatTarget(monster); aimAt >= 0)
+		origin = AimAtLane(origin, dir, static_cast<size_t>(aimAt));
 
 	// A CASTER (archetype = caster with a monsters.cat `spell`) throws that
 	// spell's bolt — Spell::MonsterBolt, the same class the party casts from,
@@ -2663,18 +2667,19 @@ void DungeonWorld::Detonate(int cx, int cz, const ProjectilePayload& payload,
 	const BlastSpec& spec = payload.blast;
 	if (!spec.rules.Any()) return;
 
-	// What a blast may enter: an open cell, no closed door. The SAME test that
-	// stops a bolt, which is why a blast cannot leak into the corridor behind a
-	// wall or through a shut door — Game/Blast.h does the geometry, this only says
-	// what counts as open. A spared centre counts as solid: Propagate then starts
-	// from it as a phantom (nothing standing there is hit) and a front coming back
-	// meets it as a wall.
+	// What a blast may enter: an open cell, no closed door (OpenSquare). The SAME
+	// test that stops a bolt, which is why a blast cannot leak into the corridor
+	// behind a wall or through a shut door - Game/Blast.h does the geometry, this
+	// only says what counts as open. A spared centre counts as solid: Propagate
+	// then starts from it as a phantom (nothing standing there is hit) and a front
+	// coming back meets it as a wall. A phantom emits on EVERY side, so only a
+	// spared centre may be one: a flight that stopped against a wall or a shut
+	// door goes off in front of it (FlightEnd), never inside it, or a one-thick
+	// wall would be burst through to the room beyond (code-review C43).
 	ActiveBlast active;
 	active.result = blast::Propagate(cx, cz, spec.rules, [&](int x, int z) {
 		if (spareCentre && x == cx && z == cz) return false;
-		if (!m_map.IsWalkable(x, z)) return false;
-		const Door* d = DoorAt(x, z);
-		return !d || d->open;
+		return OpenSquare(x, z);
 	});
 	if (active.result.clamped)
 		log::Warn("a blast of force {} was clamped ({} squares / {} ticks max)",
@@ -2933,22 +2938,47 @@ bool DungeonWorld::StrikeDoorWithBolt(int cx, int cz, const ProjectileExpiry& ex
 	return false;
 }
 
+bool DungeonWorld::OpenSquare(int x, int z) const {
+	if (!m_map.IsWalkable(x, z)) return false;
+	const Door* d = DoorAt(x, z);
+	return !d || d->open;
+}
+
+void DungeonWorld::FlightEnd(const ProjectileExpiry& expiry, int& cx, int& cz) const {
+	blast::LastOpenCell(expiry.pos.x, expiry.pos.z, expiry.dir.x, expiry.dir.z, kCellSize,
+						[this](int x, int z) { return OpenSquare(x, z); }, cx, cz);
+}
+
 void DungeonWorld::ResolveProjectileExpiry(const ProjectileExpiry& expiry) {
+	// Where it STOPPED - for a Wall expiry, inside the wall or the shut door,
+	// since a flight steps before it is tested (ProjectileSystem::Update)...
 	const int bx = static_cast<int>(std::floor(expiry.pos.x / kCellSize));
 	const int bz = static_cast<int>(std::floor(expiry.pos.z / kCellSize));
+	// ...and where it ENDED: the last open square along it, where anything can
+	// stand (FlightEnd). A Range expiry in open air ends where it stopped. With
+	// no open square within reach (nothing a real flight meets) it stays where it
+	// stopped, as every expiry did before code-review C43.
+	int cx = bx, cz = bz;
+	FlightEnd(expiry, cx, cz);
 	++m_harness.tally.expiries;
-	// AN AREA CARRIER GOES OFF WHERE IT STOPS, which is the whole point of a
-	// thrown bomb: the wall it broke against is the centre. Detonate handles a
-	// centre inside stone (nothing stands there, and the room beyond is one step
-	// out), so a bolt that burst on a wall still fills the corridor it came down.
+	if (expiry.cause == ExpiryCause::Wall) {
+		++m_harness.tally.wallStops;
+		m_harness.tally.wallStopX = bx;
+		m_harness.tally.wallStopZ = bz;
+	}
+	// AN AREA CARRIER GOES OFF WHERE IT ENDS, which is the whole point of a
+	// thrown bomb: the wall it broke against is what it bursts in front of, so a
+	// bolt that burst on a wall fills the corridor it came down - and only that
+	// corridor. It used to go off INSIDE the wall (or the shut door), where
+	// Propagate's phantom centre reached both sides of it (code-review C43).
 	if (expiry.payload.blast.Any()) {
-		Detonate(bx, bz, expiry.payload, expiry.atk.type, expiry.attacker);
+		Detonate(cx, cz, expiry.payload, expiry.atk.type, expiry.attacker);
 		return; // the blast IS the effect; no separate cell-wide proc pass
 	}
 	// A BOLT THAT BREAKS AGAINST A SHUT DOOR STRIKES IT. A shut door stops a bolt
-	// in its own square (isBlocked), so this is where the bolt meets the panel.
+	// in its own square (isBlocked), so the square it STOPPED in is the panel's.
 	if (expiry.cause == ExpiryCause::Wall && StrikeDoorWithBolt(bx, bz, expiry))
-		return; // nothing else stands in a shut door's square
+		return; // the door took it; nothing else stands in a shut door's square
 	m_audio.Play(m_sounds.spellFizzle, 0.6f); // the soft fizzle, as before
 	if (expiry.payload.Empty()) return;       // a plain bolt just goes out
 
@@ -2959,15 +2989,18 @@ void DungeonWorld::ResolveProjectileExpiry(const ProjectileExpiry& expiry) {
 	// past you down the far side of the corridor and broke on the wall behind you
 	// still catches you. Nothing here reads kLaneHalfWidth, deliberately.
 	//
+	// "The cell it died in" is the square its flight ENDED in (cx, cz above), not
+	// the wall's own: a Wall expiry stopped inside the stone, where nobody can
+	// stand, so the case this rule exists for never happened until code-review
+	// C44 - only a bolt running out of reach in open air ever delivered.
+	//
 	// A PROC burst stays on its TARGET SIDE: a plain carrier may only ever affect
 	// the side it was flying against (TargetSide is that rule everywhere else in
 	// the engine). An AREA blast is the deliberate exception and left above — it
 	// has no side at all.
 	//
-	// `expiry.cause` distinguishes bursting on stone from running out of reach; it
-	// is carried but not yet acted on — both burst identically today.
-	const int cx = bx, cz = bz;
-
+	// `expiry.cause` distinguishes bursting on stone from running out of reach.
+	// Past the door strike above it is not acted on - both burst identically.
 	switch (expiry.target) {
 	case TargetSide::Monsters:
 		for (Monster& m : m_monsters) {

@@ -465,6 +465,16 @@ the square it burst in. So the shot that flew past you down the far side of the
 corridor and broke on the wall behind you *still catches you*. Nothing in the
 expiry resolver reads the lane width, deliberately.
 
+"The cell it died in" is the square its flight ENDED in - the last open square
+before whatever stopped it, never the wall's own (code-review C44). A flight
+steps and is tested afterwards, so a Wall expiry's position lies INSIDE the
+stone or the shut door, where nobody stands, and until that fix the case above
+never happened: only a bolt running out of reach in open air ever delivered.
+`DungeonWorld::FlightEnd` (over the pure `blast::LastOpenCell`) is the one rule
+for where a flight ends; a thrown item comes down there too. The `bolt`
+instrument stages it (docs/eval-harness.md P7) and tools\CombatTest.py's
+`bolt-behind` checks it.
+
 Michael chose "the cell it died in" as an expiry's target over an area burst,
 which would have needed `fx::ITarget` iterated over a *set* — something nothing
 does today, since it is implemented exactly twice, for one party member and one
@@ -638,9 +648,13 @@ but **not soaked**: plate turns a blade, not a blast.
 Authored on a spell as `blast_force` (squares — the gate; 0 means "not an area
 effect"), `blast_damage` and `blast_falloff`. `fireburst` is the first, and the
 carrier detonates at **either** of its two moments: a bomb that connects explodes
-where it touched, and one that breaks against a wall explodes there — a centre
-inside stone is handled, since nothing stands in a wall and the room beyond is one
-step out.
+where it touched, and one that breaks against a wall or a shut door explodes in
+front of it, in the last open square of its flight (`FlightEnd`, code-review
+C43). It used to explode INSIDE the stone: a solid centre is a phantom that
+emits all four ways, so a one-thick wall or a shut door was burst through and
+the room beyond took three arrivals at distance 1 - a Fire Burst broken on a
+shut door killed what waited behind it. The phantom stays for the one centre
+meant to be solid, a ward's burst round the caster (`spareCentre`).
 
 `kMaxCells` (64) is a **ceiling, not a knob**: the spread runs on a fixed array so
 a detonation allocates nothing, and `Result::clamped` says when force exceeded it
@@ -651,7 +665,9 @@ are open. That is what lets `RollTest` measure the geometry (**142 checks**),
 including the corridor reach, the concentration arithmetic, that nothing leaks
 diagonally or through walls, a burst centred inside stone, and the degenerate
 cases content can produce (zero force, force past the ceiling, a blast entombed
-with nowhere to go at all).
+with nowhere to go at all). A one-thick wall with open squares on BOTH sides is
+there too (code-review C43): the phantom centred in it reaches both, and
+`LastOpenCell` keeps a stopped flight's burst on its own side.
 
 Verified in game as well as measured: a Fire Burst on a bone swarm one step from
 the party read "The blast catches the bone swarm for 10 damage!" then "caught in
