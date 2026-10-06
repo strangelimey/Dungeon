@@ -25,3 +25,18 @@ raised that is yours, not a fix. Each line names the batch and its commit.
 - **Seeded combat sequences moved once** (aed9b5a8, C73 brought forward):
   animation clip choice now draws from its own cosmetic random stream, so every
   seeded eval sequence shifted once. Nothing was tuned back.
+
+## Follow-ups the batches found (not in the plan)
+
+- **Fixed save names in the shared save folder** (batch 4, cde991c8). The
+  Python judges now name their saves per worktree, but other eval scripts
+  (supplytest, spells_douse, partycreation, portraits, ...) still save under
+  fixed names in the one Documents\DungeonSaves your play uses. The same helpers
+  could rename them; a later batch.
+- **A killed harness leaves the volume muted** (batch 4). The mute is restored
+  by the harness's own finally/atexit, which a kill skips, so a killed run
+  leaves `volume=0` in that build's settings.ini. A run could clear a mute a
+  killed run left, as EditorTest now recovers the library backup.
+- **EditorTest phase 16 still writes the real style library** (batch 4),
+  behind a backup that is now kill-safe. A `-library <dir>` switch would let it
+  use a scratch copy like everything else (a C++ change).
