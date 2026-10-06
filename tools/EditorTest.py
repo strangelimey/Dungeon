@@ -188,6 +188,19 @@
 #      are English's own and only Russian tells those rows apart; English
 #      likewise for both; no raw key on either; and `editor cell`, the dev
 #      readout every other phase parses, stays English under German.
+#  27. "USE INSTALLED" NEVER RE-BAKES A SHARED SET (code-review C407): a set's
+#      worn meshes are one file per set, shared by every type in every world, so
+#      the create dialog's FORM refuses a set painted as another surface kind -
+#      by its shipped record, by a type in this world (one whose set has worn
+#      meshes and no record among them), by a type in ANOTHER world, by the
+#      import that baked it - before Create, with onCreate never asked; a pick
+#      that goes stale (a wall type renamed onto it after the pick) is refused
+#      by onCreate's own check, and the form stays open saying why; the longest
+#      refusal wraps inside the footer (uioverlap, WINDOWED); a same-kind create
+#      of a set whose meshes exist starts no bake, and a set nobody paints with
+#      no meshes is baked, as the new kind - the only AssetBaker any create
+#      starts. Every worn mesh in the pool is fingerprinted before and after
+#      (the bake waited out): none changes and none appears but the fresh set's.
 #
 # NOTHING HERE EDITS THE REAL WORLD (code-review C431). Each phase starts on a
 # FRESH SCRATCH COPY of dungeon-demo, et_demo, and every run opens it with
@@ -201,11 +214,14 @@
 # by checking the real worlds and the library are byte for byte as it found
 # them - BEFORE it cleared up after a killed run, so the clean-up is judged too
 # - and that git status shows nothing new and nothing of this judge's worlds.
+import hashlib
 import io
 import os
 import re
+import shutil
 import subprocess
 import sys
+import time
 
 # A detail line may quote Russian (phase 26's card): on a console whose code
 # page cannot show it, a \u escape - not a UnicodeEncodeError in place of the
@@ -227,7 +243,15 @@ COPIES = os.path.join(ROOT, r"build\harness-scripts\editortest")
 # each with the .building-<name> a create killed half-way leaves.
 WORLDS = (SCRATCH, "nw_blank", "nw_copy", "nw_level", "nw_bad", ".building-nw_ghost",
           "nwd_level", "nwd_blank", "wz_a", "wz_b", "wz_c", "wz_undead", "wz_dlg",
-          "p7_world", "p7_wiz", "et_next")
+          "p7_world", "p7_wiz", "et_next", "et_bind")
+# The worn meshes phase 27 puts in the pool (its fixture copy and the one bake it
+# starts) and a bake it must never start would write: its sets are all et_-named,
+# so no real set's file can match.
+MODELS = os.path.join(ROOT, r"assets\models")
+
+
+def own_worn():
+    return [f for f in os.listdir(MODELS) if f.startswith("worn_et_")] if os.path.isdir(MODELS) else []
 
 # Never a stale exe, and never beside this worktree's own game, which shares
 # the log every phase reads (tools/harness_game.py).
@@ -247,6 +271,8 @@ def cleanup():
     for w in WORLDS:
         harness_game.remove_world(ROOT, w)
     harness_game.remove_saves(SAVES.values())
+    for f in own_worn():
+        os.remove(os.path.join(MODELS, f))
 
 
 # The guard is taken BEFORE clearing up what a killed run left, so a clean-up
@@ -2698,6 +2724,194 @@ finally:
         io.open(SETTINGS, "wb").write(settings_before)
     elif os.path.isfile(SETTINGS):
         os.remove(SETTINGS)
+
+# --- phase 27: "Use installed" never re-bakes a shared set -----------------------
+print("27 - \"Use installed\" on a surface: another kind is refused, a baked set is not re-baked")
+# Fixtures (installedsurface.eval's header says what each stands for). A second
+# scratch world carries the other world's binding: the worn meshes are every
+# world's, so a floor type in ANOTHER world is as much a reason as one here. Its
+# type's id is long on purpose: that refusal is wider than the dialog's footer.
+OTHER = "et_bind"
+FAR_TYPE = "et_far_floor_named_at_length_to_need_a_second_line"
+ET_WALLS = ("\r\n[et_unbaked_wall]\r\ndisplay = Unbaked\r\ntexture = et_unbaked\r\n"
+            "\r\n[et_baked_wall]\r\ndisplay = Baked\r\ntexture = et_baked\r\n"
+            "\r\n[et_stale]\r\ndisplay = Stale\r\n")
+ET_IMPORTED = ("\r\n[et_imported_2k]\r\nkind = texture\r\nsource = C:\\nowhere\\et_imported\r\n"
+               "surface = ceiling\r\n")
+ET_FAR = f"\r\n[{FAR_TYPE}]\r\ndisplay = Far\r\ntexture = et_elsewhere\r\n"
+PLAN = re.compile(r"newasset plan (\S+) '([^']*)': (.*)$")
+MADE = re.compile(r"newasset (\S+) '([^']*)' from (\S+): (\w+)(?: - (.*))?$")
+# The bake a create starts runs DETACHED (platform::Process neither waits for it
+# nor ends it with the game), so the pool is read only once it is gone.
+BAKER = os.path.join(os.path.dirname(EXE), "AssetBaker.exe")
+TIERS = ("low", "med", "high")
+# et_baked: a set an editor import left behind - worn meshes in the pool and no
+# shipped record, so a bake as another kind would rewrite them (as a floor). A
+# copy of cobblestone_wall's, made before the pool is fingerprinted.
+BAKED = {f"worn_et_baked_{t}.gltf": f"worn_cobblestone_wall_{t}.gltf" for t in TIERS}
+# What the one create that bakes (et_fresh, a set nobody paints) writes.
+FRESH = {f"worn_et_nothing_here_{t}.gltf" for t in TIERS}
+
+
+def worn_digests():
+    """{file: sha1} of every worn mesh in the pool - tracked files, shared by
+    every world, and what a wrong bake would rewrite."""
+    out = {}
+    for f in sorted(os.listdir(MODELS)):
+        if f.startswith("worn_"):
+            with open(os.path.join(MODELS, f), "rb") as fh:
+                out[f] = hashlib.sha1(fh.read()).hexdigest()
+    return out
+
+
+def answers(lines, pattern):
+    return [m.groups() for m in map(pattern.match, lines) if m]
+
+
+def warned(key, tid, src, log):
+    """Whether onCreate's own check refused this create. Only onCreate writes
+    the line, so a refusal the FORM made (before Create) leaves none."""
+    return f"create {key} '{tid}' from '{src}' refused:" in log
+
+
+def audit(log, label):
+    """(verdict, findings) of the `uioverlap <label>` run in this log."""
+    head = f"uioverlap [{label}] ---"
+    if head not in log:
+        return None, []
+    tail = log.split(head, 1)[1].splitlines()
+    findings = [l for l in tail if l.startswith("[info ]   root")]
+    verdict = next((l.split("uioverlap: ", 1)[1] for l in tail
+                    if l.startswith("[info ] uioverlap: ")), None)
+    return verdict, findings
+
+
+for name, src in BAKED.items():
+    shutil.copyfile(os.path.join(MODELS, src), os.path.join(MODELS, name))
+worn_before = worn_digests()
+fresh()
+try:
+    io.open(os.path.join(PROJ, r"catalog\walls.cat"), "a", encoding="utf-8", newline="").write(ET_WALLS)
+    io.open(os.path.join(PROJ, r"catalog\imports.cat"), "a", encoding="utf-8", newline="").write(ET_IMPORTED)
+    other = harness_game.scratch_world(ROOT, OTHER)
+    io.open(os.path.join(other, r"catalog\floors.cat"), "a", encoding="utf-8", newline="").write(ET_FAR)
+    # WINDOWED: the reason line is audited where it draws.
+    log = run("installedsurface.eval", headless=False)
+    check(passed(log), "the script ran clean")
+    sec = console_sections(log)
+    check("end" in sec, "the script ran to its end")
+
+    # The rule's answer for each pick.
+    plans = {(k, s): a for k, s, a in answers(sec.get("plan", []), PLAN)}
+    for key, setname, want, label in (
+            ("floors", "wall_brick", "'wall_brick' is a wall set (its own bake record)",
+             "a shipped wall set as a floor: refused by its record"),
+            ("floors", "et_unbaked", "'et_unbaked' is a wall set (type et_unbaked_wall in et_demo)",
+             "a set a wall type of THIS world paints with, as a floor: refused, naming the type"),
+            ("floors", "et_baked", "'et_baked' is a wall set (type et_baked_wall in et_demo)",
+             "a set with worn meshes and no record that a wall type paints with, as a floor: refused"),
+            ("walls", "et_elsewhere", f"'et_elsewhere' is a floor set (type {FAR_TYPE} in et_bind)",
+             "a set only ANOTHER world's floor type paints with, as a wall: refused, naming that world"),
+            ("walls", "et_imported", "'et_imported' is a ceiling set (imported as one into et_demo)",
+             "a set an import baked as a ceiling, as a wall: refused, naming the import")):
+        got = plans.get((key, setname), "")
+        check(got.startswith("refused - " + want), label, f"plan: {got!r}")
+    check(plans.get(("walls", "cobblestone_wall")) == "use as it is",
+          "a baked wall set as a second wall type: used as it is, no bake",
+          f"plan: {plans.get(('walls', 'cobblestone_wall'))!r}")
+    for setname in ("et_late", "et_nothing_here"):
+        check(plans.get(("floors", setname)) == "bake",
+              f"{setname}, painted by nobody and with no worn meshes, is one a create would bake",
+              f"plan: {plans.get(('floors', setname))!r}")
+
+    # Through the dialog, keyed by the new type's id: (catalog, source, outcome, why).
+    made = {}
+    for name in ("floor of a wall set", "floor of this world's wall", "floor of a baked wall set",
+                 "wall of another world's floor", "picked, then painted elsewhere", "second wall",
+                 "fresh set"):
+        for key, tid, src, outcome, why in answers(sec.get(name, []), MADE):
+            made.setdefault(tid, []).append((key, src, outcome, why or ""))
+    # The FORM refuses these, judged at the pick: Create never reaches onCreate,
+    # whose own check would have logged its refusal.
+    for tid, want in (("et_brick_floor", "'wall_brick' is a wall set"),
+                      ("et_unbaked_floor", "'et_unbaked' is a wall set"),
+                      ("et_baked_floor", "'et_baked' is a wall set"),
+                      ("et_elsewhere_wall", "'et_elsewhere' is a floor set")):
+        key, src, outcome, why = (made.get(tid) or [("", "", "", "")])[-1]
+        oncreate = warned(key, tid, src, log)
+        check(outcome == "refused" and why.startswith(want) and not oncreate,
+              f"the form refuses {tid} before Create, saying why (onCreate never asked)",
+              f"{outcome} - {why} | onCreate refused it: {oncreate}")
+
+    # The reason line: the longest refusal is wider than the footer, and the
+    # audit, run while it showed, finds it wrapped inside its own area.
+    far = [l for l in sec.get("wall of another world's floor", [])
+           if l.startswith("newasset: open - 'et_elsewhere'")]
+    verdict, findings = audit(log, "newasset_refused")
+    check(bool(far) and len(far[0]) > 150 and verdict is not None and verdict.startswith("clean"),
+          "the longest refusal (150+ characters) stays inside the footer, left of Create (uioverlap)",
+          f"audit: {verdict!r} {findings[:3]} | shown: {far[:1]}")
+
+    # A STALE pick: judged fine when picked, then a wall type is renamed onto the
+    # set. Create reaches onCreate, whose own check refuses it - and the form
+    # stays open, saying why.
+    stale = made.get("et_late_floor", [])
+    picked = [m for m in stale if m[2] == "picked"]
+    created = [m for m in stale if m[2] != "picked"]
+    check(bool(picked) and picked[0][3] == "ready",
+          "et_late picked as a floor: the form has nothing against it", str(picked))
+    check(any(l == "typeset rename walls 'et_stale': done"
+              for l in sec.get("picked, then painted elsewhere", [])),
+          "...then wall type et_stale is renamed et_late, painting that set")
+    check(bool(created) and created[0][2] == "refused"
+          and created[0][3].startswith("'et_late' is a wall set (type et_late in et_demo)")
+          and warned("floors", "et_late_floor", "et_late", log),
+          "...and Create is refused by onCreate's own check, saying why", str(created))
+    check(any(l.startswith("newasset: open - 'et_late' is a wall set")
+              for l in sec.get("picked, then painted elsewhere", [])),
+          "...and the form stays open showing it (it used to close over its own message)")
+
+    check((made.get("et_cobble2") or [("", "", "", "")])[-1][2] == "created",
+          "a second wall type off a baked wall set is created by the dialog's Create",
+          str(made.get("et_cobble2")))
+    check(any(l == "newasset: closed" for l in sec.get("second wall", [])),
+          "...and the dialog closed, done")
+    check("Created type 'et_cobble2' in walls" in log and "Added 'et_cobble2' to the level palette" in log,
+          "...and the type is in walls.cat and on the level's palette")
+    # The positive control, THROUGH the dialog: a set nobody paints and with no
+    # meshes is baked, as the new kind - and it is the only create that bakes.
+    check((made.get("et_fresh") or [("", "", "", "")])[-1][2] == "baking",
+          "a floor off a set nobody paints, with no worn meshes, bakes them",
+          str(made.get("et_fresh")))
+    bakes = [l for l in log.splitlines() if "AssetBaker: " in l]
+    check(len(bakes) == 1 and "wornblock floor et_nothing_here " in bakes[0],
+          "...as a floor, and that is the only AssetBaker any create started",
+          " | ".join(b[:200] for b in bakes[:3]))
+
+    walls = io.open(os.path.join(PROJ, r"catalog\walls.cat"), encoding="utf-8").read()
+    floors = io.open(os.path.join(PROJ, r"catalog\floors.cat"), encoding="utf-8").read()
+    cobble = cat_block(walls, "et_cobble2") or {}
+    check(cobble.get("texture") == "cobblestone_wall" and cat_block(walls, "et_elsewhere_wall") is None
+          and all(cat_block(floors, t) is None
+                  for t in ("et_brick_floor", "et_unbaked_floor", "et_baked_floor", "et_late_floor")),
+          "on disk: et_cobble2 binds cobblestone_wall, and no refused type was written", str(cobble))
+finally:
+    drop()
+    harness_game.remove_world(ROOT, OTHER)
+# The bake outlives the game: wait for it, so what it writes is counted.
+deadline = time.time() + 180
+while harness_game.running_copies(BAKER) and time.time() < deadline:
+    time.sleep(0.5)
+check(not harness_game.running_copies(BAKER), "the bake a create started has finished")
+worn_after = worn_digests()
+changed = sorted(f for f in worn_before if worn_after.get(f) != worn_before[f])
+added = sorted(set(worn_after) - set(worn_before) - FRESH)
+check(len(worn_before) > 100 and not changed and not added,
+      f"every worn mesh in the pool is byte for byte as it was ({len(worn_before)} files, et_baked's "
+      "copies among them), and none was added but the fresh set's",
+      f"changed: {changed[:6]} added: {added[:6]}")
+check(FRESH <= set(worn_after), "...whose three tiers the bake did write",
+      str(sorted(FRESH - set(worn_after))))
 
 # --- the real tree: LAST, after every phase --------------------------------------
 print("the real tree: dungeon-demo and the library as the run found them")

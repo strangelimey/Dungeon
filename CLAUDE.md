@@ -2129,7 +2129,16 @@ Items in each category come from the active project's catalogs; a "+ New..." row
 opens the asset-creation dialog — which makes a type THREE ways (AssetDialog::
 Source): Import new (browse + AssetBaker, the original), Use installed (bind an
 asset already in the pool — no bake, so a second wall type off an existing set
-is seconds, not a re-import) and Duplicate (copy another entry of this category,
+is seconds, not a re-import. A texture set's worn meshes are used AS THEY ARE -
+they are one file per set, shared by every type in every world - and only a set
+never painted as a surface bakes them; a set painted as ANOTHER surface kind
+(its shipped record, a type in any world / the template / the library, or the
+import that baked it) is REFUSED in the form, since baking it as the new kind
+would turn every wall of it into floor - judged at the pick, and again by
+onCreate at Create for a pick gone stale, the form then staying open saying why
+(its footer line WRAPS: a refusal names a set, a type and a world). Game::
+AdoptSurfaceSet is the rule, dev `newasset plan|<cat> installed|pick ...|create`,
+EditorTest phase 27) and Duplicate (copy another entry of this category,
 including fields no schema row covers). The id is validated as you type
 ([A-Za-z0-9_-], records are whitespace-tokenised) and CHECKED FOR COLLISION —
 Catalog::Add replaces by id, so an unchecked name silently overwrote a type

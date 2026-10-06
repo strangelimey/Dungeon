@@ -1426,6 +1426,15 @@ newasset.err.noasset=Нет установленных ресурсов для �
 newasset.err.nosourcetype=Выберите тип для копирования.
 newasset.err.launch=Не удалось запустить AssetBaker.
 newasset.err.bake=Ошибка AssetBaker (код {}) — см. dungeon.log.
+newasset.err.wornkind='{}' - это {} ({}): одна сетка износа на набор, поэтому вид не меняется.
+newasset.kind.wall=набор для стен
+newasset.kind.floor=набор для пола
+newasset.kind.ceiling=набор для потолка
+newasset.who.shipped=по его собственной записи обработки
+newasset.who.type=тип {} в {}
+newasset.who.import=импортирован так в {}
+newasset.where.template=шаблон нового мира
+newasset.where.library=библиотека стилей
 
 ; --- monster animation config dialog ---------------------------------------------
 map.cfg.title=Настройка: {}

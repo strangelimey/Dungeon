@@ -12,14 +12,108 @@
 #include "Game/DialogLayout.h"
 #include "Platform/FileDialog.h"
 #include "UI/Controls.h"
+#include "UI/TextWrap.h"
 
 #include <algorithm>
 #include <cctype>
 #include <cmath>
 #include <filesystem>
 #include <format>
+#include <string_view>
 
 namespace dungeon::game {
+
+namespace {
+// The reason line's step down when its lines do not fit the footer at the form's
+// size: the item details dialog's line size, so the step adds no font atlas.
+constexpr float kReasonStep = 1.6f;
+} // namespace
+
+// --- the footer's reason line ------------------------------------------------
+// Why Create is refused, or the last failure. NOT a ui::Label, which draws its
+// whole string however narrow its row: a "Use installed" refusal names the set,
+// who paints it and in which world, and a long type or world name ran it over
+// the Create disc and off the card (code-review batch 91; `uioverlap` measured
+// 379 px). This WRAPS to its row, steps down a size when the lines still do not
+// fit the footer's height, and only past the smallest trims its last line with
+// ".." - which it reports to the overlap audit (TextOverrun). It never paints
+// outside itself.
+class ReasonLine : public ui::Widget {
+public:
+	explicit ReasonLine(const gfx::Rect& rect) {
+		bounds = rect;
+		debugName = "reason";
+	}
+	std::string text;
+	bool accent = false; // a failure, drawn to be noticed
+	bool dim = false;    // a form not ready yet, drawn quietly
+
+	float TextOverrun() const override { return m_cut; }
+
+protected:
+	// The fit is decided at LAYOUT, not in the draw: the overlap audit runs
+	// between the two and asks TextOverrun (Update has written `text` by then).
+	void LayoutSelf(ui::UIContext& ctx) override {
+		m_font = &TextFont();
+		m_shown = 0;
+		m_cut = 0.0f;
+		const gfx::Rect& r = Pixel();
+		if (text.empty() || r.w <= 0.0f || r.h <= 0.0f) return;
+		// The form's size, then a step down, then the document's - only ever
+		// smaller. An owned-font context hands back its one font for all three,
+		// and wrapping is then all there is.
+		const ui::Font* sizes[] = {
+			&TextFont(), &ctx.FontAt(ResolvedRole(), ctx.DesignHeight() * kReasonStep),
+			&ctx.FontAt(ResolvedRole(), ctx.DesignHeight())};
+		int lines = 0;
+		for (const ui::Font* f : sizes) {
+			if (f->Height() > m_font->Height()) continue;
+			m_font = f;
+			lines = ui::WrapLines(*f, text, r.w, [](std::string_view, int) {});
+			if (BlockHeight(lines) <= r.h) break;
+		}
+		// Every line, else as many as the height holds (one at the least).
+		const float spare = r.h - m_font->Height();
+		const int room =
+			1 + (spare > 0.0f ? static_cast<int>(spare / m_font->LineAdvance()) : 0);
+		m_shown = std::min(lines, room);
+		// What is cut: the lines past the last shown, and a word wider than the row.
+		ui::WrapLines(*m_font, text, r.w, [&](std::string_view line, int n) {
+			const float w = m_font->MeasureWidth(line);
+			if (n >= m_shown) m_cut += w;
+			else if (w > r.w) m_cut += w - r.w;
+		});
+	}
+
+	void DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) override {
+		if (m_shown <= 0) return;
+		const ui::Theme& theme = ctx.GetTheme();
+		const Vec4 color = accent ? theme.accent : dim ? theme.textDim : theme.text;
+		const gfx::Rect& r = Pixel();
+		const float top = r.y + std::max(0.0f, (r.h - BlockHeight(m_shown)) * 0.5f);
+		const std::string_view all = text;
+		ui::WrapLines(*m_font, all, r.w, [&](std::string_view line, int n) {
+			if (n >= m_shown) return;
+			// The last line shown carries the rest of the text, so a cut ends in
+			// ".." (DrawFittedText) rather than mid-sentence with no mark.
+			const std::string_view drawn =
+				n == m_shown - 1 ? all.substr(static_cast<size_t>(line.data() - all.data()))
+								 : line;
+			ui::DrawFittedText(batch, *m_font, drawn, r.x,
+							   top + static_cast<float>(n) * m_font->LineAdvance(), r.w, color);
+		});
+	}
+
+private:
+	float BlockHeight(int lines) const {
+		return lines <= 0 ? 0.0f
+						  : m_font->Height() + static_cast<float>(lines - 1) * m_font->LineAdvance();
+	}
+
+	const ui::Font* m_font = nullptr; // the size the text fits at
+	int m_shown = 0;                  // lines drawn
+	float m_cut = 0.0f;               // px of text left out
+};
 
 namespace {
 // The mesh a texture set is previewed on: the clean (non-worn) wall block, which
@@ -64,6 +158,7 @@ void AssetDialog::Open(const std::string& category, const std::string& catalogKe
 	m_group.clear();
 	m_sourcePath.clear();
 	m_asset = asset;
+	CheckAsset(); // a preset pick is judged like a picked one
 	m_flipGreen = false;
 	m_existing = std::move(existing);
 	m_found = {};
@@ -103,6 +198,8 @@ std::string AssetDialog::Validate() const {
 		break;
 	case Source::Installed:
 		if (m_asset.empty()) return loc::Tr("newasset.err.noasset");
+		// Painted as another surface kind somewhere (Game::AdoptSurfaceSet).
+		if (!m_assetRefusal.empty()) return m_assetRefusal;
 		break;
 	case Source::Duplicate:
 		if (m_asset.empty()) return loc::Tr("newasset.err.nosourcetype");
@@ -111,13 +208,30 @@ std::string AssetDialog::Validate() const {
 	return {};
 }
 
+void AssetDialog::CheckAsset() {
+	// Asked when the pick changes, not in Validate: Validate runs every frame,
+	// and the answer reads every world's surface catalogs off disk.
+	m_assetRefusal.clear();
+	if (m_source == Source::Installed && m_textureSet && !m_asset.empty() && installedRefusal)
+		m_assetRefusal = installedRefusal(m_catalogKey, m_asset);
+}
+
+void AssetDialog::TypeName(const std::string& id) {
+	// As the field's onChange filters a keystroke.
+	m_name = id;
+	std::erase_if(m_name, [](char c) { return !IdChar(c); });
+	if (m_nameField) m_nameField->text = m_name;
+}
+
+std::string AssetDialog::TypedName() const { return m_nameField ? m_nameField->text : m_name; }
+
 void AssetDialog::Rebuild(const ui::Theme& theme) {
 	m_ui->SetTheme(theme);
 	m_ui->Clear();
 	m_nameField = nullptr;
 	m_groupField = nullptr;
 	m_pathLabel = nullptr;
-	m_problemLabel = nullptr;
+	m_problemLine = nullptr;
 	m_pane = nullptr;
 
 	DialogChrome chrome =
@@ -147,6 +261,7 @@ void AssetDialog::Rebuild(const ui::Theme& theme) {
 							   static_cast<int>(m_source), [this](int i) {
 								   m_source = static_cast<Source>(i);
 								   m_asset.clear();
+								   CheckAsset();
 								   m_error.clear();
 								   m_uiRebuild = true; // the form's middle changes
 							   });
@@ -205,6 +320,8 @@ void AssetDialog::Rebuild(const ui::Theme& theme) {
 				if (onPickAsset)
 					onPickAsset(m_textureSet, m_asset, [this](const std::string& picked) {
 						m_asset = picked;
+						CheckAsset();
+						m_error.clear();
 						RefreshPreview();
 						m_uiRebuild = true; // the button's face is its value
 					});
@@ -254,43 +371,9 @@ void AssetDialog::Rebuild(const ui::Theme& theme) {
 	// Why Create is refused (or the last bake failure). Its text is rewritten
 	// every frame in Update: the reason depends on what is typed, which does not
 	// rebuild the tree.
-	m_problemLabel = chrome.footer->Row<ui::Label>(ui::Len::Fill(), "");
-	m_problemLabel->centerV = true;
-	FooterIcon(*chrome.footer, m_device, "new", loc::Tr("newasset.create"), [this] {
-							  if (!Validate().empty()) return; // the label says why
-							  CreateRequest req;
-							  req.category = m_category;
-							  req.catalogKey = m_catalogKey;
-							  req.textureSet = m_textureSet;
-							  req.source = m_source;
-							  req.name = m_nameField ? m_nameField->text : m_name;
-							  req.group = m_groupField ? m_groupField->text : m_group;
-							  req.sourcePath = m_sourcePath;
-							  req.asset = m_asset;
-							  req.flipGreen = m_flipGreen;
-							  req.material = m_material;
-							  // Only sliders moved off their opening values persist to
-							  // the catalog (see CreateRequest) — an untouched form
-							  // leaves an imported model's own maps authoritative.
-							  auto moved = [](float a, float b) {
-								  return std::abs(a - b) > 1e-4f;
-							  };
-							  req.metallicSet = moved(m_material.metallic, m_neutral.metallic);
-							  req.roughnessSet =
-								  moved(m_material.roughness, m_neutral.roughness);
-							  req.heightSet =
-								  moved(m_material.heightScale, m_neutral.heightScale);
-							  req.colorSet =
-								  moved(m_material.baseColor.x, m_neutral.baseColor.x) ||
-								  moved(m_material.baseColor.y, m_neutral.baseColor.y) ||
-								  moved(m_material.baseColor.z, m_neutral.baseColor.z) ||
-								  moved(m_material.baseColor.w, m_neutral.baseColor.w);
-							  m_error.clear();
-							  if (onCreate) onCreate(req);
-							  // An import stays open in the busy state; the other
-							  // sources are done the moment the catalog is written.
-							  if (!m_busy) Close();
-						  });
+	m_problemLine = chrome.footer->Row<ReasonLine>(ui::Len::Fill());
+	FooterIcon(*chrome.footer, m_device, "new", loc::Tr("newasset.create"),
+			   [this] { Create(); });
 
 	// Right column: the preview, then what the import found in the folder — one
 	// row per recognised map, with the loud cases (no albedo = can't import; no
@@ -318,6 +401,39 @@ void AssetDialog::Rebuild(const ui::Theme& theme) {
 			right->Row<ui::Label>(FormRow(0.8f), loc::Tr("newasset.warn.noheight"))
 				->accent = true;
 	}
+}
+
+void AssetDialog::Create() {
+	if (!Validate().empty()) return; // the label says why
+	CreateRequest req;
+	req.category = m_category;
+	req.catalogKey = m_catalogKey;
+	req.textureSet = m_textureSet;
+	req.source = m_source;
+	req.name = m_nameField ? m_nameField->text : m_name;
+	req.group = m_groupField ? m_groupField->text : m_group;
+	req.sourcePath = m_sourcePath;
+	req.asset = m_asset;
+	req.flipGreen = m_flipGreen;
+	req.material = m_material;
+	// Only sliders moved off their opening values persist to the catalog (see
+	// CreateRequest) - an untouched form leaves an imported model's own maps
+	// authoritative.
+	auto moved = [](float a, float b) { return std::abs(a - b) > 1e-4f; };
+	req.metallicSet = moved(m_material.metallic, m_neutral.metallic);
+	req.roughnessSet = moved(m_material.roughness, m_neutral.roughness);
+	req.heightSet = moved(m_material.heightScale, m_neutral.heightScale);
+	req.colorSet = moved(m_material.baseColor.x, m_neutral.baseColor.x) ||
+				   moved(m_material.baseColor.y, m_neutral.baseColor.y) ||
+				   moved(m_material.baseColor.z, m_neutral.baseColor.z) ||
+				   moved(m_material.baseColor.w, m_neutral.baseColor.w);
+	m_error.clear();
+	if (onCreate) onCreate(req);
+	// An import stays open in the busy state; the other sources are done the
+	// moment the catalog is written - unless onCreate refused or failed, which it
+	// says through SetError, and the form stays up showing why (it used to close
+	// over the message).
+	if (!m_busy && m_error.empty()) Close();
 }
 
 void AssetDialog::Browse() {
@@ -446,11 +562,10 @@ void AssetDialog::Update(const Input& input, float width, float height, float dt
 	}
 	m_ui->Update(input, width, height);
 	// The refusal reason follows what is TYPED, which does not rebuild the tree.
-	if (m_problemLabel) {
-		const std::string problem = m_error.empty() ? Validate() : m_error;
-		m_problemLabel->text = problem;
-		m_problemLabel->accent = !m_error.empty();
-		m_problemLabel->dim = m_error.empty();
+	if (m_problemLine) {
+		m_problemLine->text = m_error.empty() ? Validate() : m_error;
+		m_problemLine->accent = !m_error.empty();
+		m_problemLine->dim = m_error.empty();
 	}
 }
 

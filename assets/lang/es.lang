@@ -1412,6 +1412,15 @@ newasset.err.noasset=No hay nada instalado para elegir.
 newasset.err.nosourcetype=Elige un tipo para copiar.
 newasset.err.launch=No se pudo iniciar AssetBaker.
 newasset.err.bake=AssetBaker falló (código {}) — consulta dungeon.log.
+newasset.err.wornkind='{}' es {} ({}): una malla de desgaste por set, así que conserva ese tipo.
+newasset.kind.wall=un set de muro
+newasset.kind.floor=un set de suelo
+newasset.kind.ceiling=un set de techo
+newasset.who.shipped=según su propio registro de horneado
+newasset.who.type=tipo {} en {}
+newasset.who.import=importado así en {}
+newasset.where.template=la plantilla de mundo nuevo
+newasset.where.library=la biblioteca de estilos
 
 ; --- monster animation config dialog ---------------------------------------------
 map.cfg.title=Configurar: {}

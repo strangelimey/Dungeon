@@ -439,16 +439,37 @@ void Game::WireModuleCallbacks() {
 		const CatalogEntry* e = cat ? cat->Find(id) : nullptr;
 		return e ? e->Get(field, "") : std::string();
 	};
+	// "Use installed" on a surface: a set painted as another kind is refused in
+	// the form, before Create (the rule is AdoptSurfaceSet's; onCreate asks it
+	// again, for a pick gone stale and any way in that skips the form).
+	m_assetDialog.installedRefusal = [this](const std::string& key, const std::string& asset) {
+		return AdoptSurfaceSet(key, asset).refusal;
+	};
 	// Create runs AssetBaker on the picked source (P4c); the dialog stays open in
 	// a "baking…" state until Update sees the subprocess finish.
 	m_assetDialog.onCreate = [this](const AssetDialog::CreateRequest& req) {
 		// Installed / Duplicate bind an asset that is already baked, so the type
 		// exists the moment its catalog entry does — no subprocess, no wait. The
-		// one exception: a pool TEXTURE set adopted as a surface may never have
-		// been used as one, so its worn block mesh still has to be baked (the
-		// import path's second step, entered directly).
-		const bool needsWornBake =
-			req.source == AssetDialog::Source::Installed && req.textureSet;
+		// one exception: a pool TEXTURE set adopted as a surface that has never
+		// been painted as one has no worn block mesh yet, which is baked (the
+		// import path's second step, entered directly). One whose meshes exist
+		// is used as it is, and one painted as ANOTHER kind is refused - the
+		// meshes are one file per set, shared by every type (AdoptSurfaceSet,
+		// code-review C407). The dialog refuses it before Create, as judged when
+		// the set was picked; this asks again AT Create, for a pick gone stale (a
+		// type renamed onto the set since) and any other way in - and the form
+		// stays open showing why.
+		bool needsWornBake = false;
+		if (req.source == AssetDialog::Source::Installed && req.textureSet) {
+			const SurfaceAdopt adopt = AdoptSurfaceSet(req.catalogKey, req.asset);
+			if (!adopt.refusal.empty()) {
+				log::Warn("create {} '{}' from '{}' refused: {}", req.catalogKey, req.name,
+						  req.asset, adopt.refusal);
+				m_assetDialog.SetError(adopt.refusal);
+				return;
+			}
+			needsWornBake = adopt.bake;
+		}
 		if (!req.NeedsBake() && !needsWornBake) {
 			CreateCatalogEntry(req);
 			return;

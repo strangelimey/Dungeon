@@ -6,9 +6,11 @@
 // them (CreateRequest::Source):
 //   * Import   — browse to a texture folder / model file and run AssetBaker.
 //   * Installed— bind an asset ALREADY in the pool (assets/textures, assets/
-//                models). No bake at all: "another wall type off cobblestone
-//                with a different wear" is a five-second job, where before it
-//                meant re-importing the folder under a second name.
+//                models). No bake when its worn meshes exist: "another wall
+//                type off cobblestone" is a five-second job, where before it
+//                meant re-importing the folder under a second name. A set
+//                painted as ANOTHER surface kind is refused in the form
+//                (installedRefusal; one worn mesh per set - code-review C407).
 //   * Duplicate— copy an existing catalog entry of this category under a new id.
 //
 // The id is validated as you type (record files are whitespace-tokenised, and
@@ -52,6 +54,8 @@ class Label;
 
 namespace dungeon::game {
 
+class ReasonLine; // the footer's wrapping reason line (AssetDialog.cpp)
+
 class AssetDialog {
 public:
 	// Where the new type's asset comes from (see the header note).
@@ -77,7 +81,9 @@ public:
 		bool heightSet = false;
 		bool colorSet = false;
 
-		// Installed/Duplicate need no AssetBaker run — the asset is already baked.
+		// Installed/Duplicate need no AssetBaker run - the asset is already baked
+		// (but an installed set adopted as a surface for the first time has no
+		// worn meshes yet: the owner bakes those, Game::AdoptSurfaceSet).
 		bool NeedsBake() const { return source == Source::Import; }
 	};
 
@@ -118,6 +124,18 @@ public:
 	// PreviewRect afterwards (it owns the ModelPreview render target).
 	void Render(gfx::SpriteBatch& batch, float width, float height);
 
+	// The console's way through the form (`newasset`), the harness cannot click:
+	// the id typed into the name field (filtered as typing is), the footer's
+	// Create clicked, and the line under the form - why Create is refused, or the
+	// last failure; "" when the form is ready.
+	void TypeName(const std::string& id);
+	void ClickCreate() { Create(); }
+	std::string Problem() const { return m_error.empty() ? Validate() : m_error; }
+	// What the form holds now, read before a Create to say what it made.
+	const std::string& CatalogKey() const { return m_catalogKey; }
+	const std::string& Asset() const { return m_asset; }
+	std::string TypedName() const;
+
 	// Live preview source (null until a model or texture set is picked).
 	bool HasPreview() const { return m_previewMesh != nullptr; }
 	const gfx::Mesh& PreviewMesh() const { return *m_previewMesh; }
@@ -142,10 +160,22 @@ public:
 	std::function<std::string(const std::string&, const std::string&,
 							  const std::string&)>
 		fieldOfType;
+	// Why a POOL texture set may not be adopted into this catalog - (catalogKey,
+	// asset) -> "" when it may. Asked once per pick (it reads every world's
+	// surface catalogs), for "Use installed" on a texture-set category only; the
+	// answer refuses Create the way a missing name does. A pick can go stale (a
+	// type renamed onto the set after it was judged), which is why the owner's
+	// onCreate asks the rule again and refuses through SetError.
+	std::function<std::string(const std::string&, const std::string&)> installedRefusal;
 
 private:
 	void Rebuild(const ui::Theme& theme); // (re)builds the form widgets
 	void Browse();                        // native picker -> load preview
+	// The footer's Create: gathers the form into a CreateRequest for onCreate,
+	// unless Validate refuses. Stays open on a bake or on an error onCreate set.
+	void Create();
+	// Re-asks installedRefusal for the current pick (m_assetRefusal).
+	void CheckAsset();
 	// Loads the preview for the current source (a model mesh, or the shared
 	// block mesh wearing the picked/imported texture set). Drains the GPU first:
 	// in-flight frames may still reference the old resources.
@@ -172,6 +202,7 @@ private:
 	std::string m_group;
 	std::string m_sourcePath;
 	std::string m_asset;     // Installed: pool asset; Duplicate: source catalog id
+	std::string m_assetRefusal; // installedRefusal's answer for m_asset ("" = none)
 	bool m_flipGreen = false;
 	std::vector<std::string> m_existing; // this catalog's ids
 	// (no pool listing here any more — "Use installed" browses it in AssetPicker)
@@ -191,8 +222,9 @@ private:
 	ui::TextField* m_groupField = nullptr;
 	ui::Label* m_pathLabel = nullptr;
 	// Rewritten every frame in Update: the reason Create is refused follows what
-	// is typed, and typing does not rebuild the tree.
-	ui::Label* m_problemLabel = nullptr;
+	// is typed, and typing does not rebuild the tree. It wraps (a refusal names a
+	// set, a type and a world, and can be longer than the footer is wide).
+	ReasonLine* m_problemLine = nullptr;
 	// The preview pane widget; PreviewRect hands out its rect.
 	PreviewPane* m_pane = nullptr;
 };

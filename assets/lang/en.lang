@@ -1395,6 +1395,16 @@ newasset.err.noasset=Nothing installed to pick from.
 newasset.err.nosourcetype=Pick a type to copy.
 newasset.err.launch=Could not launch AssetBaker.
 newasset.err.bake=AssetBaker failed (exit {}) — see dungeon.log.
+; "Use installed" on a surface: one worn mesh per texture set, so one kind (set, kind, who)
+newasset.err.wornkind='{}' is {} ({}): one worn mesh per set, so it keeps that kind.
+newasset.kind.wall=a wall set
+newasset.kind.floor=a floor set
+newasset.kind.ceiling=a ceiling set
+newasset.who.shipped=its own bake record
+newasset.who.type=type {} in {}
+newasset.who.import=imported as one into {}
+newasset.where.template=the new-world template
+newasset.where.library=the style library
 
 ; --- monster animation config dialog ---------------------------------------------
 map.cfg.title=Configure: {}

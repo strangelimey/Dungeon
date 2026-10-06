@@ -1,0 +1,82 @@
+; installedsurface.eval - the create dialog's "Use installed" on a surface never
+; re-bakes a shared texture set and never adopts one as another surface kind
+; (code-review C407). Judged by tools/EditorTest.py phase 27, which runs it
+; WINDOWED: the footer's reason line is audited (uioverlap) where it shows.
+;
+; A set's worn meshes are worn_<set>_<tier>.gltf: one file per SET, shared by
+; every type in every world, with the kind in the geometry. "Use installed"
+; used to bake them every time, as the NEW type's kind - so a floor made from a
+; wall set turned every wall of it into floor, and a second wall type re-baked
+; the set under the first.
+;
+; EditorTest writes, before this runs (scratch worlds only, never a real one):
+;   et_demo  walls.cat    [et_unbaked_wall]  texture = et_unbaked   - a set no
+;                                              record lists, bound as a wall HERE
+;   et_demo  walls.cat    [et_baked_wall]    texture = et_baked     - the same,
+;                                              with worn meshes in the pool (a
+;                                              copy of cobblestone_wall's), as an
+;                                              editor import leaves a set
+;   et_demo  walls.cat    [et_stale]         no texture: it paints the set of
+;                                              its own id, et_stale
+;   et_demo  imports.cat  [et_imported_2k]   surface = ceiling      - an import
+;                                              that baked its set as a ceiling
+;   et_bind  floors.cat   [et_far_floor_...] texture = et_elsewhere - bound as a
+;                                              floor in ANOTHER world only, by a
+;                                              type whose long id makes the
+;                                              longest refusal here
+;
+; `newasset plan` prints the rule's answer for a pick (refused / bake / use as
+; it is); `newasset <cat> installed <set> <id>` goes through the dialog itself -
+; the pick, the id typed, Create clicked - and prints what came of it; `pick`
+; stops before Create and `create` clicks it later.
+
+logecho on
+reset
+; The editor open, as "+ New..." needs it: its messages (a palette add) reach
+; dungeon.log only from there.
+editor
+echo --- plan ---
+newasset plan floors wall_brick
+newasset plan floors et_unbaked
+newasset plan floors et_baked
+newasset plan walls et_elsewhere
+newasset plan walls et_imported
+newasset plan walls cobblestone_wall
+newasset plan floors et_late
+newasset plan floors et_nothing_here
+echo --- floor of a wall set ---
+newasset floors installed wall_brick et_brick_floor
+newasset off
+echo --- floor of this world's wall ---
+newasset floors installed et_unbaked et_unbaked_floor
+newasset off
+echo --- floor of a baked wall set ---
+newasset floors installed et_baked et_baked_floor
+newasset off
+echo --- wall of another world's floor ---
+newasset walls installed et_elsewhere et_elsewhere_wall
+; The longest refusal here, wider than the footer: audited while it shows. The
+; audit reports two frames on, so the status lines are those frames.
+uioverlap newasset_refused
+newasset status
+newasset status
+newasset status
+newasset off
+echo --- picked, then painted elsewhere ---
+; The form judged et_late when it was picked (nobody painted it). A wall type is
+; then renamed onto it - et_stale paints the set of its own id - so the pick is
+; stale at Create, and onCreate's own check refuses it: the form stays open,
+; saying why.
+newasset floors pick et_late et_late_floor
+typeset rename walls et_stale et_late
+newasset create
+newasset status
+newasset off
+echo --- second wall ---
+newasset walls installed cobblestone_wall et_cobble2
+newasset status
+echo --- fresh set ---
+; The one create that bakes: a set nobody paints, with no worn meshes yet. Last,
+; since the dialog is busy until the bake lands.
+newasset floors installed et_nothing_here et_fresh
+echo --- end ---

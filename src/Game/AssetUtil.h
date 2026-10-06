@@ -16,6 +16,7 @@
 #include "Core/Types.h"
 #include "Graphics/Texture.h"
 
+#include <filesystem>
 #include <memory>
 #include <optional>
 #include <string>
@@ -124,6 +125,12 @@ std::vector<std::string> InstalledUiStones();
 // listing entry can be handed straight back as a face. Sorted, families first
 // (the walk is recursive: one directory per family).
 std::vector<std::string> InstalledFonts();
+// Whether texture set `set` has worn block meshes baked from it (its
+// worn_<set>_med.gltf is in the pool) - whether it can be painted as a surface
+// without a bake. The first form takes the models folder, for a caller already
+// walking it.
+bool HasWornMeshes(const std::filesystem::path& modelsDir, const std::string& set);
+bool HasWornMeshes(const std::string& set);
 
 // --- what the pool holds, in detail (the asset picker) ----------------------
 // One installed asset as the picker describes it. Everything here comes from

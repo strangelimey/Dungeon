@@ -1561,6 +1561,88 @@ void Game::RegisterWorldCommands() {
 			else m_console.Print(std::format("created {} '{}'", args[0], id));
 		});
 	m_console.Register(
+		{.name = "newasset",
+		 .group = CmdGroup::Types,
+		 .params = "<category> installed <asset> <id>\n<category> pick <asset> <id>\ncreate\n"
+				   "plan <category> <asset>\nstatus | off",
+		 .summary = "the create dialog's Use installed: pick, type the id, click Create; "
+					"or what adopting a texture set would do"},
+		[this](const std::vector<std::string>& args) {
+			// The palette's "+ New..." dialog without a mouse. The create goes
+			// through the dialog itself - its Validate, its Create, then onCreate -
+			// so a refusal is the one the form shows (code-review C407). `pick`
+			// stops short of Create and `create` clicks it later, so something can
+			// happen in between (the form judged the pick when it was made).
+			const auto catOf = [this](const std::string& key) {
+				const MapEditor::PaletteCat cat = MapEditor::CatForCatalogKey(key);
+				if (cat == MapEditor::PaletteCat::Count || !MapEditor::CategoryPlaceable(cat) ||
+					MapEditor::CategoryAuthorable(cat)) {
+					m_console.Refuse(std::format("newasset: '{}' has no create dialog", key));
+					return MapEditor::PaletteCat::Count;
+				}
+				return cat;
+			};
+			if (args.size() == 3 && args[0] == "plan") {
+				// AdoptSurfaceSet's answer, the rule onCreate acts on - "bake" is
+				// the one case a create would start AssetBaker.
+				if (catOf(args[1]) == MapEditor::PaletteCat::Count) return;
+				const SurfaceAdopt adopt = AdoptSurfaceSet(args[1], args[2]);
+				m_console.Print(std::format("newasset plan {} '{}': {}", args[1], args[2],
+											!adopt.refusal.empty() ? "refused - " + adopt.refusal
+											: adopt.bake ? std::string("bake")
+														 : std::string("use as it is")));
+				return;
+			}
+			// The footer's Create clicked, and what came of it: what the form held
+			// is read first, since a made type closes it.
+			const auto create = [this] {
+				const std::string key = m_assetDialog.CatalogKey();
+				const std::string id = m_assetDialog.TypedName();
+				const std::string asset = m_assetDialog.Asset();
+				m_assetDialog.ClickCreate();
+				const Catalog* catalog = m_project.CatalogForKey(key);
+				const char* outcome = m_baking                 ? "baking"
+									  : m_assetDialog.IsOpen() ? "refused"
+									  : catalog && catalog->Contains(id) ? "created"
+																		 : "closed";
+				const std::string problem = m_assetDialog.IsOpen() ? m_assetDialog.Problem()
+																   : std::string();
+				m_console.Print(std::format("newasset {} '{}' from {}: {}{}", key, id, asset,
+											outcome, problem.empty() ? "" : " - " + problem));
+			};
+			if (args.size() == 4 && (args[1] == "installed" || args[1] == "pick")) {
+				const MapEditor::PaletteCat cat = catOf(args[0]);
+				if (cat == MapEditor::PaletteCat::Count) return;
+				OpenCreateDialog(cat, AssetDialog::Source::Installed, args[2]);
+				m_assetDialog.TypeName(args[3]);
+				if (args[1] == "installed") {
+					create();
+					return;
+				}
+				const std::string problem = m_assetDialog.Problem();
+				m_console.Print(std::format("newasset {} '{}' from {}: picked - {}", args[0],
+											args[3], args[2],
+											problem.empty() ? std::string("ready") : problem));
+				return;
+			}
+			if (args.size() == 1 && args[0] == "create") {
+				if (!m_assetDialog.IsOpen()) {
+					m_console.Refuse("newasset: no create dialog is open");
+					return;
+				}
+				create();
+				return;
+			}
+			if (args.size() == 1 && args[0] == "off") m_assetDialog.Close();
+			else if (!args.empty() && !(args.size() == 1 && args[0] == "status")) {
+				m_console.RefuseUsage();
+				return;
+			}
+			m_console.Print(m_assetDialog.IsOpen()
+								? std::format("newasset: open - {}", m_assetDialog.Problem())
+								: std::string("newasset: closed"));
+		});
+	m_console.Register(
 		{.name = "typeset",
 		 .group = CmdGroup::Types,
 		 .params = "<category> <id> <field> [value...]\n"

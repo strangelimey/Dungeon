@@ -303,6 +303,19 @@ private:
 	// the viewed level's palette. Shared by the bake path and the no-bake
 	// sources (Installed / Duplicate), which have nothing to bake.
 	void CreateCatalogEntry(const AssetDialog::CreateRequest& req);
+	// What "Use installed" does with pool texture set `set` adopted as a surface
+	// of `catalogKey` (walls / floors / ceilings) - code-review C407. A set's worn
+	// meshes are ONE file per set in the shared pool, kind baked into the
+	// geometry, so a set already painted as another kind is REFUSED (`refusal`
+	// says by whom: its shipped record, a type in any world, the template or the
+	// library, or the import that baked it), and a set whose meshes exist is
+	// used AS IT IS (`bake` false): re-baking would reshape every type that
+	// already paints with it. Not a surface catalog = nothing to say.
+	struct SurfaceAdopt {
+		std::string refusal; // "" = may be adopted
+		bool bake = false;   // no worn meshes yet: bake them as this kind
+	};
+	SurfaceAdopt AdoptSurfaceSet(const std::string& catalogKey, const std::string& set) const;
 	// Records an IMPORT in the project's provenance manifest (imports.cat):
 	// which pool asset, from where, with which options. The baked asset is
 	// gitignored, so this is what makes a created type reproducible from a

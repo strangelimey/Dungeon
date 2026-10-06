@@ -272,18 +272,21 @@ bool SplitSetStem(std::string stem, std::string& name, u32& res, bool& normal,
 		}
 	return false;
 }
+} // namespace
 
-// Whether a set has worn block meshes baked from it — i.e. whether it can be
-// painted as a surface at all. WHICH kind they were baked as is deliberately
-// not answered here: the bake writes one worn_<set>_<tier>.gltf per set and the
-// kind lives in the geometry, not the name. The project's catalogs are the
-// honest source for that (walls.cat/floors.cat/ceilings.cat name their sets),
-// and the picker gets it from its owner along with "in use".
+// WHICH kind the meshes were baked as is deliberately not answered here: the
+// bake writes one worn_<set>_<tier>.gltf per set and the kind lives in the
+// geometry, not the name. The catalogs that paint with the set (and a shipped
+// set's own record, Assets/WornSets.h) are the honest source for that - see
+// Game::AdoptSurfaceSet.
 bool HasWornMeshes(const std::filesystem::path& modelsDir, const std::string& set) {
 	std::error_code ec;
 	return std::filesystem::exists(modelsDir / ("worn_" + set + "_med.gltf"), ec);
 }
-} // namespace
+
+bool HasWornMeshes(const std::string& set) {
+	return HasWornMeshes(std::filesystem::path(paths::Asset("models")), set);
+}
 
 std::vector<AssetInfo> InstalledTextureSetInfo() {
 	namespace fs = std::filesystem;

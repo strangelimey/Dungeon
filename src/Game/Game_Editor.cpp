@@ -5,9 +5,11 @@
 #include "Game/Game.h"
 
 #include "Assets/File.h"
+#include "Assets/WornSets.h"
 #include "Core/Loc.h"
 #include "Core/Log.h"
 #include "Core/Paths.h"
+#include "Game/AssetUtil.h"
 #include "Game/Serialize.h"
 #include "Game/Style.h"
 #include "Game/StyleLook.h"
@@ -17,7 +19,9 @@
 #include <cstdlib>
 #include <filesystem>
 #include <format>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 
 namespace dungeon::game {
@@ -61,6 +65,8 @@ bool Game::StartBakeStep() {
 		if (m_bakeReq.flipGreen) cmd += " --flip-green";
 	} else {
 		// Bake worn block meshes for just the new set (its kind = the catalog).
+		// An installed set only gets here with no meshes yet and nobody painting
+		// it as another kind (AdoptSurfaceSet).
 		const std::string kind = m_bakeReq.catalogKey == "floors"    ? "floor"
 								 : m_bakeReq.catalogKey == "ceilings" ? "ceiling"
 																	  : "wall";
@@ -755,6 +761,104 @@ void Game::RecordImport(const AssetDialog::CreateRequest& req) {
 						 : req.catalogKey == "floors" ? "floor"
 													  : "ceiling");
 	m_project.imports.Add(std::move(e));
+}
+
+// --- "Use installed" on a surface (code-review C407) --------------------------
+// A set's worn meshes are worn_<set>_<tier>.gltf: named by the SET alone, shared
+// by every world, with the KIND in the geometry. So adopting an installed set as
+// a surface is a question about everyone who already paints with it, not about
+// the catalog being added to. It used to always bake, as the NEW type's kind:
+// a floor made from a wall set turned every wall of it into floor, and a second
+// type of the same kind re-baked the set at its own values under the first.
+
+namespace {
+std::optional<assets::WornKind> SurfaceKindOf(std::string_view catalogKey) {
+	if (catalogKey == "walls") return assets::WornKind::Wall;
+	if (catalogKey == "floors") return assets::WornKind::Floor;
+	if (catalogKey == "ceilings") return assets::WornKind::Ceiling;
+	return std::nullopt;
+}
+
+const char* KindKey(assets::WornKind kind) {
+	switch (kind) {
+	case assets::WornKind::Floor: return "newasset.kind.floor";
+	case assets::WornKind::Ceiling: return "newasset.kind.ceiling";
+	default: return "newasset.kind.wall";
+	}
+}
+} // namespace
+
+Game::SurfaceAdopt Game::AdoptSurfaceSet(const std::string& catalogKey,
+										 const std::string& set) const {
+	SurfaceAdopt out;
+	const std::optional<assets::WornKind> kind = SurfaceKindOf(catalogKey);
+	if (!kind || set.empty()) return out;
+	const auto refuse = [&](assets::WornKind theirs, const std::string& who) {
+		out.refusal = loc::Format("newasset.err.wornkind", set, loc::Tr(KindKey(theirs)), who);
+	};
+	// A SHIPPED set's record is its kind for life (`AssetBaker wornblock` refuses
+	// it as another).
+	if (const assets::WornSet* s = assets::FindShippedWornSet(set); s && s->kind != *kind) {
+		refuse(s->kind, loc::Tr("newasset.who.shipped"));
+		return out;
+	}
+	// A TYPE painting with it as another kind - its `texture`, else its own id,
+	// the rule the world loads it by.
+	const auto boundAs = [&](const Catalog& walls, const Catalog& floors,
+							 const Catalog& ceilings, const std::string& where) {
+		const std::pair<const Catalog*, assets::WornKind> surfaces[] = {
+			{&walls, assets::WornKind::Wall},
+			{&floors, assets::WornKind::Floor},
+			{&ceilings, assets::WornKind::Ceiling}};
+		for (const auto& [cat, k] : surfaces) {
+			if (k == *kind) continue;
+			for (const CatalogEntry& e : cat->Entries())
+				if (e.Get("texture", e.id) == set) {
+					refuse(k, loc::Format("newasset.who.type", e.id, where));
+					return true;
+				}
+		}
+		return false;
+	};
+	// The editor IMPORT that brought the set in, which baked it as its type's
+	// kind (RecordImport's `surface`, keyed by the resolution-tagged name).
+	const auto importedAs = [&](const Catalog& imports, const std::string& where) {
+		const CatalogEntry* e = imports.Find(set + "_2k");
+		const std::optional<assets::WornKind> k =
+			e ? assets::ParseWornKind(e->Get("surface", "")) : std::nullopt;
+		if (!k || *k == *kind) return false;
+		refuse(*k, loc::Format("newasset.who.import", where));
+		return true;
+	};
+	// This world from memory, then EVERY world on disk (the pool is all of
+	// theirs), the template a new world is made from and the style library.
+	// Only read: nothing is loaded into the game or stashed.
+	const std::string here = m_project.FolderName();
+	if (boundAs(m_project.walls, m_project.floors, m_project.ceilings, here) ||
+		importedAs(m_project.imports, here))
+		return out;
+	const auto onDisk = [&](const std::string& catalogDir, const std::string& where) {
+		Catalog walls, floors, ceilings, imports;
+		walls.Load(catalogDir + "walls.cat");
+		floors.Load(catalogDir + "floors.cat");
+		ceilings.Load(catalogDir + "ceilings.cat");
+		imports.Load(catalogDir + "imports.cat");
+		return boundAs(walls, floors, ceilings, where) || importedAs(imports, where);
+	};
+	const std::string root = paths::Asset("projects");
+	for (const std::string& name : Project::List(root))
+		if (name != here && onDisk(Project::FolderFor(root, name) + "\\catalog\\", name))
+			return out;
+	// (The template's folder: Game_NewWorld.cpp's TemplateFolder.)
+	if (onDisk(paths::Asset("templates") + "\\default\\catalog\\",
+			   loc::Tr("newasset.where.template")) ||
+		boundAs(m_library.walls, m_library.floors, m_library.ceilings,
+				loc::Tr("newasset.where.library")))
+		return out;
+	// Nobody paints it as another kind. Meshes that exist are used AS THEY ARE:
+	// they are what every type of this kind already draws.
+	out.bake = !HasWornMeshes(set);
+	return out;
 }
 
 // References to a type that live OUTSIDE the level files: another catalog
