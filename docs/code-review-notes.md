@@ -103,3 +103,46 @@ code.
 - Python build scripts (tools/Build*.py etc.) are assets, not engine code: out
   of scope unless a finding touches how the engine consumes them.
 - Balance numbers are out of scope (the harness reports, it does not judge).
+
+## Answers (2026-10-05, after the review)
+
+The review (docs/code-review-findings.md, 483 issues) closed with eleven
+questions. Michael's answers, asked one at a time:
+
+1. **Bugs first or refactor first?** All of phase 0 first: every live bug
+   and rule-break that needs no refactor, with the broken harnesses fixed
+   before anything else, so later phases are judged by checks that can fail.
+2. **Do worker threads fall under the steady-state allocation rule?** Yes -
+   judge workers too, after their warm-up. A worker tick that allocates fails
+   the check like a main-thread frame.
+3. **HLSL mirrors.** Replace "by hand": C++ constants passed to the compiler
+   as #defines, a shared common.hlsli through an include handler, and a
+   D3DReflect check of every cbuffer layout at startup.
+4. **Element interactions and world things.** Relations in damagetypes.cat
+   (water douses burn and lit things, fire ignites flammable things, air fans
+   fires), an OnElement effect hook, fixtures / torches / floor items as fx
+   targets, and a zero-damage Touch for Splash and Flame. One rule for every
+   source and target.
+5. **Split the Game library?** All six targets now (GameRules, GameWorld,
+   GameHud, GameEditor, GameApp, DevTools) - not GameRules first.
+6. **What is one monster behaviour class?** One class per ENGAGEMENT style
+   (Melee, Ranged, Thief...), perception as data, flee / leash / patrol as
+   shared modifiers; swarm, lurker and sentry become presets of Melee.
+7. **The player's M map and the allocation guard.** Guard it: it is ordinary
+   play. The editor stays exempt.
+8. **Can a blow kill a downed member?** Blasts reach the downed (bursts,
+   bombs, lingering gas); melee and aimed bolts still do not single out the
+   fallen.
+9. **GPU object lifetime.** A deferred-release queue (GraphicsDevice::Retire,
+   freed once the fence passes) replaces "drain before freeing", after the
+   shared frame arena and texture cache reduce the owners.
+10. **One truth for the active level.** Back monsters and decorations with
+    records, like doors and items; then merge the live and *Remote editing
+    APIs into one that takes a level as its target.
+11. **Dialog footers.** Action buttons right-aligned across the whole panel
+    (under both columns when there is a preview), the help "?" at the far
+    left. The dialog base enforces it.
+
+The organize step's assumptions stand: "allocation is guarded" covers the
+steady-state rule, ownership and growth; the one pipeline covers world things
+(answer 4); balance numbers stay out of scope.
