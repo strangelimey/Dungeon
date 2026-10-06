@@ -31,6 +31,7 @@
 #   .\tools\AllocTest.ps1 -Lights            # 64 test lights; then the floor glows, the ceiling, the shadow cache
 #   .\tools\AllocTest.ps1 -Lights -ShadowSelfTest   # ...those checks handed a stale cache
 #   .\tools\AllocTest.ps1 -OnHitTypo         # swings with a typo'd on_hit: its warning
+#   .\tools\AllocTest.ps1 -PartyPage         # the party creation page, idle, on the title
 #   .\tools\AllocTest.ps1 -Config release    # needs -DDN_TRACK_ALLOCS=ON
 #
 # THE RULE HAS NO EXCEPTIONS: an allocation in a settled frame is a bug, and
@@ -323,6 +324,19 @@
 # it in view. It refuses a PASS unless `glass` counts
 # a frame that drew glass for (nearly) every armed frame of the window.
 #
+# -PartyPage IS THE ONE MODE OFF THE GUARDED STATES (code-review C112). The rule
+# covers play, not the menus, which build as a matter of course - but the party
+# creation page reformatted all its labels every frame it stood idle, about
+# twenty allocations a frame for text nothing had changed, and no guard could
+# see it. This starts NO game: on the title screen it opens the page by its dev
+# twin (`partypage open`), then throws an AllocTest-ONLY switch, `allocguard
+# partypage on` (off by default, never saved), under which Game::GuardedState
+# counts the idle page, and measures with nothing touched. An edit on the page
+# rebuilds its tree, so the window holds the idle page and nothing else. It
+# refuses a PASS unless the page is still open afterwards, and it combines with
+# no other mode (they all need a game) - only -SelfTest, whose allocpoke must
+# FAIL it like any other.
+#
 # Every step is driven by what the log actually says rather than by sleeps, so
 # a slow cold-cache load stretches the wait instead of failing the run.
 #
@@ -446,6 +460,9 @@ param(
 	# 'premade=0 | premade=1 | premade=2' for three. Any mode runs under it; the
 	# member loops below walk only the members it builds.
 	[string]$Party = '',
+	# Measures the party creation page standing IDLE on the title screen, with
+	# no game started. See the note above.
+	[switch]$PartyPage,
 	# Checks the CHECKER: makes the game allocate ONCE, on the window's first
 	# armed frame (`allocpoke once`), and passes only if the run comes back FAIL
 	# AND dungeon.log names that allocation's call site - the first armed frame
@@ -480,6 +497,14 @@ $log = Join-Path $bin 'dungeon.log'
 # member of -Party.
 $memberCount = if ($Party) { @($Party -split '\|').Count } else { 4 }
 if ($memberCount -lt 1 -or $memberCount -gt 4) { throw "-Party names $memberCount members; a party has 1 to 4" }
+
+# -PartyPage starts no game, and every other mode needs one.
+if ($PartyPage) {
+	$withGame = @('Wounded', 'Melee', 'Cast', 'Impact', 'Hand', 'Light', 'Pause', 'Sheet', 'All',
+		'Panels', 'Minimal', 'Walk', 'Lights', 'Items', 'Packs', 'Throw', 'Glass', 'Party', 'Wear') |
+		Where-Object { $PSBoundParameters.ContainsKey($_) }
+	if ($withGame) { throw "-PartyPage runs on the title screen with no game; it does not combine with -$($withGame -join ', -')" }
+}
 
 if (-not (Test-Path $exe)) { throw "no build at $exe - run build.cmd $Config first" }
 Assert-ExeCurrent $exe
@@ -1265,19 +1290,36 @@ if ($Items -and -not $SelfTest) {
 
 try {
 	Start-HarnessGame $exe $bin $log $LoadTimeoutSec
-	# Through the console's `newgame` (or `newparty`), never the landing page -
-	# Enter there is Continue on the newest shared save - waited out to the
-	# LEVEL, not 'Game loaded:' (a load task's line, while commands are still
-	# refused), and then until the console really answers (tools\HarnessGame.ps1).
-	if ($Party) { Write-Host "  with a created party of $memberCount" }
-	Start-NewGame $LoadTimeoutSec -PartySpec $Party | Out-Null
-	# A REFUSED `newparty` still ends in a game - the default four's - so the run
-	# would measure the wrong party and PASS. The command's own line is the proof.
-	if ($Party -and -not (Select-String -Path $log -Pattern "console: new game with a party of $memberCount\b" -EA SilentlyContinue)) {
-		throw "newparty did not build the party of $memberCount (see dungeon.log)"
+	if ($PartyPage) {
+		# NO GAME: the page on the title screen, opened by its dev twin once the
+		# console answers there, then the AllocTest-only switch that lets the
+		# guard arm on it. Each waits for its own answer, counted from before.
+		Write-Host 'opening the party creation page on the title screen'
+		Send-Key $VK_CONSOLE; Start-Sleep -Milliseconds 500
+		if (-not (Wait-ConsoleReady)) { throw 'the console never accepted a command on the title screen' }
+		$openLine = 'console: party page: open$'
+		$before = Get-LogMatchCount $openLine
+		Send-Text 'partypage open'; Send-Key $VK_RETURN
+		Wait-ForNewLog $openLine 60 'the party page to open' $before | Out-Null
+		$guardLine = 'console: party page guarded: on'
+		$before = Get-LogMatchCount $guardLine
+		Send-Text 'allocguard partypage on'; Send-Key $VK_RETURN
+		Wait-ForNewLog $guardLine 10 'the party page switch' $before | Out-Null
+	} else {
+		# Through the console's `newgame` (or `newparty`), never the landing page -
+		# Enter there is Continue on the newest shared save - waited out to the
+		# LEVEL, not 'Game loaded:' (a load task's line, while commands are still
+		# refused), and then until the console really answers (tools\HarnessGame.ps1).
+		if ($Party) { Write-Host "  with a created party of $memberCount" }
+		Start-NewGame $LoadTimeoutSec -PartySpec $Party | Out-Null
+		# A REFUSED `newparty` still ends in a game - the default four's - so the run
+		# would measure the wrong party and PASS. The command's own line is the proof.
+		if ($Party -and -not (Select-String -Path $log -Pattern "console: new game with a party of $memberCount\b" -EA SilentlyContinue)) {
+			throw "newparty did not build the party of $memberCount (see dungeon.log)"
+		}
+		Send-Key $VK_CONSOLE; Start-Sleep -Milliseconds 500
 	}
 	# logecho off, and the console closed: each path below opens it for itself.
-	Send-Key $VK_CONSOLE; Start-Sleep -Milliseconds 500
 	Send-Text 'logecho off'; Send-Key $VK_RETURN
 	Start-Sleep -Milliseconds 300
 	Send-Key $VK_CONSOLE
@@ -3029,6 +3071,27 @@ try {
 	# (Test-ItemPose). PICKS when they failed, whatever the window said.
 	if ($pose -and $pose.Verdict -ne 'PASS') {
 		if ($result -eq 'PASS' -or $result -eq 'UNMEASURED') { $result = 'PICKS' }
+	}
+
+	# And for -PartyPage: the page must still be up. A window that never armed
+	# reports SKIP by itself; this catches one that armed and lost the page, after
+	# which the switch would have guarded nothing.
+	if ($PartyPage) {
+		Send-Key $VK_CONSOLE
+		Start-Sleep -Milliseconds 500
+		Send-Text 'logecho on'; Send-Key $VK_RETURN
+		$pagePattern = 'console: (member 0|party page: closed)'
+		$before = Get-LogMatchCount $pagePattern
+		Send-Text 'partypage'; Send-Key $VK_RETURN
+		$rows = Wait-NewLogLines $pagePattern $before
+		Send-Text 'logecho off'; Send-Key $VK_RETURN
+		Send-Key $VK_CONSOLE
+		$row = if ($rows.Count) { $rows[-1].Line -replace '^.*console: ', '' } else { 'no answer from `partypage`' }
+		Write-Host "  after the window: $row"
+		if ($row -notmatch '^member 0' -and $result -eq 'PASS') {
+			Write-Host 'the party page was not open - the idle page was not measured' -ForegroundColor Yellow
+			$result = 'UNMEASURED'
+		}
 	}
 
 	# EVERY MODE: an AI pool that GREW in play fails the run, wherever it grew -

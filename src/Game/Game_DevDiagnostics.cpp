@@ -247,10 +247,20 @@ void Game::RegisterDiagnosticCommands() {
 		 .group = CmdGroup::Diagnostics,
 		 .params = "[status]\n"
 				   "strict <on|off>\n"
+				   "partypage <on|off>\n"
 				   "reset",
 		 .summary = "steady-state allocation guard: per-thread counts, strict, reset"},
 		[this](const std::vector<std::string>& args) {
 			const std::string sub = args.empty() ? "status" : args[0];
+			// tools\AllocTest.ps1 -PartyPage's switch: the IDLE party creation
+			// page is guarded too (Game::GuardedState). Not saved.
+			if (sub == "partypage") {
+				if (!Need(m_console, args, 2, "usage: allocguard partypage <on|off>")) return;
+				m_guardPartyPage = args[1] == "on" || args[1] == "1";
+				m_console.Print(std::format("party page guarded: {}",
+											m_guardPartyPage ? "on" : "off"));
+				return;
+			}
 			if (sub == "strict") {
 				if (!Need(m_console, args, 2, "usage: allocguard strict <on|off>")) return;
 				alloc::SetStrict(args[1] == "on" || args[1] == "1");

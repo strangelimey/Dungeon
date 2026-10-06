@@ -19,8 +19,9 @@
 ; a frame by Game::m_pendingLanguage) touches no state. The `state` lines are
 ; the record; the guarded commands after each switch are the check.
 ;
-; NOTE `lang` persists to settings.ini (it is the Settings dropdown's path), so
-; this ends on `lang en`. A run that dies part way leaves the language switched.
+; A scripted `lang` is drawn but never saved (Game::m_scriptLanguage), so a run
+; that dies part way leaves settings.ini as it was. This still ends on `lang en`,
+; to finish the run in English.
 
 logecho on
 reset

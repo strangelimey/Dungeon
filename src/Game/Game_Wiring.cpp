@@ -300,6 +300,7 @@ void Game::WireModuleCallbacks() {
 	// Update applies it first thing next frame.
 	m_ui.onLanguageSelected = [this](const std::string& code) {
 		m_pendingLanguage = code;
+		m_pendingLanguageScripted = false; // the player's pick: saved
 	};
 
 	// Editor: a palette "+ New" opens the asset-creation dialog for that category

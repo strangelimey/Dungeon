@@ -3,23 +3,40 @@
 ;
 ; Run ON ITS OWN, first thing:  Dungeon.exe -headless -eval <this file>
 ; The page lives on the title screen, and `partypage open` refuses anywhere
-; else - so this cannot follow a suite that has already started a game.
+; else - so this cannot follow a suite that has already started a game. Run it
+; on the DEBUG build: the language step below is a use-after-free check, and
+; the debug heap is what turns that into a crash.
 ;
 ; Every line is one of the page's own edits (the methods its widgets call), so
-; this is the page's code path, not a second one. What it should show:
+; this is the page's code path, not a second one. `partypage shows <member>
+; <name>` is the one CHECK: it refuses - and the run then exits 1 - unless
+; PartyCreationPage::ShownName gives that member that name (`-` = none, which
+; the slot draws as "New member"). ShownName is the one rule the slot draws its
+; name from (and the name field and Start read), so this checks the RULE, not
+; the drawn slot: a slot that went back to its own copy of the rule would pass
+; here, and a headless run never draws anyway. What it should show:
 ;   - the page opens on one new member, refusing to start ("needs a name");
 ;   - Kira, an elf: STR 9 DEX 14 VIT 8 WIL 10 INT 11 after DEX +2 (the elf's
 ;     DEX +2 INT +1 / VIT -2 STR -1 on 10), Blades and Throwing at level 2, a
 ;     dagger in hand and a rock in the pack;
-;   - Default party replaces her with the four; Brand turned orc becomes a made
-;     member (STR 13 VIT 11 INT 8 WIL 8) with no kit; two removed;
+;   - the LANGUAGE changes with the page open and the page still edits and reads
+;     (code-review C370: its tree was cleared and not rebuilt, and the next
+;     frame's text went into freed widgets - a crash in debug);
+;   - Default party replaces her with the four; Brand's name field cleared still
+;     shows Brand, as the game would start him (C109: the slot's own copy read
+;     "New member"); Brand turned orc becomes a made member (STR 13 VIT 11 INT 8
+;     WIL 8) with no kit, still Brand; two removed;
 ;   - Start: `roster` prints exactly the three the page last showed, and the
 ;     game is playing.
+; A scripted `lang` is drawn but never saved (Game::m_scriptLanguage), so a run
+; that dies between `lang de` and `lang en` leaves settings.ini as it was; the
+; `lang en` only puts the rest of this run back in English.
 
 logecho on
 state
 partypage open
 partypage
+partypage shows 0 -
 
 partypage set name=Kira race=elf portrait=portrait135
 partypage spend dex 2
@@ -28,14 +45,28 @@ partypage skill 1 throwing
 partypage item 0 dagger
 partypage item 1 rock
 partypage
+partypage shows 0 Kira
+
+lang de
+partypage
+partypage spend wil 1
+partypage spend wil -1
+partypage shows 0 Kira
+lang en
+partypage
 
 partypage default
+partypage set name=
+partypage shows 0 Brand
 partypage set race=orc
+partypage shows 0 Brand
 partypage select 3
 partypage set name=Old_Tilo
+partypage shows 3 Old_Tilo
 partypage remove 1
 partypage remove 1
 partypage add
+partypage shows 2 -
 partypage set name=Kira race=elf portrait=portrait135
 partypage spend dex 2
 partypage skill 0 blade

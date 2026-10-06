@@ -98,22 +98,21 @@ public:
 		// The portrait, square on the left (the tinted initial without one).
 		const float side = r.h - 2 * in;
 		const gfx::Rect pic{r.x + in, r.y + in, side, side};
-		const party::MemberSpec& spec = m_page.Spec(m_index);
 		if (const Character* c = m_page.Preview(m_index)) {
 			DrawPortrait(batch, pic, *c, font, theme);
 		} else {
-			batch.DrawRect(pic, MutedIdentity({spec.color[0], spec.color[1], spec.color[2], 1}));
+			batch.DrawRect(pic, MutedIdentity(m_page.ShownColor(m_index)));
 		}
 
-		// Name over race, beside it.
+		// Name over race, beside it - the name the member SHOWS, so a premade
+		// member whose field was cleared still reads as who they are (C109).
 		const float x = pic.x + pic.w + Rem(0.5f);
 		const float room = r.x + r.w - in - Rem(1.2f) - x; // the remove mark's corner
 		const float lineH = font.LineAdvance();
 		const float top = r.y + (r.h - 2 * lineH) * 0.5f;
-		const bool named = !spec.name.empty();
-		ui::DrawFittedText(batch, font, named ? std::string_view(spec.name)
-											  : loc::View("party.new_member"),
-						   x, top, room, named ? theme.text : theme.textDim);
+		const std::string_view name = m_page.ShownName(m_index);
+		ui::DrawFittedText(batch, font, name.empty() ? loc::View("party.new_member") : name, x,
+						   top, room, name.empty() ? theme.textDim : theme.text);
 		const int race = m_page.RaceIndex(m_index);
 		if (race >= 0)
 			ui::DrawFittedText(batch, font, m_page.Data().races[static_cast<size_t>(race)].name,
@@ -164,6 +163,13 @@ void PartyCreationPage::Begin(PartyCreationData data) {
 	Structural();
 }
 
+void PartyCreationPage::Relocalize(PartyCreationData data) {
+	m_data = std::move(data);
+	// The previews carry nothing localized, but the race line and the pick
+	// lists are read from the data: rebuilt with it.
+	Structural();
+}
+
 void PartyCreationPage::ReleaseFaces() {
 	bool any = false;
 	for (const auto& f : m_faces) any = any || f;
@@ -172,6 +178,7 @@ void PartyCreationPage::ReleaseFaces() {
 	for (auto& id : m_faceIds) id.clear();
 	for (auto& p : m_previews)
 		if (p) p->portrait = nullptr;
+	m_textDirty = true; // a page shown again loads them again
 }
 
 party::MemberSpec PartyCreationPage::NewMember(size_t slot) const {
@@ -222,13 +229,12 @@ bool PartyCreationPage::SetRace(size_t member, size_t race) {
 	party::MemberSpec& m = m_specs[member];
 	if (m.premade >= 0) {
 		// A premade member given another race becomes an ordinary made one: the
-		// race's base and free points, no kit (the plan). Who they are stays.
-		if (const Character* c = Preview(member)) {
-			if (m.name.empty()) m.name = c->name;
-			if (m.portrait.empty()) m.portrait = c->portraitId;
-			if (!m.colorSet)
-				m.color = {c->portraitColor.x, c->portraitColor.y, c->portraitColor.z, 1.0f};
-		}
+		// race's base and free points, no kit (the plan). Who they are stays -
+		// what they showed becomes their own.
+		m.name = std::string(ShownName(member));
+		m.portrait = std::string(ShownPortrait(member));
+		const Vec4 color = ShownColor(member);
+		m.color = {color.x, color.y, color.z, 1.0f};
 		m.colorSet = true;
 		m.premade = -1;
 		m.spent = {};
@@ -329,6 +335,33 @@ const Character* PartyCreationPage::Preview(size_t i) const {
 	return i < m_previews.size() && m_previews[i] ? &*m_previews[i] : nullptr;
 }
 
+// THE PREMADE RULE, as Game::BuildMember applies it: an empty name or face, or
+// a colour never set, keeps the premade member's own. Read off the preview -
+// BuildMember's own answer - rather than restated from CreateDefaultParty.
+std::string_view PartyCreationPage::ShownName(size_t i) const {
+	if (i >= m_specs.size()) return {};
+	const party::MemberSpec& m = m_specs[i];
+	if (!m.name.empty() || m.premade < 0) return m.name;
+	const Character* c = Preview(i);
+	return c ? std::string_view(c->name) : std::string_view();
+}
+
+std::string_view PartyCreationPage::ShownPortrait(size_t i) const {
+	if (i >= m_specs.size()) return {};
+	const party::MemberSpec& m = m_specs[i];
+	if (!m.portrait.empty() || m.premade < 0) return m.portrait;
+	const Character* c = Preview(i);
+	return c ? std::string_view(c->portraitId) : std::string_view();
+}
+
+Vec4 PartyCreationPage::ShownColor(size_t i) const {
+	if (i >= m_specs.size()) return {0.3f, 0.3f, 0.3f, 1.0f};
+	const party::MemberSpec& m = m_specs[i];
+	if (m.premade >= 0 && !m.colorSet)
+		if (const Character* c = Preview(i)) return c->portraitColor;
+	return {m.color[0], m.color[1], m.color[2], 1.0f};
+}
+
 const PartyRaceInfo* PartyCreationPage::RaceOf(const party::MemberSpec& m) const {
 	for (const PartyRaceInfo& r : m_data.races)
 		if (r.id == m.race) return &r;
@@ -348,15 +381,14 @@ int PartyCreationPage::RaceIndex(size_t member) const {
 
 std::string PartyCreationPage::Refusal() const {
 	for (size_t i = 0; i < m_specs.size(); ++i) {
-		const party::MemberSpec& m = m_specs[i];
 		const Character* c = Preview(i);
-		// A premade member with no name of their own given keeps theirs.
-		const bool keepsName = m.premade >= 0 && m.name.empty();
-		if (!keepsName && !party::NameValid(m.name))
-			return loc::Format("party.why.name", i + 1);
-		const std::string who = keepsName && c ? c->name : m.name;
-		if (m.portrait.empty() && !(m.premade >= 0 && c && !c->portraitId.empty()))
-			return loc::Format("party.why.face", who);
+		const std::string who(ShownName(i));
+		// An unbuilt PREMADE member has no own name or face to show yet; for
+		// them the build's reason is the one worth giving.
+		if (c || m_specs[i].premade < 0) {
+			if (!party::NameValid(who)) return loc::Format("party.why.name", i + 1);
+			if (ShownPortrait(i).empty()) return loc::Format("party.why.face", who);
+		}
 		if (!c) return loc::Format("party.why.build", who, i < m_previewWhy.size() ? m_previewWhy[i] : "");
 	}
 	return {};
@@ -382,12 +414,14 @@ std::vector<std::string> PartyCreationPage::StatusLines() const {
 			m.premade < 0 && race
 				? std::format("{}/{}", party::PointsSpent(m.spent), party::PointBudget(race->stats))
 				: std::string("-");
+		// The name and face its slot shows (an empty name = "New member").
+		const std::string_view face = ShownPortrait(i);
 		out.push_back(std::format(
 			"member {}{} name='{}' race={} face={} premade={} points={} stats={} skills={} "
 			"items={}",
-			i, i == m_selected ? "*" : "", c && m.name.empty() ? c->name : m.name,
+			i, i == m_selected ? "*" : "", ShownName(i),
 			RaceIndex(i) >= 0 ? m_data.races[static_cast<size_t>(RaceIndex(i))].id : "-",
-			m.portrait.empty() && c ? c->portraitId : m.portrait, m.premade, points, stats,
+			face.empty() ? std::string_view("-") : face, m.premade, points, stats,
 			skills.empty() ? "-" : skills, items.empty() ? "-" : items));
 	}
 	const std::string why = Refusal();
@@ -406,23 +440,22 @@ void PartyCreationPage::RefreshPreviews() {
 	if (!m_data.build) return;
 	for (size_t i = 0; i < m_specs.size(); ++i) {
 		// The preview is about the NUMBERS: a member not yet named is still
-		// shown, under a stand-in the Start check refuses separately.
+		// shown, under a stand-in the Start check refuses separately. (The one
+		// place the premade rule is restated rather than asked of ShownName:
+		// this builds the preview ShownName reads. An empty name is BuildMember's
+		// "keep the premade one", so it goes through as it is.)
 		party::MemberSpec spec = m_specs[i];
 		const bool keepsName = spec.premade >= 0 && spec.name.empty();
 		if (!keepsName && !party::NameValid(spec.name)) spec.name = "?";
 		m_previews[i] = m_data.build(spec, m_previewWhy[i]);
 	}
+	m_textDirty = true;
 }
 
 void PartyCreationPage::RefreshFaces() {
 	bool drained = false;
 	for (size_t i = 0; i < party::kMaxMembers; ++i) {
-		std::string want;
-		if (i < m_specs.size()) {
-			want = m_specs[i].portrait;
-			if (want.empty())
-				if (const Character* c = Preview(i)) want = c->portraitId;
-		}
+		const std::string_view want = i < m_specs.size() ? ShownPortrait(i) : std::string_view();
 		if (want != m_faceIds[i]) {
 			if (m_faces[i] && !drained) {
 				m_device.WaitIdle();
@@ -430,7 +463,7 @@ void PartyCreationPage::RefreshFaces() {
 			}
 			m_faces[i].reset();
 			if (!want.empty())
-				m_faces[i] = TryLoadTextureFile(m_device, paths::Asset("portraits\\" + want));
+				m_faces[i] = TryLoadTextureFile(m_device, paths::Asset(std::format("portraits\\{}", want)));
 			m_faceIds[i] = want;
 		}
 		if (i < m_previews.size() && m_previews[i]) m_previews[i]->portrait = m_faces[i].get();
@@ -439,6 +472,14 @@ void PartyCreationPage::RefreshFaces() {
 
 void PartyCreationPage::Tick() {
 	if (m_previewDirty) RefreshPreviews();
+	// ONLY WHEN SOMETHING MOVED (code-review C112). Every edit and a change of
+	// selection rebuild the previews, which marks this, as do a new tree and
+	// freed faces; nothing below can come out different otherwise. It used to
+	// run every frame - the race line, the pools, the points, five stat
+	// strings, the refusal and a face id per slot, ~20 allocations a frame on
+	// an idle page (checked by tools\AllocTest.ps1 -PartyPage).
+	if (!m_textDirty) return;
+	m_textDirty = false;
 	RefreshFaces();
 	if (m_selected >= m_specs.size()) return;
 	const party::MemberSpec& m = m_specs[m_selected];
@@ -492,6 +533,7 @@ void PartyCreationPage::Build(ui::Widget& area) {
 	m_itemDrop = {};
 	m_start = nullptr;
 	if (m_previewDirty) RefreshPreviews(); // the race/premade rows read them
+	m_textDirty = true;                    // the new labels are blank until Tick
 
 	auto* col = area.Add<ui::Stack>(gfx::Rect{0, 0, 1, 1});
 	col->gapRem = 0.4f;
@@ -522,13 +564,9 @@ void PartyCreationPage::BuildIdentity(ui::Widget& w) {
 	auto& col = static_cast<ui::Stack&>(w);
 	col.gapRem = 0.3f;
 	if (m_selected >= m_specs.size()) return;
-	const party::MemberSpec& m = m_specs[m_selected];
-	const Character* c = Preview(m_selected);
 
 	m_name = CaptionRow(col, loc::Tr("party.name"))
-				 ->Row<ui::TextField>(ui::Len::Fill(), m.name.empty() && c && m.premade >= 0
-															  ? c->name
-															  : m.name);
+				 ->Row<ui::TextField>(ui::Len::Fill(), std::string(ShownName(m_selected)));
 	m_name->placeholder = loc::Tr("party.name_placeholder");
 	m_name->maxLength = party::kMaxNameLength;
 	m_name->onChange = [this] {
@@ -552,10 +590,8 @@ void PartyCreationPage::BuildIdentity(ui::Widget& w) {
 							   r >= 0 ? m_data.races[static_cast<size_t>(r)].portraitTag : "");
 		});
 
-	const Vec4 color = m.premade >= 0 && !m.colorSet && c
-						   ? c->portraitColor
-						   : Vec4{m.color[0], m.color[1], m.color[2], 1.0f};
-	m_color = col.Row<ui::ColorPicker>(ui::Len::Fixed(kRowRem), loc::Tr("party.color"), color,
+	m_color = col.Row<ui::ColorPicker>(ui::Len::Fixed(kRowRem), loc::Tr("party.color"),
+									   ShownColor(m_selected),
 									   [this](const Vec4& v) { SetColor(v); });
 
 	m_pools = col.Row<ui::Label>(ui::Len::Fixed(kLineRem), std::string());

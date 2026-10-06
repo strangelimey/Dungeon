@@ -101,17 +101,19 @@ Key conventions (memorize, they bite):
   rebuild/running eval script, 120-frame warm-up; a scripted run is a console
   session, so the eval harness is NOT an allocation check - AllocTest is; and a
   frame that ENDS outside Playing/sheet-over-level - Esc to pause, a stair load -
-  is a transition, disarmed at the end of Game::Update, `AllocTest.ps1 -Pause`),
+  is a transition, disarmed at the end of Game::Update, `AllocTest.ps1 -Pause`;
+  the menus are not guarded, except the IDLE party creation page under
+  AllocTest's own switch, `AllocTest.ps1 -PartyPage`),
   and a violating frame's call stacks are symbolized into dungeon.log once per
   unique site (capture starts in ArmFrame, so the first armed frame after a
   disarm - alloctest's first - is covered; 64 sites at most, then one "set is
   full" line and a count of the CAPTURES turned away - not of sites, since a
   repeating one counts each time). Dev: `alloctest [secs]` (one machine-readable
-  verdict line), `allocguard [status|strict on|off|reset]`, `allocpoke
-  [secs|once]` (violate on purpose); `tools\AllocTest.ps1` is the re-runnable
-  regression run (`-SelfTest` pokes once on the window's first armed frame and
-  inverts the verdict, so the harness must catch a real violation AND find its
-  call site to pass). THE EVENT-FRAME EXEMPTION IS GONE
+  verdict line), `allocguard [status|strict on|off|partypage on|off|reset]`,
+  `allocpoke [secs|once]` (violate on purpose); `tools\AllocTest.ps1` is the
+  re-runnable regression run (`-SelfTest` pokes once on the window's first armed
+  frame and inverts the verdict, so the harness must catch a real violation AND
+  find its call site to pass). THE EVENT-FRAME EXEMPTION IS GONE
   (2026-08-18, docs/message-allocation.md): a bump message used to allocate —
   loc::Tr returned a COPY of text the table already owned, and MessageLog kept
   a std::string per line — and that was written up here as a POLICY, "allocation
@@ -1522,20 +1524,38 @@ a RACE, the points they spend and the skills they pick, then whatever they do.
   `newgame` and `reset` skip the page and keep the default four. The page edits
   MemberSpecs and shows a PREVIEW of each built by BuildMember plus the world's
   pool rules, so its numbers ARE the game's. Number edits leave the tree standing
-  (Tick rewrites the live text each frame); select / add / remove / a race that
+  (Tick rewrites the live text on the next frame - ONLY after an edit, a new
+  tree or a selection change, never on an idle frame: it reformatted every label
+  every frame, code-review C112); select / add / remove / a race that
   remakes a premade member rebuild a frame later (TakeRebuild, polled at the top
-  of UpdateMenu - the cached-pointer rule). It lives in m_savesUi like the world
+  of UpdateMenu - the cached-pointer rule). WHAT A MEMBER SHOWS - name, face,
+  colour - is `ShownName` / `ShownPortrait` / `ShownColor`, the page's one
+  statement of the premade rule (the spec's own, else the premade member's, read
+  off the preview); the slot, the name field, the face picker, the refusal and
+  the status all ask there (C109: the slot's own copy read a cleared premade name
+  as "New member"). It lives in m_savesUi like the world
   list, draws no big title (its card needs the height), and its RACE LINE spans
-  the card (a race's line is longer than a column). Default party lays out the
+  the card (a race's line is longer than a column). A LANGUAGE SWITCH rebuilds
+  whichever m_savesUi page is showing (one switch in RebuildForLanguage) and
+  re-gathers the page's localized offer first (`PartyCreationPage::Relocalize`) -
+  the party page was missed, and its next edit wrote into the freed tree (C370).
+  Default party lays out the
   four as PREMADE members: authored stats, no stones, no picks; another race makes
   one anew. Esc: the face picker, then an open list (a DropDown closes on Esc now;
   `UIContext::PopupOpen` tells the page), then the page (Back: the world list it
   came from, else the title). Dev twin: `partypage [open|add|default|back|start|
-  picker|select|remove|set k=v...|spend|skill|item]`, every verb one of the
+  picker|select|remove|set k=v...|spend|skill|item|shows]`, every verb one of the
   page's own edit methods, `set` through the same `party::ApplySpecField` as
-  `newparty`. Checked by `tools/EvalScripts/partypage.eval` (ON ITS OWN - it
-  starts on the title, where `partypage open` must be) and InGameTest's title
-  sweeps `sweep_partycreation` / `sweep_partydefault` / `sweep_partypicker`.
+  `newparty`; `shows <member> <name|->` is a CHECK (refuses unless ShownName,
+  what the slot draws its name from, gives that name - it reads the rule, not the
+  drawn slot). Checked by `tools/EvalScripts/partypage.eval` (ON ITS OWN - it
+  starts on the title, where `partypage open` must be; on DEBUG, where its `lang`
+  step's use-after-free is a crash; exit 1 on any refused line; a SCRIPTED `lang`
+  is drawn but never saved, `Game::m_scriptLanguage`, so a run that dies between
+  its `lang de` and `lang en` cannot leave settings.ini in German) and InGameTest's
+  title sweeps `sweep_partycreation` / `sweep_partydefault` / `sweep_partypicker`,
+  and `AllocTest.ps1 -PartyPage`, which measures the IDLE page under the
+  AllocTest-only `allocguard partypage on` (it is not a guarded state otherwise).
 
 The HUD's top bar shows the party — 1..4 members; party creation
 lets the player build fewer than 4, and the bar always reserves four slots

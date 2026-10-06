@@ -413,7 +413,8 @@ void Game::RegisterPartyPageCommands() {
 				   "select <member> | remove <member>\n"
 				   "set <key=value> ...\n"
 				   "spend <stat> <points>\n"
-				   "skill <slot> <id|none> | item <slot> <id|none>",
+				   "skill <slot> <id|none> | item <slot> <id|none>\n"
+				   "shows <member> <name|->",
 		 .summary = "drive the party creation page (bare = its status)"},
 		[this](const std::vector<std::string>& args) {
 			const std::string verb = args.empty() ? "status" : args[0];
@@ -496,6 +497,22 @@ void Game::RegisterPartyPageCommands() {
 				ok = args[2] == "none" || choice >= 0;
 				why = std::format("'{}' is not offered", args[2]);
 				if (ok) page->SetPick(skill, i, choice);
+			} else if (verb == "shows" && args.size() > 2 && index(1, i)) {
+				// A CHECK (partypage.eval): refuses - which fails a scripted run -
+				// unless ShownName gives member i that name. ShownName is the page's
+				// one statement of the premade rule and what the member slot draws
+				// its name from, so this checks the RULE, not the drawn slot (a
+				// headless run draws nothing). `-` = none, which the slot draws as
+				// "New member"; underscores are spaces, as in `set name=`.
+				ok = i < page->Count();
+				why = "no such member";
+				if (ok) {
+					std::string want = args[2] == "-" ? std::string() : args[2];
+					std::ranges::replace(want, '_', ' ');
+					const std::string_view shown = page->ShownName(i);
+					ok = shown == want;
+					why = std::format("member {} shows '{}', not '{}'", i, shown, want);
+				}
 			} else {
 				m_console.RefuseUsage();
 				return;

@@ -707,8 +707,9 @@ private:
 	// covers (Core/AllocTrack). Stateful — it counts the warm-up.
 	bool SteadyStateFrame();
 	// The app states the steady-state rule covers at all: Playing, or the
-	// character sheet over a level. SteadyStateFrame adds the rest (no console,
-	// no bake, the warm-up), and Update disarms a frame that ends outside them.
+	// character sheet over a level (and, under AllocTest's own switch, the idle
+	// party creation page). SteadyStateFrame adds the rest (no console, no bake,
+	// the warm-up), and Update disarms a frame that ends outside them.
 	bool GuardedState() const;
 	// Called when an overlay opens PART WAY THROUGH an already-armed frame:
 	// disarms the guard for it and restarts the warm-up. See the definition.
@@ -879,12 +880,17 @@ private:
 	// The new-game world list's pick: a new game now if it is the world
 	// running, else a switch to it (SwitchWorld) and a new game there.
 	void StartNewGameIn(const std::string& folder);
-	// Loads the settings' language file (falling back to English when it is
-	// missing); rebuild=true also re-creates every UI page in the new
-	// language. The language dropdown only records m_pendingLanguage —
-	// Update applies it at the top of the next frame, after the dropdown's
-	// callback has fully unwound (the rebuild destroys the dropdown).
+	// Loads the language file - a script's (m_scriptLanguage), else the
+	// settings' - falling back to English when it is missing; rebuild=true also
+	// re-creates every UI page in the new language. The language dropdown only
+	// records m_pendingLanguage - Update applies it at the top of the next frame,
+	// after the dropdown's callback has fully unwound (the rebuild destroys the
+	// dropdown).
 	void ApplyLanguage(bool rebuild);
+	// The language drawn now: a script's switch, else the settings' own.
+	const std::string& ActiveLanguage() const {
+		return m_scriptLanguage.empty() ? m_settings.language : m_scriptLanguage;
+	}
 	// Per-frame adaptive thread governor (see the definition in Game.cpp). No-op
 	// unless `governor auto` is enabled.
 	void UpdateGovernor(float dt);
@@ -980,6 +986,10 @@ private:
 	// Consecutive frames that have been quietly Playing — the allocation guard's
 	// warm-up counter (see SteadyStateFrame).
 	u32 m_steadyFrames = 0;
+	// `allocguard partypage on`: the idle party creation page counts as a
+	// guarded state (GuardedState) - AllocTest.ps1 -PartyPage's switch, and
+	// nothing else's. Off by default, not saved.
+	bool m_guardPartyPage = false;
 	// `alloctest`: an armed-seconds budget, a wall-clock deadline so a test that
 	// never reaches steady state reports SKIP instead of hanging, and the guard
 	// stats at the window's start (the result is their delta).
@@ -1024,6 +1034,15 @@ private:
 	// Language code picked in Settings this frame, applied (strings reloaded,
 	// UI rebuilt) at the top of the next Update; empty = no change pending.
 	std::string m_pendingLanguage;
+	// That pick came from a SCRIPT (an eval's `lang`), not the player: it lands
+	// in m_scriptLanguage and is never saved.
+	bool m_pendingLanguageScripted = false;
+	// The language a script switched to, drawn instead of the settings' own and
+	// NEVER written to settings.ini; empty = the settings' own. The harnesses run
+	// the build Michael plays and share its settings.ini, and a script that died
+	// between its `lang de` and `lang en` (the crash partypage.eval exists to
+	// catch) left his game starting in German.
+	std::string m_scriptLanguage;
 	// Quality tier picked in Settings (or by the dev `quality` command) this
 	// frame, applied at the top of the next Update. Deferred for a DIFFERENT
 	// reason than the language: the swap BLOCKS for seconds (every surface

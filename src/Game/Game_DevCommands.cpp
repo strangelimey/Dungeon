@@ -87,10 +87,15 @@ void Game::RegisterDevCommands() {
 	m_console.Register({.name = "lang",
 						.group = CmdGroup::Settings,
 						.params = "<code>",
-						.summary = "switch language by code (e.g. en, de)"},
+						.summary = "switch language by code (e.g. en, de); saved unless a script ran it"},
 					   [this](const std::vector<std::string>& args) {
 						   if (!Need(m_console, args, 1)) return;
 						   m_pendingLanguage = args[0]; // applied next frame
+						   // Typed, it is the Settings dropdown's switch and is
+						   // saved; from a SCRIPT it is drawn and never saved
+						   // (m_scriptLanguage), so a run cannot leave settings.ini
+						   // in its language.
+						   m_pendingLanguageScripted = EvalRunning();
 						   m_console.Print("language: " + args[0]);
 					   });
 	m_console.Register({.name = "tp",

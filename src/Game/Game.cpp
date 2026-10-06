@@ -1549,20 +1549,34 @@ void Game::ApplyPartySpeed() { m_world->ApplyPartyPace(); }
 
 void Game::ApplyLanguage(bool rebuild) {
 	if (!m_pendingLanguage.empty()) {
-		m_settings.language = m_pendingLanguage;
+		if (m_pendingLanguageScripted) {
+			// A script's switch: drawn, never saved (see m_scriptLanguage).
+			m_scriptLanguage =
+				m_pendingLanguage == m_settings.language ? std::string() : m_pendingLanguage;
+		} else {
+			m_settings.language = m_pendingLanguage;
+			m_scriptLanguage.clear();
+			m_settings.Save();
+		}
 		m_pendingLanguage.clear();
-		m_settings.Save();
+		m_pendingLanguageScripted = false;
 	}
-	if (!loc::LoadFile(paths::Asset("lang\\" + m_settings.language + ".lang"))) {
-		if (m_settings.language != "en")
+	const std::string& language = ActiveLanguage();
+	if (!loc::LoadFile(paths::Asset("lang\\" + language + ".lang"))) {
+		if (language != "en")
 			loc::LoadFile(paths::Asset("lang\\en.lang"));
-	} else if (m_settings.language != "en") {
+	} else if (language != "en") {
 		// Surface translation drift: any en.lang key this language lacks
 		// renders as the raw key in the UI, so name them in the log.
 		loc::LogMissingKeys(paths::Asset("lang\\en.lang"));
 	}
 	ApplyLanguageFonts();
-	if (rebuild) m_ui.RebuildForLanguage();
+	if (!rebuild) return;
+	// The party page's offer is text gathered in the old language when it
+	// opened (race names and traits, skill and item names): gathered again, so
+	// the page the rebuild below makes reads in the new one too (C370).
+	if (m_world && m_ui.PartyPageActive()) m_ui.PartyPage()->Relocalize(PartyCreationDataFor());
+	m_ui.RebuildForLanguage();
 }
 
 void Game::ApplyLanguageFonts() {
@@ -1581,7 +1595,7 @@ void Game::ApplyLanguageFonts() {
 		spec.path = paths::Asset(std::string(file));
 		if (!std::filesystem::exists(spec.path)) {
 			log::Warn("language {}: {} names {}, which is not installed - keeping {}",
-					  m_settings.language, key, file,
+					  ActiveLanguage(), key, file,
 					  m_fonts.Face(role).path.empty() ? "the fallback" : m_fonts.Face(role).path);
 			continue;
 		}
@@ -1590,7 +1604,7 @@ void Game::ApplyLanguageFonts() {
 		spec.scale = scale == scaleKey ? 1.0f : std::strtof(std::string(scale).c_str(), nullptr);
 		if (spec.scale <= 0.0f) spec.scale = 1.0f;
 		base = m_fonts.Face(role);
-		log::Info("language {}: the {} role draws in {} (scale {:.2f})", m_settings.language,
+		log::Info("language {}: the {} role draws in {} (scale {:.2f})", ActiveLanguage(),
 				  ui::FontRoleName(role), file, spec.scale);
 		m_fonts.SetFace(role, std::move(spec));
 	}
@@ -1754,7 +1768,14 @@ bool Game::SteadyStateFrame() {
 // course, and is left out.
 bool Game::GuardedState() const {
 	return m_state == AppState::Playing ||
-		   (m_state == AppState::CharacterSheet && m_resumeState == AppState::Playing);
+		   (m_state == AppState::CharacterSheet && m_resumeState == AppState::Playing) ||
+		   // The party creation page, IDLE - for tools\AllocTest.ps1 -PartyPage
+		   // only (`allocguard partypage on`; off by default and never saved). A
+		   // menu is left out because it builds as a matter of course, but a page
+		   // nobody is touching has nothing to build, and this one reformatted
+		   // its labels every frame (code-review C112). An edit on it rebuilds,
+		   // so the harness touches nothing inside its window.
+		   (m_guardPartyPage && m_state == AppState::Menu && m_ui.PartyPageOpen());
 }
 
 // An overlay just opened, PART WAY THROUGH the frame the guard already armed.

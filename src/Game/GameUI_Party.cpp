@@ -39,6 +39,7 @@ void GameUI::BuildPartyPage() {
 	m_savesUi.Clear();
 	m_saveField = nullptr; // the Save page's pointers die with this context too
 	m_saveButton = nullptr;
+	m_partyPage->TakeRebuild(); // this IS the rebuild an edit may have asked for
 	PageCard* card = AddPageCard(kPartyCardW, "party.title", kPartyCardTop);
 	m_partyPage->Build(*card);
 	m_partyPage->Tick(); // the live text, before the first draw
@@ -62,7 +63,6 @@ void GameUI::RefreshPartyPageIfDirty() {
 	// A new tree when the page was opened, or an edit changed what it shows.
 	if (m_partyBuildPending || (PartyPageOpen() && m_partyPage->TakeRebuild())) {
 		m_partyBuildPending = false;
-		m_partyPage->TakeRebuild();
 		BuildPartyPage();
 	}
 }
@@ -118,14 +118,11 @@ void GameUI::SyncMemberColorPickers() {
 
 void GameUI::OpenPartyPortraitPicker(size_t member, const std::string& raceTag) {
 	if (!m_portraitPicker || !m_partyPage || member >= m_partyPage->Count()) return;
-	const party::MemberSpec& spec = m_partyPage->Spec(member);
-	const Character* c = m_partyPage->Preview(member);
-	const std::string name = !spec.name.empty() ? spec.name
-							 : c && spec.premade >= 0 ? c->name
-													  : loc::Tr("party.new_member");
-	const std::string current = !spec.portrait.empty() ? spec.portrait
-								: c ? c->portraitId
-									: std::string();
+	// Who the slot shows, and the face it shows (the page's one statement of
+	// the premade rule, PartyCreationPage::ShownName).
+	const std::string_view shown = m_partyPage->ShownName(member);
+	const std::string name(shown.empty() ? loc::View("party.new_member") : shown);
+	const std::string current(m_partyPage->ShownPortrait(member));
 	m_portraitPicker->Open(loc::FormatLine("portrait.pick.title", name).View(), current,
 						   [this, member](const std::string& id) {
 							   if (m_partyPage) m_partyPage->SetPortrait(member, id);

@@ -1319,6 +1319,8 @@ void GameUI::RebuildForLanguage() {
 	m_stonePicker = nullptr; // died with the page; BuildStoneTab sets it again
 	m_pauseUi.Clear();
 	m_savesUi.Clear();
+	m_saveField = nullptr; // the Save page's pointers die with that context
+	m_saveButton = nullptr;
 	m_sheetUi.Clear();
 	BuildMenu();
 	BuildPauseMenu();
@@ -1331,10 +1333,21 @@ void GameUI::RebuildForLanguage() {
 		m_portraitPicker->Close();
 		m_portraitPicker->Build();
 	}
-	// The saves page is built on demand; repopulate it in the new language if
-	// it happens to be open (OpenSavesPage leaves m_menuPage on Saves).
-	if (m_menuPage == MenuPage::Saves) OpenSavesPage(m_savesMode);
-	if (m_menuPage == MenuPage::Worlds) OpenWorldsPage();
+	// The pages built on demand into m_savesUi, cleared above: whichever one is
+	// showing is rebuilt in the new language. ONE switch naming every page, so a
+	// page added later has an obvious line to join rather than a tree nobody
+	// rebuilds - which is what the party page was (code-review C370): its Tick
+	// then wrote the next frame's text into freed widgets.
+	switch (m_menuPage) {
+	case MenuPage::Saves: OpenSavesPage(m_savesMode); break;
+	case MenuPage::Worlds: OpenWorldsPage(); break;
+	case MenuPage::Party:
+		// Leaving already: the leave rebuilds whatever comes next.
+		if (!m_partyLeavePending) BuildPartyPage();
+		break;
+	case MenuPage::Main:
+	case MenuPage::Settings: break; // their contexts were rebuilt above
+	}
 	if (!m_characters.empty()) {
 		m_sheetIndex = std::min(m_sheetIndex, m_characters.size() - 1);
 		m_sheet->SetCharacter(m_sheetIndex);

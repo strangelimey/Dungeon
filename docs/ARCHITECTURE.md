@@ -271,13 +271,22 @@ Four boundaries worth stating, because they are policy and not oversight:
   which then draws in the same frame's Render. That was reported as ~5000
   allocations on every Esc (2026-09-28). `Game::Update` now disarms any frame
   that ends outside `GuardedState()` (Playing, or the character sheet over a
-  level), after every early return, so no transition site - Esc, a stair load, a
+  level - see the next point for the one more), after every early return, so no
+  transition site - Esc, a stair load, a
   party wipe - has to remember to. It is the overlay rule
   (`OverlayOpenedThisFrame`) one level up. The destination's frames were never
   armed, so this excuses exactly one frame per transition; `AllocTest.ps1
   -Pause` presses Esc inside the window and refuses a PASS unless the verdict
   counts a transition (`transitions=`). Opening the SHEET is not a transition
   out: it is a guarded state, and its opening frame stays checked.
+- **The menus are not guarded, with one exception behind a switch.** A menu
+  builds and rebuilds as a matter of course, so `GuardedState()` leaves the
+  title and pause pages out. But a page standing IDLE has nothing to build, and
+  the party creation page reformatted its every label every frame it stood
+  there (code-review C112), where no guard could see it. `allocguard partypage
+  on` - AllocTest's switch, off by default and never saved - makes the idle
+  page a guarded state, and `AllocTest.ps1 -PartyPage` measures it with nothing
+  touched (an edit there rebuilds the tree, so the window holds no edit).
 - **A test that cannot fail proves nothing.** `allocpoke` allocates every frame
   on purpose, and `allocpoke once` exactly once, on the first armed frame after
   the console shuts. `AllocTest.ps1 -SelfTest` uses the second and inverts the

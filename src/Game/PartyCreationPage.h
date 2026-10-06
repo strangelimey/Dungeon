@@ -18,7 +18,9 @@
 // rebuild, taken by the owner at the top of the next frame - the cached widget
 // pointers die with the tree, so it never happens inside a callback. Edits that
 // only change numbers (a point spent, a skill picked, a name typed) leave the
-// tree standing; Tick rewrites the live text each frame.
+// tree standing; Tick rewrites the live text on the next frame, and only then -
+// an idle page rewrites nothing (code-review C112: it reformatted every label
+// every frame, ~20 allocations a frame for text that had not changed).
 //
 // The owner (GameUI) builds the stone card and hands Build its content area;
 // the page owns the member faces it shows (a few textures, freed with a GPU
@@ -86,6 +88,10 @@ public:
 
 	// A fresh page: one new member, selected. Drops whatever was there.
 	void Begin(PartyCreationData data);
+	// The same offer in the language just loaded (Game::ApplyLanguage, before
+	// GameUI rebuilds the page): the members are kept - their specs hold ids -
+	// and only the words (race names and traits, skill and item names) change.
+	void Relocalize(PartyCreationData data);
 	// Frees the faces (drains the GPU first). The page keeps its specs.
 	void ReleaseFaces();
 
@@ -95,7 +101,8 @@ public:
 	// True once after an edit that needs the tree rebuilt (see the header).
 	bool TakeRebuild();
 	// Before the tree updates: previews and faces for edited members, then the
-	// live text and which buttons are usable.
+	// live text and which buttons are usable - only when an edit, a selection,
+	// a new tree or freed faces asked for it; an idle frame does nothing.
 	void Tick();
 
 	// --- the edits: the widgets and `partypage` both call these ---------------
@@ -120,6 +127,17 @@ public:
 	const std::vector<party::MemberSpec>& Specs() const { return m_specs; }
 	// The built preview (nullopt when this spec cannot be made yet).
 	const Character* Preview(size_t i) const;
+	// What member i SHOWS - name, face, colour (code-review C109): the spec's own
+	// where it gives one, else, for a premade member, their own as BuildMember
+	// makes them, read off the preview. The page's ONE statement of that rule:
+	// the member slot, the name field, the face picker's title and current face,
+	// the refusal and the status lines all ask here. (It was re-derived at each,
+	// and the slot's copy had dropped the premade case: a premade member whose
+	// name was cleared read "New member" while the game would start them as
+	// Brand.) Empty = not named / no face yet.
+	std::string_view ShownName(size_t i) const;
+	std::string_view ShownPortrait(size_t i) const;
+	Vec4 ShownColor(size_t i) const;
 	// Why Start would refuse, localized; empty = it may go.
 	std::string Refusal() const;
 	// The race the selected member is, as an index into the data (-1 = none).
@@ -154,6 +172,9 @@ private:
 	size_t m_selected = 0;
 	bool m_rebuild = false;
 	bool m_previewDirty = true;
+	// Tick's text and faces need redoing: set by a preview rebuild (which every
+	// edit and a selection change cause), a new tree and freed faces.
+	bool m_textDirty = true;
 
 	// Per member: the preview, and why it could not be built.
 	std::vector<std::optional<Character>> m_previews;
