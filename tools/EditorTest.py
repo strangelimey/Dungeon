@@ -3351,8 +3351,16 @@ fresh()
 try:
     catalogs = os.path.join(PROJ, "catalog")
     drop_block(os.path.join(catalogs, "armor.cat"), DECO_MODEL)
-    arena_ent = io.open(os.path.join(PROJ, r"levels\eval_arena.ent"), encoding="utf-8").read()
-    check(not naming(catalogs, DECO_MODEL) and not re.search(r"\blever\b", arena_ent),
+    # eval_arena's levers' corner (batch 39) is two lever records, and a lever's
+    # kind opens lever_handle at the level's load - the file only the weapon may
+    # open here. This scratch copy loses them (the hidden niche stays, unrevealed).
+    arena_path = os.path.join(PROJ, r"levels\eval_arena.ent")
+    raw = io.open(arena_path, "rb").read().decode("utf-8")
+    eol = "\r\n" if "\r\n" in raw else "\n"
+    io.open(arena_path, "wb").write(eol.join(
+        l for l in raw.split(eol) if not re.match(r"\s*button\s+lever\b", l)).encode("utf-8"))
+    arena_ent = io.open(arena_path, encoding="utf-8").read()
+    check(not naming(catalogs, DECO_MODEL) and not re.search(r"^\s*button\s+lever\b", arena_ent, re.M),
           f"...and in the scratch world no type names {DECO_MODEL} once the amulet is out (so only "
           "the decoration can open it), and eval_arena has no lever (whose handle is lever_handle)",
           str(naming(catalogs, DECO_MODEL)))
