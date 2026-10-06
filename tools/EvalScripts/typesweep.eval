@@ -35,18 +35,18 @@ typerefs surfacefeatures recess
 typerefs surfacefeatures sunk
 typerefs surfacefeatures dome
 geomhash
-typeset delete surfacefeatures sunk
-typeset delete surfacefeatures dome
+expect-refuse typeset delete surfacefeatures sunk
+expect-refuse typeset delete surfacefeatures dome
 savemap
 echo --- 3: the code's ids ---
-typeset rename effects burn burn_x
-typeset rename attacks stab stab_x
-typeset rename spells flame flame_x
-typeset rename balance formula formula_x
-typeset delete effects burn
-typeset delete attacks stab
-typeset delete spells flame
-typeset delete balance formula
+expect-refuse typeset rename effects burn burn_x
+expect-refuse typeset rename attacks stab stab_x
+expect-refuse typeset rename spells flame flame_x
+expect-refuse typeset rename balance formula formula_x
+expect-refuse typeset delete effects burn
+expect-refuse typeset delete attacks stab
+expect-refuse typeset delete spells flame
+expect-refuse typeset delete balance formula
 typeset dialog effects burn
 typeset dialog delete
 typeset dialog off
