@@ -506,7 +506,9 @@ the log does not. The match is CASE-SENSITIVE, because `TALLY` is a result and
 recovery TRAINS. It is the standing home for one claim the pure harness cannot
 reach — **stamina/sec > mana/sec > health/sec at equal investment** — because
 that is a property of the AUTHORED knobs, and RollTest deliberately cannot link
-`Balance` (it would drag the file layer in). The dev command `regen` prints it.
+`Balance` (it would drag the file layer in) - it reads only the knob DEFAULTS
+(Game/BalanceKnobs.h), and balance.cat is what plays. The dev command `regen`
+prints it.
 
 Two things it does that are worth copying into any suite measuring a rate:
 

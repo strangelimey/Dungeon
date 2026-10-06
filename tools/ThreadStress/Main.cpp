@@ -39,6 +39,7 @@
 // asserts the worker reboots cleanly (restart counter climbs, never quarantined,
 // no "FORCE-TERMINATED" warning) — it would have risked the deadlock before.
 // ============================================================================
+#include "Common/Verdict.h"
 #include "Game/MonsterAI.h"
 #include "Core/Diagnostics.h"
 #include "Core/Log.h"
@@ -70,22 +71,10 @@ static constexpr int kBuckets = ai::Scheduler::kBucketCount;
 // as prose, and then `return 0` regardless. A test that cannot fail guards
 // nothing, and this one was in the tree looking like it did. Each condition is
 // now asserted, counted, and rolled into one machine-readable line so a suite
-// can run it unattended.
+// can run it unattended - the shared one (tools/Common/Verdict.h), which also
+// keeps the failed labels --self-test compares against kSelfTestFails.
 // ---------------------------------------------------------------------------
-static int g_checks = 0;
-static int g_failures = 0;
-// The label of every check that failed, in order - what --self-test compares
-// against kSelfTestFails.
-static std::vector<std::string> g_failedLabels;
-
-static void Check(bool ok, const std::string& what) {
-	++g_checks;
-	if (!ok) {
-		++g_failures;
-		g_failedLabels.push_back(what);
-	}
-	std::printf("    [%s] %s\n", ok ? "ok  " : "FAIL", what.c_str());
-}
+static void Check(bool ok, const std::string& what) { verdict::Check(ok, what, "    "); }
 
 // ---------------------------------------------------------------------------
 // THE SELF-TEST'S EXPECTED FAILURES, by label (the tools/SpellTest.py rule: the
@@ -830,33 +819,10 @@ int main(int argc, char** argv) {
 	}
 
 	std::printf("\n=== done — manager teardown joins/terminates all workers ===\n");
-	std::printf("\nthreadstress RESULT=%s checks=%d failures=%d self_test=%d\n",
-				g_failures == 0 ? "PASS" : "FAIL", g_checks, g_failures,
-				selfTest ? 1 : 0);
-	if (selfTest) {
-		// The harness must catch both faults WHERE they land: exactly the checks
-		// in kSelfTestFails fail and every other check passes. "Anything failed"
-		// passed a broken run as readily as a caught fault. Compared as sorted
-		// multisets, so a check that runs twice under one label must be listed
-		// twice.
-		std::vector<std::string> want(std::begin(kSelfTestFails), std::end(kSelfTestFails));
-		std::vector<std::string> got = g_failedLabels;
-		std::sort(want.begin(), want.end());
-		std::sort(got.begin(), got.end());
-		std::vector<std::string> unexpected, missed;
-		std::set_difference(got.begin(), got.end(), want.begin(), want.end(),
-							std::back_inserter(unexpected));
-		std::set_difference(want.begin(), want.end(), got.begin(), got.end(),
-							std::back_inserter(missed));
-		for (const std::string& s : unexpected)
-			std::printf("  self-test: '%s' FAILED but is not an expected failure\n", s.c_str());
-		for (const std::string& s : missed)
-			std::printf("  self-test: '%s' was expected to FAIL and passed\n", s.c_str());
-		const bool caught = unexpected.empty() && missed.empty();
-		std::printf("SELF-TEST %s - %d of %d expected failures, %d unexpected\n",
-					caught ? "PASS" : "FAIL", static_cast<int>(want.size() - missed.size()),
-					static_cast<int>(want.size()), static_cast<int>(unexpected.size()));
-		return caught ? 0 : 1;
-	}
-	return g_failures == 0 ? 0 : 1;
+	// The harness must catch both faults WHERE they land: exactly the checks in
+	// kSelfTestFails fail and every other check passes. "Anything failed" passed
+	// a broken run as readily as a caught fault. Then the shared last line.
+	std::printf("\n");
+	const bool caught = selfTest && verdict::CaughtExactly(kSelfTestFails);
+	return verdict::Finish("threadstress", selfTest, caught);
 }

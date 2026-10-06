@@ -5,8 +5,9 @@
 // so what is checked is the SHIPPING engine and not a copy that can drift from
 // it. Every expectation below is derived analytically and stated beside the
 // measurement, because the whole point is to catch an engine that is subtly
-// wrong — a fumble rate of 5% when the design said 5% is worth nothing if the
-// number was read off the same constant the engine used.
+// wrong - an expectation copied from the engine's own output can only agree
+// with it. The knobs both sides start from are the shipped defaults; the
+// arithmetic from a knob to its expectation is written out here, by hand.
 //
 // WHY THE TAIL MATTERS HERE. The design multiplies a landed hit by the margin
 // (attack total - defense total), and the rolls are open-ended, so a lucky
@@ -27,7 +28,13 @@
 // two flags, a skill id to a level. Those are lookups with nothing a test would
 // catch; every DECISION is measured here.
 //
-//   RollTest.exe [--self-test]   — one verdict line, exit 0 = PASS
+//   RollTest.exe [--self-test]   - exit 0 = PASS (or, under --self-test, caught)
+//
+// The last line is the shared verdict (tools/Common/Verdict.h):
+//   rolltest RESULT=PASS checks=N failures=0 self_test=0
+//
+// Every knob a section builds its rules from is the SHIPPED default, read from
+// Game/BalanceKnobs.h (kKnobs below) rather than retyped (code-review C423).
 //
 // --self-test feeds the checks a 90-sided die while they still expect 100, so
 // a harness that cannot catch a broken distribution FAILS instead of passing
@@ -40,8 +47,11 @@
 // A self-test PASSES only when exactly the checks in kSelfTestFails fail and
 // every other check still passes (the tools/SpellTest.py rule). "Something
 // failed" is not enough: it cannot tell a caught fault from a broken run, and
-// it cannot tell which sections the fault actually reached.
+// it cannot tell which sections the fault actually reached. Its verdict line
+// reads RESULT=FAIL (the checks did fail) with caught=1, and exits 0.
 // ============================================================================
+#include "Common/Verdict.h"
+#include "Game/BalanceKnobs.h"
 #include "Game/Blast.h"
 #include "Game/Combat.h"
 #include "Game/Curve.h"
@@ -72,35 +82,45 @@
 #include <vector>
 
 using namespace dungeon::game;
+namespace verdict = dungeon::verdict;
 
 namespace {
 
-int g_checks = 0;
-int g_failed = 0;
-// The label of every check that failed, in order - what --self-test compares
-// against kSelfTestFails.
-std::vector<std::string> g_failedLabels;
+// The shipped knob defaults (Game/BalanceKnobs.h): the INPUTS every section
+// below builds its rules from. RollTest cannot link Balance.cpp (the catalog
+// reader would drag the file layer in), and it used to retype these instead -
+// until its strike table was measuring a defense_base of 25 against a game at
+// 45 (code-review C423). The EXPECTATIONS stay hand-derived: a check states the
+// rule's arithmetic in terms of these knobs, so retuning a default moves the
+// expectation with it and a check fails only when the ENGINE stops following
+// the rule.
+constexpr const BalanceKnobs& kKnobs = kBalanceDefaults;
+
+// The shipped curves, assembled the way Balance::SkillCurve / StatCurve /
+// AvoidCurve assemble them (those are members of Balance, which this harness
+// cannot construct).
+constexpr CurveForm FormOf(float knob) {
+	return static_cast<CurveForm>(static_cast<int>(knob));
+}
+constexpr CurveRules kSkillCurve{FormOf(kKnobs.skillCurve), kKnobs.skillBonus,
+								 kKnobs.skillCap, 0.0f};
+constexpr CurveRules kStatCurve{FormOf(kKnobs.statCurve), kKnobs.statBonus,
+								kKnobs.statCap, kKnobs.statBaseline};
+constexpr CurveRules kAvoidCurve{FormOf(kKnobs.skillCurve), kKnobs.avoidSlope,
+								 kKnobs.avoidCap, 0.0f};
 
 // One expectation. `expected` is derived, never read from the engine's own
-// constants; `tol` is set generously wide against the sample count (every
-// tolerance below is >= 7 sigma) so a PASS means "right", not "lucky".
+// RESULT; `tol` is set generously wide against the sample count (every
+// tolerance below is >= 7 sigma) so a PASS means "right", not "lucky". The
+// tally is the shared one (tools/Common/Verdict.h).
 void Check(const char* what, double measured, double expected, double tol) {
-	++g_checks;
-	const bool ok = std::fabs(measured - expected) <= tol;
-	if (!ok) {
-		++g_failed;
-		g_failedLabels.emplace_back(what);
-	}
+	const bool ok = verdict::Count(std::fabs(measured - expected) <= tol, what);
 	std::printf("  %-46s %10.4f  expect %9.4f +/- %-7.4f %s\n", what, measured,
 				expected, tol, ok ? "ok" : "FAIL");
 }
 
 void CheckTrue(const char* what, bool ok) {
-	++g_checks;
-	if (!ok) {
-		++g_failed;
-		g_failedLabels.emplace_back(what);
-	}
+	verdict::Count(ok, what);
 	std::printf("  %-46s %10s %-28s %s\n", what, ok ? "true" : "false", "",
 				ok ? "ok" : "FAIL");
 }
@@ -131,8 +151,8 @@ constexpr const char* kSelfTestFails[] = {
 	// tolerance leaves the d90's rate >= 4 sigma outside it)...
 	"an unloseable attack still fumbles",
 	"a hopeless attack lands on a fumbled guard",
-	"a plain swing fumbles 5% of the time",
-	"an untrained 100% haymaker fumbles half the time",
+	"a plain swing fumbles at fumble_threshold",
+	"an untrained 100% haymaker adds exert_fumble%",
 	// ...and with no criticals at all there is nothing to pierce
 	"the sample found criticals of both kinds",
 	"a piercing critical beats an ordinary one",
@@ -370,18 +390,11 @@ int main(int argc, char** argv) {
 		std::printf("\nthe strike, end to end — a real fighter against a monster\n");
 		StrikeRules sr; // the shipped defaults
 
-		// The shipped curve values, restated. RollTest cannot link Balance
-		// (that would drag the catalog reader and the file layer in behind it),
-		// so these are the DEFAULTS UNDER TEST rather than a live read — if
-		// balance.cat is tuned, the shapes below move and this table describes
-		// the shipped starting point, which is what it is for.
-		CurveRules skill;
-		skill.slope = 5.0f;
-		skill.cap = 120.0f;
-		CurveRules stat;
-		stat.slope = 2.0f;
-		stat.cap = 35.0f;
-		stat.baseline = 10.0f;
+		// The shipped curves (kKnobs): the DEFAULTS rather than a live read of
+		// balance.cat, so if a project tunes the knobs this table describes the
+		// shipped starting point, which is what it is for.
+		const CurveRules skill = kSkillCurve;
+		const CurveRules stat = kStatCurve;
 
 		// A party attacker's bonus is skill + stat + the verb's points; a
 		// monster's is simply authored (monsters.cat accuracy/defense).
@@ -396,10 +409,12 @@ int main(int argc, char** argv) {
 			{"veteran (skill 30, DEX 14) vs plain", attacker(30, 14, 0), 10},
 			{"green vs a nimble monster (50)", attacker(1, 10, 0), 50},
 			{"veteran vs a nimble monster (50)", attacker(30, 14, 0), 50},
-			// The party's defense is an innate base plus DEX until the dodge
-			// and armor skills land; without the base this measured 0.88.
+			// The party's defense is its innate base (defense_base) plus DEX,
+			// before any avoid training or armor. This row once kept a base of
+			// 25 after the knob became 45 (code-review C423); without any base
+			// it measured 0.88.
 			{"a monster (60) vs a party member (DEX 12)", 60,
-			 25.0f + CurveValue(12, stat)},
+			 kKnobs.defenseBase + CurveValue(12, stat)},
 		};
 		std::printf("  %-40s %6s %6s %6s %8s %7s\n", "", "atk", "def", "hit",
 					"dmg x1.0", "p99");
@@ -428,22 +443,21 @@ int main(int argc, char** argv) {
 
 		// THE DEFENDING SIDE — what a monster swinging at 70 actually achieves
 		// against a party member, which is the number the armor trade lives or
-		// dies by. The defense terms are restated here (RollTest cannot link
-		// Balance); they are the shipped defaults.
+		// dies by. The defense terms are the shipped defaults (kKnobs).
 		{
-			constexpr float kBase = 45.0f;   // defense_base
+			constexpr float kBase = kKnobs.defenseBase;
 			constexpr float kMonster = 70.0f; // a typical monsters.cat accuracy
-			CurveRules avoid;
-			avoid.slope = 3.0f;
-			avoid.cap = 60.0f;
+			const CurveRules avoid = kAvoidCurve;
 			// Armor: floor + (offsettable - offset), the offset curve capped at
 			// what training may ever claw back (Balance::ArmorRules).
 			const auto armorPenalty = [&](float penalty, float floor, float level) {
 				CurveRules off = skill;
-				off.slope = 2.0f;
+				off.slope = kKnobs.armorOffsetSlope;
 				off.cap = penalty - floor;
 				return floor + (off.cap - CurveValue(level, off));
 			};
+			constexpr float kMedPen = kKnobs.armorMediumPenalty, kMedFloor = kKnobs.armorMediumFloor;
+			constexpr float kHvyPen = kKnobs.armorHeavyPenalty, kHvyFloor = kKnobs.armorHeavyFloor;
 			// `resist` is the FRACTIONAL half of mitigation, which the armor
 			// content already carries (armor.cat `resists`) and which the first
 			// pass of this table wrongly ignored. It is the half that SCALES:
@@ -459,10 +473,10 @@ int main(int argc, char** argv) {
 				 kBase + CurveValue(11, stat) + CurveValue(20, avoid), 0.0f, 0.0f},
 				{"veteran dodger (avoid 60)",
 				 kBase + CurveValue(11, stat) + CurveValue(60, avoid), 0.0f, 0.0f},
-				{"brigandine, untrained", kBase + CurveValue(11, stat) - armorPenalty(25, 10, 0), 3.5f, 0.25f},
-				{"brigandine, skill 20", kBase + CurveValue(11, stat) - armorPenalty(25, 10, 20), 3.5f, 0.25f},
-				{"plate, untrained", kBase + CurveValue(11, stat) - armorPenalty(45, 20, 0), 7.0f, 0.5f},
-				{"plate, skill 30", kBase + CurveValue(11, stat) - armorPenalty(45, 20, 30), 7.0f, 0.5f},
+				{"brigandine, untrained", kBase + CurveValue(11, stat) - armorPenalty(kMedPen, kMedFloor, 0), 3.5f, 0.25f},
+				{"brigandine, skill 20", kBase + CurveValue(11, stat) - armorPenalty(kMedPen, kMedFloor, 20), 3.5f, 0.25f},
+				{"plate, untrained", kBase + CurveValue(11, stat) - armorPenalty(kHvyPen, kHvyFloor, 0), 7.0f, 0.5f},
+				{"plate, skill 30", kBase + CurveValue(11, stat) - armorPenalty(kHvyPen, kHvyFloor, 30), 7.0f, 0.5f},
 			};
 			std::printf("\n  a monster (attack 70) against a party member\n");
 			std::printf("    %-30s %6s %6s %8s %9s\n", "", "def", "hit", "soak",
@@ -546,13 +560,15 @@ int main(int argc, char** argv) {
 		// The rule that makes fumbles worth having: they decide the exchange
 		// rather than contributing a low number to it, so a veteran with an
 		// overwhelming bonus can still drop his guard. Both halves are exactly
-		// derivable, which is why they are checked tightly:
+		// derivable, which is why they are checked tightly. With f the fumble
+		// threshold's share of a d100 (0.05 at the shipped 5):
 		//
 		//   attacker cannot lose  -> hits everything EXCEPT its own fumbles,
-		//                            = 1 - 0.05 = 0.95
+		//                            = 1 - f = 0.95
 		//   attacker cannot win   -> lands only when the DEFENDER fumbles and
-		//                            it does not, = 0.95 x 0.05 = 0.0475
+		//                            it does not, = (1 - f) x f = 0.0475
 		{
+			const double f = kKnobs.fumbleThreshold / 100.0;
 			std::mt19937 rng(90210);
 			constexpr int kN = 400'000;
 			long long sure = 0, hopeless = 0;
@@ -562,10 +578,10 @@ int main(int argc, char** argv) {
 					ResolveAttack({10.0f, 0.0f, {}}, {5000.0f, 0, 0}, sr, kStrikeDice, rng).hit;
 			}
 			std::printf("\nfumbles decide the exchange\n");
-			Check("an unloseable attack still fumbles", double(sure) / kN, 0.95,
+			Check("an unloseable attack still fumbles", double(sure) / kN, 1.0 - f,
 				  0.004);
 			Check("a hopeless attack lands on a fumbled guard",
-				  double(hopeless) / kN, 0.0475, 0.003);
+				  double(hopeless) / kN, (1.0 - f) * f, 0.003);
 		}
 
 		std::printf("\nthe swap's invariants\n");
@@ -597,10 +613,8 @@ int main(int argc, char** argv) {
 		const CurveForm forms[] = {CurveForm::Hyperbolic, CurveForm::Exponential,
 								   CurveForm::Logarithmic};
 		for (const CurveForm f : forms) {
-			CurveRules cr;
+			CurveRules cr = kSkillCurve; // the shipped slope and cap, every form
 			cr.form = f;
-			cr.slope = 5.0f;
-			cr.cap = 120.0f;
 
 			// The slope at the origin, measured as a secant over a tiny step.
 			const float rise = (CurveValue(0.01f, cr) - CurveValue(0.0f, cr)) / 0.01f;
@@ -615,7 +629,7 @@ int main(int argc, char** argv) {
 			char label[96];
 			std::snprintf(label, sizeof label, "%s: rises at slope",
 						  CurveFormId(f));
-			Check(label, rise, 5.0, 0.05);
+			Check(label, rise, cr.slope, 0.01 * cr.slope);
 			std::snprintf(label, sizeof label, "%s: monotonic to level 400",
 						  CurveFormId(f));
 			CheckTrue(label, monotonic);
@@ -639,14 +653,13 @@ int main(int argc, char** argv) {
 		// The shape table — what a player's skill is actually worth, against
 		// the number that decides whether it matters (the ~41-point combined
 		// deviation of two d100s, measured above).
-		std::printf("\n  bonus by skill level (slope 5, cap 120)\n");
+		std::printf("\n  bonus by skill level (slope %g, cap %g)\n", kSkillCurve.slope,
+					kSkillCurve.cap);
 		std::printf("  %-14s %6s %6s %6s %6s %6s %6s\n", "form", "L5", "L10",
 					"L20", "L40", "L80", "L160");
 		for (const CurveForm f : forms) {
-			CurveRules cr;
+			CurveRules cr = kSkillCurve;
 			cr.form = f;
-			cr.slope = 5.0f;
-			cr.cap = 120.0f;
 			std::printf("  %-14s %6.0f %6.0f %6.0f %6.0f %6.0f %6.0f\n",
 						CurveFormId(f), CurveValue(5, cr), CurveValue(10, cr),
 						CurveValue(20, cr), CurveValue(40, cr),
@@ -656,17 +669,15 @@ int main(int argc, char** argv) {
 					"under that is noise)\n");
 
 		// A stat's contribution, with the baseline that makes 10 worth nothing.
-		CurveRules st;
-		st.slope = 2.0f;
-		st.cap = 35.0f;
-		st.baseline = 10.0f;
-		std::printf("\n  stat bonus (slope 2, cap 35, baseline 10): "
+		const CurveRules st = kStatCurve;
+		std::printf("\n  stat bonus (slope %g, cap %g, baseline %g): "
 					"4 %+.0f   7 %+.0f   10 %+.0f   14 %+.0f   20 %+.0f   "
 					"40 %+.0f\n",
+					st.slope, st.cap, st.baseline,
 					CurveValue(4, st), CurveValue(7, st), CurveValue(10, st),
 					CurveValue(14, st), CurveValue(20, st), CurveValue(40, st));
-		Check("an average stat is worth nothing", CurveValue(10, st), 0.0, 0.001);
-		CheckTrue("a poor stat is a penalty", CurveValue(4, st) < 0.0f);
+		Check("an average stat is worth nothing", CurveValue(st.baseline, st), 0.0, 0.001);
+		CheckTrue("a poor stat is a penalty", CurveValue(st.baseline - 6.0f, st) < 0.0f);
 		CheckTrue("stats stay far under skill at the defaults",
 				  CurveValue(40, st) < 40.0f);
 	}
@@ -690,26 +701,29 @@ int main(int argc, char** argv) {
 			const char* name;
 			float penalty, floor, strength;
 		};
-		// The shipping defaults (Balance.h) plus two deliberately awkward ones: a
+		// The shipping defaults (kKnobs) plus two deliberately awkward ones: a
 		// class whose floor IS its whole penalty (nothing offsettable at all) and
 		// a featherweight. The rules must hold for all of them.
 		const Profile profiles[] = {
-			{"light", 10.0f, 3.0f, 8.0f},
-			{"medium", 25.0f, 10.0f, 11.0f},
-			{"heavy", 45.0f, 20.0f, 14.0f},
+			{"light", kKnobs.armorLightPenalty, kKnobs.armorLightFloor, kKnobs.armorLightStr},
+			{"medium", kKnobs.armorMediumPenalty, kKnobs.armorMediumFloor, kKnobs.armorMediumStr},
+			{"heavy", kKnobs.armorHeavyPenalty, kKnobs.armorHeavyFloor, kKnobs.armorHeavyStr},
 			{"floor==penalty", 12.0f, 12.0f, 10.0f},
 			{"tiny", 1.0f, 0.25f, 5.0f},
 		};
-		constexpr float kOffsetSlope = 2.0f;  // Balance::armorOffsetSlope
-		constexpr float kShortPenalty = 4.0f; // Balance::armorShortPenalty
+		constexpr float kOffsetSlope = kKnobs.armorOffsetSlope;
+		constexpr float kShortPenalty = kKnobs.armorShortPenalty;
 
-		// The offset curve. Under --self-test it becomes the LOGARITHMIC form,
-		// which by design passes its cap — so the floor stops holding and these
-		// checks MUST catch it. Without that the armor section would pass
-		// vacuously while only the dice section had proved itself.
-		CurveRules offsetCurve;
-		offsetCurve.form = selfTest ? CurveForm::Logarithmic : CurveForm::Hyperbolic;
+		// The offset curve, assembled as DungeonWorld::ArmorPenalty does: the
+		// skill curve (so its FORM follows `skill_curve`) at the offset slope. A
+		// hard-coded Hyperbolic here would keep PASSING after a retune to a form
+		// that breaks the floor in the game. Under --self-test it becomes the
+		// LOGARITHMIC form, which by design passes its cap - so the floor stops
+		// holding and these checks MUST catch it. Without that the armor section
+		// would pass vacuously while only the dice section had proved itself.
+		CurveRules offsetCurve = kSkillCurve;
 		offsetCurve.slope = kOffsetSlope;
+		if (selfTest) offsetCurve.form = CurveForm::Logarithmic;
 
 		// Trained to absurdity: if the floor survives this it is a property of the
 		// maths, not of a plausible level range.
@@ -779,10 +793,7 @@ int main(int argc, char** argv) {
 					  bare(profiles[1]) < bare(profiles[2]));
 
 		// --- the stance: the hands combine by MAX, never by sum ---------------
-		CurveRules skillCurve;
-		skillCurve.form = CurveForm::Hyperbolic;
-		skillCurve.slope = 5.0f;
-		skillCurve.cap = 120.0f;
+		const CurveRules skillCurve = kSkillCurve;
 
 		const float lo = 4.0f, hi = 30.0f; // two unequal hands
 		const float guardBoth = defense::HandGuard(1.0f, skillCurve, lo, hi);
@@ -920,11 +931,11 @@ int main(int argc, char** argv) {
 			defense::GuardInputs in;
 			in.base = 30.0f;
 			in.dexterity = 14.0f;
-			in.statCurve = CurveRules{CurveForm::Hyperbolic, 2.0f, 35.0f, 10.0f};
+			in.statCurve = kStatCurve;
 			in.worn = worn;
-			in.armorPenalty = 25.0f; // as if medium, untrained
+			in.armorPenalty = kKnobs.armorMediumPenalty; // as if medium, untrained
 			in.avoidLevel = 40.0f;
-			in.avoidCurve = CurveRules{CurveForm::Hyperbolic, 3.0f, 60.0f, 0.0f};
+			in.avoidCurve = kAvoidCurve;
 			in.held = 1.0f;
 			in.skillCurve = skillCurve;
 			in.kind = kind;
@@ -971,7 +982,7 @@ int main(int argc, char** argv) {
 			defense::GuardInputs noPenalty = wornIn;
 			noPenalty.armorPenalty = 0.0f;
 			Check("the armor penalty comes off the roll",
-				  wornGuard - defense::Guard(noPenalty), -25.0, 0.001);
+				  wornGuard - defense::Guard(noPenalty), -wornIn.armorPenalty, 0.001);
 			// Conversely the unarmored defender pays no penalty however heavy the
 			// number handed in — the branch, not the value, decides.
 			defense::GuardInputs barePenalised = bareIn;
@@ -1072,13 +1083,24 @@ int main(int argc, char** argv) {
 	// of 1 puts the plain line back.
 	{
 		std::printf("\n--- the stance trades both sides ---\n");
-		CurveRules skillCurve;
-		skillCurve.form = CurveForm::Hyperbolic;
-		skillCurve.slope = 5.0f;
-		skillCurve.cap = 120.0f;
+		const CurveRules skillCurve = kSkillCurve;
 		const float lvl = 20.0f;
 		const double full = CurveValue(lvl, skillCurve);
-		const defense::StanceRules stance{2.0f, 5.0f, 2.0f, 5.0f}; // the shipped defaults
+		// The SHIPPED stance: StanceRules{} reads the knob sheet's defaults. It
+		// used to be retyped here as {2, 5, 2, 5} (code-review C423), and every
+		// expectation below is now the rule's arithmetic in these fields, so a
+		// retuned default moves the expectations with it.
+		const defense::StanceRules stance{};
+		const float top = stance.exertMax;              // the share 100% over-exertion is
+		const double atkMax = stance.exertAttackMax;    // the attack's multiple there
+		const double guardMax = stance.guardDefenseMax; // the guard's at 0% attack
+		// The share `p` of the way from a full commitment to 100% over-exertion.
+		const auto over = [top](float p) { return 1.0f + p * (top - 1.0f); };
+		std::printf("  shipped stance: exert_max %g, exert_attack_max %g, "
+					"guard_defense_max %g, exert_floor %g, exert_fumble %g, "
+					"exert_skilled_level %g\n",
+					stance.exertMax, stance.exertAttackMax, stance.guardDefenseMax,
+					stance.exertFloor, stance.exertFumble, stance.exertSkilledLevel);
 
 		// The honest range's ATTACK is still the plain share.
 		Check("a full commitment is the plain curve value",
@@ -1090,9 +1112,9 @@ int main(int argc, char** argv) {
 
 		// THE TWO ENDS reach their knobs, and the middle meets them seamlessly.
 		Check("100% over-exertion attacks at exert_attack_max",
-			  defense::AttackWeight(2.0f, stance), 5.0, 0.0001);
+			  defense::AttackWeight(top, stance), atkMax, 0.0001);
 		Check("0% attack guards at guard_defense_max",
-			  defense::GuardWeight(0.0f, stance), 2.0, 0.0001);
+			  defense::GuardWeight(0.0f, stance), guardMax, 0.0001);
 		Check("a full commitment guards with nothing",
 			  defense::GuardWeight(1.0f, stance), 0.0, 0.0);
 		Check("the attack is continuous at the full-commitment mark",
@@ -1103,14 +1125,16 @@ int main(int argc, char** argv) {
 		// NOT LINEAR: each end's last step is worth more than its first. Checked
 		// on both sides, so a curve slipped onto one side alone cannot pass.
 		CheckTrue("the attack steepens toward 100% over-exertion",
-				  defense::AttackWeight(2.0f, stance) - defense::AttackWeight(1.9f, stance) >
-					  defense::AttackWeight(1.1f, stance) - defense::AttackWeight(1.0f, stance));
+				  defense::AttackWeight(top, stance) - defense::AttackWeight(over(0.9f), stance) >
+					  defense::AttackWeight(over(0.1f), stance) - defense::AttackWeight(1.0f, stance));
 		// ...and each is the SQUARE, pinned at the half-way point. Without these a
 		// shallower curve (h x (1 + h) on the guard) passed every other check - it
 		// still reaches its knob, still steepens, still trades one way. The attack
-		// side's twin is "half way to 100% buys one more skill's worth" below.
-		Check("half held back guards at 0.5 x (1 + 0.25)",
-			  defense::GuardWeight(0.5f, stance), 0.625, 0.0001);
+		// side's twin is "half way to 100% buys a quarter of the extra" below.
+		// At the shipped guard_defense_max of 2 this is 0.5 x 1.25 = 0.625.
+		Check("half held back: 0.5 x (1 + (max - 1) / 4)",
+			  defense::GuardWeight(0.5f, stance), 0.5 * (1.0 + (guardMax - 1.0) * 0.25),
+			  0.0001);
 		CheckTrue("the guard steepens toward 0% attack",
 				  defense::GuardWeight(0.0f, stance) - defense::GuardWeight(0.1f, stance) >
 					  defense::GuardWeight(0.9f, stance) - defense::GuardWeight(1.0f, stance));
@@ -1118,7 +1142,7 @@ int main(int argc, char** argv) {
 		// The TRADE still runs one way: more attack always costs guard.
 		bool traded = true;
 		double lastAttack = -1.0, lastGuard = 1e9;
-		for (const float share : {0.0f, 0.25f, 0.5f, 0.75f, 1.0f, 1.5f, 2.0f}) {
+		for (const float share : {0.0f, 0.25f, 0.5f, 0.75f, 1.0f, over(0.5f), top}) {
 			const double attack = defense::AttackWeight(share, stance);
 			const double guard = defense::GuardWeight(share, stance);
 			if (attack <= lastAttack || guard >= lastGuard) traded = false;
@@ -1128,7 +1152,8 @@ int main(int argc, char** argv) {
 		CheckTrue("more attack always means less guard, at every share", traded);
 
 		// A multiple of 1 is the plain line - the knob's "off" setting.
-		const defense::StanceRules plainGuard{2.0f, 5.0f, 1.0f};
+		defense::StanceRules plainGuard = stance;
+		plainGuard.guardDefenseMax = 1.0f;
 		Check("guard_defense_max = 1 is the plain held share",
 			  defense::GuardWeight(0.3f, plainGuard), 0.7, 0.0001);
 
@@ -1137,11 +1162,15 @@ int main(int argc, char** argv) {
 			  defense::ExertionPoints(1.0f, lvl, skillCurve, stance), 0.0, 0.0);
 		Check("a defensive stance buys nothing either",
 			  defense::ExertionPoints(0.3f, lvl, skillCurve, stance), 0.0, 0.0);
-		// Half way to exert_max is a QUARTER of the way up the curve: 1 + 4 x 0.25.
-		Check("half way to 100% buys one more skill's worth",
-			  defense::ExertionPoints(1.5f, lvl, skillCurve, stance), full, 0.001);
-		Check("100% over-exertion buys four more skills' worth",
-			  defense::ExertionPoints(2.0f, lvl, skillCurve, stance), full * 4.0, 0.001);
+		// Half way to exert_max is a QUARTER of the way up the curve: a weight of
+		// 1 + (exert_attack_max - 1) x 0.25, so a quarter of the extra multiple
+		// (one more skill's worth at the shipped x5).
+		Check("half way to 100% buys a quarter of the extra",
+			  defense::ExertionPoints(over(0.5f), lvl, skillCurve, stance),
+			  (atkMax - 1.0) * 0.25 * full, 0.001);
+		Check("100% over-exertion buys max - 1 skills' worth",
+			  defense::ExertionPoints(top, lvl, skillCurve, stance),
+			  (atkMax - 1.0) * full, 0.001);
 		// The points bought are exactly the attack ABOVE an honest full swing —
 		// stated against StanceAttack rather than re-derived, because the bill is
 		// charged against this number and the two must not drift apart.
@@ -1153,49 +1182,54 @@ int main(int argc, char** argv) {
 		// THE FLOOR (exert_floor, 2026-09-28). An untrained skill's term is zero,
 		// which used to make its over-exertion free AND useless - a 100% kick at
 		// unarmed 0 bought nothing and cost nothing. Now the stretch past 1
-		// multiplies at least the floor, so it buys (and bills) 4 x floor at 100%.
+		// multiplies at least the floor, so at 100% it buys (and bills)
+		// (exert_attack_max - 1) x floor - 4 x floor at the shipped x5.
 		Check("an untrained fighter borrows the floor's worth",
-			  defense::ExertionPoints(2.0f, 0.0f, skillCurve, stance),
-			  4.0 * stance.exertFloor, 0.001);
+			  defense::ExertionPoints(top, 0.0f, skillCurve, stance),
+			  (atkMax - 1.0) * stance.exertFloor, 0.001);
 		Check("...and swings with it",
-			  defense::StanceAttack(2.0f, 0.0f, skillCurve, stance),
-			  4.0 * stance.exertFloor, 0.001);
+			  defense::StanceAttack(top, 0.0f, skillCurve, stance),
+			  (atkMax - 1.0) * stance.exertFloor, 0.001);
 		Check("an untrained HONEST swing still gets nothing from skill",
 			  defense::StanceAttack(1.0f, 0.0f, skillCurve, stance), 0.0, 0.0);
 		// ...a skill already worth more than the floor is untouched by it (the
-		// "four more skills' worth" check above is the same claim at lvl)...
+		// "max - 1 skills' worth" check above is the same claim at lvl)...
 		CheckTrue("a trained skill outweighs the floor here",
 				  CurveValue(lvl, skillCurve) > stance.exertFloor);
 		// ...and a floor of 0 is the old rule, which is how to switch it off.
-		const defense::StanceRules noFloor{2.0f, 5.0f, 2.0f, 0.0f};
+		defense::StanceRules noFloor = stance;
+		noFloor.exertFloor = 0.0f;
 		Check("exert_floor = 0: an untrained fighter borrows nothing",
-			  defense::ExertionPoints(2.0f, 0.0f, skillCurve, noFloor), 0.0, 0.001);
+			  defense::ExertionPoints(top, 0.0f, skillCurve, noFloor), 0.0, 0.001);
 		CheckTrue("...while a trained one borrows plenty",
-				  defense::ExertionPoints(2.0f, lvl, skillCurve, stance) > 1.0f);
+				  defense::ExertionPoints(top, lvl, skillCurve, stance) > 1.0f);
 		CheckTrue("a deeper skill borrows more at the same share",
-				  defense::ExertionPoints(1.5f, 60.0f, skillCurve, stance) >
-					  defense::ExertionPoints(1.5f, lvl, skillCurve, stance));
+				  defense::ExertionPoints(over(0.5f), 60.0f, skillCurve, stance) >
+					  defense::ExertionPoints(over(0.5f), lvl, skillCurve, stance));
 
 		// --- the drunken haymaker: over-exertion widens an UNTRAINED fumble ----
 		// (exert_fumble / exert_skilled_level, 2026-09-28.) The extra band is
 		// exert_fumble x p x inexperience; each factor is pinned at a point
 		// where the others are held, so none can pass for another.
+		const double band = stance.exertFumble;        // +45 faces, shipped
+		const float skilled = stance.exertSkilledLevel; // 5, shipped
 		Check("an honest stance adds no fumble faces",
 			  defense::ExertionFumbleFaces(1.0f, 0.0f, stance), 0.0, 0.0);
-		Check("untrained at 100% over-exertion: +45 faces",
-			  defense::ExertionFumbleFaces(2.0f, 0.0f, stance), 45.0, 0.0001);
+		Check("untrained at 100% over-exertion: the whole band",
+			  defense::ExertionFumbleFaces(top, 0.0f, stance), band, 0.0001);
 		Check("...half way to 100%: half the band",
-			  defense::ExertionFumbleFaces(1.5f, 0.0f, stance), 22.5, 0.0001);
+			  defense::ExertionFumbleFaces(over(0.5f), 0.0f, stance), band * 0.5, 0.0001);
 		Check("...half way to skilled: half the band",
-			  defense::ExertionFumbleFaces(2.0f, 2.5f, stance), 22.5, 0.0001);
+			  defense::ExertionFumbleFaces(top, skilled * 0.5f, stance), band * 0.5, 0.0001);
 		Check("...at exert_skilled_level: none at all",
-			  defense::ExertionFumbleFaces(2.0f, 5.0f, stance), 0.0, 0.0);
+			  defense::ExertionFumbleFaces(top, skilled, stance), 0.0, 0.0);
 		Check("past exert_max counts as 100%, never more",
-			  defense::ExertionFumbleFaces(3.0f, 0.0f, stance), 45.0, 0.0001);
+			  defense::ExertionFumbleFaces(top + 1.0f, 0.0f, stance), band, 0.0001);
 
-		// And the resolver actually USES it: measured, not assumed. A +45 band on
-		// the plain 5 fumbles on a first face of 50 or less - half the swings -
-		// against a plain swing's 5%. Seeded, so the numbers are stable.
+		// And the resolver actually USES it: measured, not assumed. The band on
+		// top of the plain threshold fumbles on a first face of (threshold +
+		// band) or less - 5 + 45 = 50 at the shipped knobs, half the swings -
+		// against a plain swing's threshold. Seeded, so the numbers are stable.
 		//
 		// The plain rate's tolerance is sized against the self-test as well as
 		// the real die: at 400k swings one sigma is ~0.00034, so +/- 0.0025 is
@@ -1216,9 +1250,12 @@ int main(int argc, char** argv) {
 				}
 				return double(fumbles) / kN;
 			};
-			Check("a plain swing fumbles 5% of the time", fumbleRate(0), 0.05, 0.0025);
-			Check("an untrained 100% haymaker fumbles half the time", fumbleRate(45),
-				  0.50, 0.01);
+			const double plain = kKnobs.fumbleThreshold / 100.0;
+			Check("a plain swing fumbles at fumble_threshold", fumbleRate(0),
+				  plain, 0.0025);
+			Check("an untrained 100% haymaker adds exert_fumble%",
+				  fumbleRate(static_cast<int>(std::lround(band))), plain + band / 100.0,
+				  0.01);
 		}
 	}
 
@@ -1311,13 +1348,13 @@ int main(int argc, char** argv) {
 		// The mild default is TEMPO and nothing else: at 5% of every swing, what
 		// happens on most fumbles has to be survivable enough to shrug at.
 		{
-			const DefaultTable mild = DefaultFumble(2.2f);
+			const DefaultTable mild = DefaultFumble(kKnobs.fumbleRecover);
 			Check("the default fumble is one consequence",
 				  static_cast<double>(mild.size()), 1.0, 0.0);
 			CheckTrue("...and it is tempo, not damage",
 					  !mild.empty() && mild[0].kind == Kind::Recover);
 			Check("...carrying the knob it was given",
-				  mild.empty() ? 0.0 : mild[0].value, 2.2, 0.001);
+				  mild.empty() ? 0.0 : mild[0].value, kKnobs.fumbleRecover, 0.001);
 			const DefaultTable bad = DefaultSevere();
 			CheckTrue("the severe default disarms you",
 					  bad.size() == 1 && bad[0].kind == Kind::Drop);
@@ -1766,19 +1803,23 @@ int main(int argc, char** argv) {
 	// it can never turn a blow into healing.
 	{
 		std::printf("\n--- the attacker's type axis ---\n");
-		// The shipping clamps, mirrored from Balance's defaults. The arithmetic is
-		// the real defense::Potent; only these two numbers are restated, and the
-		// checks below are written against the RULES rather than the values.
-		constexpr float kPotencyClamp = 0.6f, kResistClamp = 0.8f;
+		// The shipping clamps (kKnobs). The arithmetic is the real
+		// defense::Potent, and the checks below are written against the RULES
+		// rather than the values.
+		constexpr float kPotencyClamp = kKnobs.potencyClamp, kResistClamp = kKnobs.resistClamp;
 		const DamageType fire{2}, slash{0};
 		ResistTable p;
 
 		Check("no potency leaves a blow alone", defense::Potent(20.0f, p, fire, kPotencyClamp), 20.0, 0.001);
-		p[fire] = 0.5f;
-		Check("potent in fire hits harder", defense::Potent(20.0f, p, fire, kPotencyClamp), 30.0, 0.001);
+		// Half the clamp either way, so these stay inside it whatever it is tuned to.
+		const float inside = 0.5f * kPotencyClamp;
+		p[fire] = inside;
+		Check("potent in fire hits harder", defense::Potent(20.0f, p, fire, kPotencyClamp),
+			  20.0 * (1.0 + inside), 0.001);
 		Check("...and only in that type", defense::Potent(20.0f, p, slash, kPotencyClamp), 20.0, 0.001);
-		p[fire] = -0.5f;
-		Check("feeble in fire hits softer", defense::Potent(20.0f, p, fire, kPotencyClamp), 10.0, 0.001);
+		p[fire] = -inside;
+		Check("feeble in fire hits softer", defense::Potent(20.0f, p, fire, kPotencyClamp),
+			  20.0 * (1.0 - inside), 0.001);
 
 		// CLAMPED BOTH WAYS, with none of the resist side's escapes. A resist of 1.0
 		// means immunity and past it absorption — identity, not stacking — but
@@ -1825,19 +1866,20 @@ int main(int argc, char** argv) {
 	{
 		std::printf("\n--- the resource pools ---\n");
 		using namespace dungeon::game::resource;
-		CurveRules statCurve;
-		statCurve.form = CurveForm::Hyperbolic;
-		statCurve.slope = 2.0f;
-		statCurve.cap = 35.0f;
-		statCurve.baseline = 10.0f;
+		const CurveRules statCurve = kStatCurve;
 
+		// The shipped HEALTH pool (kKnobs), gathered the way Balance::Resource
+		// gathers it: the shared skill form, the pool's own slopes and caps.
+		const CurveForm form = FormOf(kKnobs.skillCurve);
 		Rules r;
-		r.perAptitude = 1.0f;
-		r.skillMax = {CurveForm::Hyperbolic, 1.0f, 25.0f, 0.0f};
-		r.regenBase = 0.15f;
-		r.regenPerAptitude = 0.01f;
-		r.regenPerMax = 0.0f;
-		r.skillRegen = {CurveForm::Hyperbolic, 0.02f, 0.45f, 0.0f};
+		r.perAptitude = kKnobs.kHealth;
+		r.skillMax = {form, kKnobs.healthSkillSlope, kKnobs.healthSkillCap, 0.0f};
+		r.regenBase = kKnobs.healthRegen;
+		r.regenPerAptitude = kKnobs.healthRegenStat;
+		r.regenPerMax = kKnobs.healthRegenMax;
+		r.skillRegen = {form, kKnobs.healthRegenSlope, kKnobs.healthRegenCap, 0.0f};
+		// A member of base 20 and aptitude 10, untrained: base + aptitude x k.
+		const double untrained = 20.0 + 10.0 * r.perAptitude;
 
 		// The two ends of the practice term. An untrained one is worth exactly
 		// nothing (so an unplayed character is unchanged by the whole system),
@@ -1845,11 +1887,11 @@ int main(int argc, char** argv) {
 		// is what makes "nobody is ever better than +cap" a true sentence to
 		// balance around rather than an aspiration.
 		Check("an untrained practice adds nothing to the pool",
-			  Maximum(r, 20.0f, 10.0f, 0.0f), 30.0, 0.001);
+			  Maximum(r, 20.0f, 10.0f, 0.0f), untrained, 0.001);
 		CheckTrue("a deep practice approaches the cap without reaching it",
-				  Maximum(r, 20.0f, 10.0f, 100000.0f) < 30.0 + r.skillMax.cap);
+				  Maximum(r, 20.0f, 10.0f, 100000.0f) < untrained + r.skillMax.cap);
 		CheckTrue("...and gets most of the way there",
-				  Maximum(r, 20.0f, 10.0f, 100000.0f) > 30.0 + 0.99 * r.skillMax.cap);
+				  Maximum(r, 20.0f, 10.0f, 100000.0f) > untrained + 0.99 * r.skillMax.cap);
 
 		// THE ZERO-CAP RULE, and it is the reason this TU exists. CurveValue
 		// answers a non-positive cap with the straight line its slope describes
@@ -1859,7 +1901,7 @@ int main(int argc, char** argv) {
 		Rules capless = r;
 		capless.skillMax.cap = 0.0f;
 		Check("a zero cap switches the practice OFF",
-			  Maximum(capless, 20.0f, 10.0f, 400.0f), 30.0, 0.001);
+			  Maximum(capless, 20.0f, 10.0f, 400.0f), untrained, 0.001);
 		// Non-vacuous by pairing: the same skill level through the raw curve is
 		// enormous, so the check above cannot be passing because 400 is small.
 		CheckTrue("...and is NOT the unbounded line the raw curve would give",
@@ -1897,12 +1939,13 @@ int main(int argc, char** argv) {
 		// enters them differently — linearly and through the (baselined) stat
 		// curve. The consequence worth pinning: an AVERAGE aptitude is worth
 		// nothing to the RATE, while it is worth plenty to the MAXIMUM.
+		const float average = statCurve.baseline;
 		Check("an average aptitude adds nothing to the rate",
-			  RegenPerSec(r, statCurve, 10.0f, 0.0f, 0.0f), r.regenBase, 0.001);
+			  RegenPerSec(r, statCurve, average, 0.0f, 0.0f), r.regenBase, 0.001);
 		CheckTrue("...while it adds its whole self to the maximum",
-				  Maximum(r, 0.0f, 10.0f, 0.0f) > 9.99f);
+				  Maximum(r, 0.0f, average, 0.0f) > average * r.perAptitude - 0.01f);
 		CheckTrue("a poor aptitude is a real penalty to the rate",
-				  RegenPerSec(r, statCurve, 4.0f, 0.0f, 0.0f) < r.regenBase);
+				  RegenPerSec(r, statCurve, average - 6.0f, 0.0f, 0.0f) < r.regenBase);
 
 		// Neither formula may go negative. A hopeless aptitude empties a pool; it
 		// does not invert one, and a rate that drained the bar would be a DoT
@@ -1940,9 +1983,9 @@ int main(int argc, char** argv) {
 		// The same zero-cap trap, and it is WORSE here: an unbounded conditioning
 		// term would make the fitter member's drain rise forever, which is a
 		// runaway inside the mechanism that exists to prevent runaways.
-		SupplyRules food;
-		food.perSecond = 0.0035f;
-		food.condDrain = {CurveForm::Hyperbolic, 0.0002f, 0.0035f, 0.0f};
+		SupplyRules food; // the shipped food meter (kKnobs), as Balance::SupplyOf gathers it
+		food.perSecond = kKnobs.foodRate;
+		food.condDrain = {form, kKnobs.foodCondSlope, kKnobs.foodCondCap, 0.0f};
 
 		Check("an untrained member drains at the base rate",
 			  DrainPerSec(food, 0.0f), food.perSecond, 1e-6);
@@ -2895,40 +2938,12 @@ int main(int argc, char** argv) {
 	}
 
 	// --- verdict ------------------------------------------------------------
-	const bool pass = (g_failed == 0);
-	std::printf("\n%s — %d checks, %d failed\n", pass ? "PASS" : "FAIL",
-				g_checks, g_failed);
-
-	if (selfTest) {
-		// The harness must CATCH the injected fault, and catch it WHERE it was
-		// injected: exactly the checks in kSelfTestFails fail and every other
-		// check passes. "Anything failed" passed a broken run as readily as a
-		// caught fault, and could not show the die reached the strike sections.
-		// Compared as sorted multisets, so a check that runs twice under one
-		// label must be listed twice.
-		std::vector<std::string> want(std::begin(kSelfTestFails),
-									  std::end(kSelfTestFails));
-		std::vector<std::string> got = g_failedLabels;
-		std::sort(want.begin(), want.end());
-		std::sort(got.begin(), got.end());
-		std::vector<std::string> unexpected, missed;
-		std::set_difference(got.begin(), got.end(), want.begin(), want.end(),
-							std::back_inserter(unexpected));
-		std::set_difference(want.begin(), want.end(), got.begin(), got.end(),
-							std::back_inserter(missed));
-		for (const std::string& s : unexpected)
-			std::printf("  self-test: '%s' FAILED but is not an expected failure\n",
-						s.c_str());
-		for (const std::string& s : missed)
-			std::printf("  self-test: '%s' was expected to FAIL and passed\n",
-						s.c_str());
-		const bool caught = unexpected.empty() && missed.empty();
-		std::printf("SELF-TEST %s - %d of %d expected failures, %d unexpected\n",
-					caught ? "PASS" : "FAIL",
-					static_cast<int>(want.size() - missed.size()),
-					static_cast<int>(want.size()),
-					static_cast<int>(unexpected.size()));
-		return caught ? 0 : 1;
-	}
-	return pass ? 0 : 1;
+	// The shared last line (tools/Common/Verdict.h). Under --self-test the
+	// harness must CATCH the injected fault, and catch it WHERE it was
+	// injected: exactly the checks in kSelfTestFails fail and every other check
+	// passes. "Anything failed" passed a broken run as readily as a caught
+	// fault, and could not show the die reached the strike sections.
+	std::printf("\n");
+	const bool caught = selfTest && verdict::CaughtExactly(kSelfTestFails);
+	return verdict::Finish("rolltest", selfTest, caught);
 }

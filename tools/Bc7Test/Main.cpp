@@ -50,11 +50,17 @@
 //   Bc7Test --baseline <f> --self-test         corrupt the bytes and raise the
 //                                              baseline; exactly those two
 //                                              checks must FAIL
+//
+// The last line is the shared verdict (tools/Common/Verdict.h), the encoder's
+// own numbers between the counts and the mode:
+//   bc7test RESULT=PASS checks=N failures=0 images=.. consistency_bad=..
+//           thread_diff=.. regressed=.. matched=.. minpsnr=.. self_test=0
 // ============================================================================
 #include "AssetBaker/Bc7Encoder.h"
 #include "AssetBaker/Bc7Tables.h"
 #include "Assets/Image.h"
 #include "Bc7Decode.h"
+#include "Common/Verdict.h"
 #include "Core/Log.h"
 #include "Core/Types.h"
 
@@ -78,20 +84,9 @@ namespace {
 
 // ---- The verdict ------------------------------------------------------------
 
-int g_checks = 0;
-int g_failures = 0;
-// The label of every check that failed, in order - what --self-test compares
-// against kSelfTestFails.
-std::vector<std::string> g_failedLabels;
-
-void Check(bool ok, const std::string& what) {
-	++g_checks;
-	if (!ok) {
-		++g_failures;
-		g_failedLabels.push_back(what);
-	}
-	std::printf("    [%s] %s\n", ok ? "ok  " : "FAIL", what.c_str());
-}
+// One check, tallied by the shared verdict (tools/Common/Verdict.h), which also
+// keeps the failed labels --self-test compares against kSelfTestFails.
+void Check(bool ok, const std::string& what) { verdict::Check(ok, what, "    "); }
 
 // The labels the self-test names, kept as constants so the check and the list
 // cannot drift apart by a typo.
@@ -1160,47 +1155,36 @@ int main(int argc, char** argv) {
 		Check(baselineFails == 0, kCheckQuality);
 	}
 
-	const bool pass = g_failures == 0;
-	std::printf("\nBC7TEST VERDICT=%s images=%zu consistency_bad=%zu thread_diff=%zu "
-				"regressed=%zu matched=%zu minpsnr=%.2f checks=%d failures=%d "
-				"self_test=%d\n",
-				pass ? "PASS" : "FAIL", corpus.size(), badTotal, threadFails,
-				baselineFails, matched, minPsnr, g_checks, g_failures, selfTest ? 1 : 0);
-
+	// The checker checking itself: exactly the checks in kSelfTestFails fail and
+	// every other check passes. "Anything failed" passed a run that read no
+	// baseline at all, since the corrupted bytes failed it on their own.
+	std::printf("\n");
+	bool caught = false;
 	if (selfTest) {
-		// The checker checking itself: exactly the checks in kSelfTestFails fail
-		// and every other check passes. "Anything failed" passed a run that read
-		// no baseline at all, since the corrupted bytes failed it on their own.
-		std::vector<std::string> want(std::begin(kSelfTestFails), std::end(kSelfTestFails));
-		std::vector<std::string> got = g_failedLabels;
-		std::sort(want.begin(), want.end());
-		std::sort(got.begin(), got.end());
-		std::vector<std::string> unexpected, missed;
-		std::set_difference(got.begin(), got.end(), want.begin(), want.end(),
-							std::back_inserter(unexpected));
-		std::set_difference(want.begin(), want.end(), got.begin(), got.end(),
-							std::back_inserter(missed));
-		for (const std::string& s : unexpected)
-			std::printf("  self-test: '%s' FAILED but is not an expected failure\n", s.c_str());
-		for (const std::string& s : missed)
-			std::printf("  self-test: '%s' was expected to FAIL and passed\n", s.c_str());
 		// And the raised baseline must be caught on EVERY matched image: a
 		// comparison that skipped rows would still fail the quality check once. A
 		// miss here is either that, or an image whose PSNR has risen 1 dB past its
 		// record - an improvement to re-record. (A loader that read only some rows
 		// is not this check's to see: the synthetic-coverage checks fail on it,
-		// which this self-test reports as unexpected failures.)
+		// which this self-test reports as unexpected failures.) Printed FIRST and
+		// handed to CaughtExactly, so its summary - the last line before the
+		// verdict - is the whole self-test's answer and cannot read PASS above a
+		// miss.
 		for (const AtBaseline& a : atBaseline)
 			std::printf("  self-test: '%s' did not fall below its raised baseline "
 						"(%.2f against %.2f)\n",
 						a.name.c_str(), a.psnr, a.bar);
-		const bool caught = unexpected.empty() && missed.empty() && atBaseline.empty();
-		std::printf("SELF-TEST %s - %d of %d expected failures, %d unexpected; the raised "
-					"baseline caught on %zu of %zu matched images\n",
-					caught ? "PASS" : "FAIL", static_cast<int>(want.size() - missed.size()),
-					static_cast<int>(want.size()), static_cast<int>(unexpected.size()),
+		std::printf("SELF-TEST: the raised baseline caught on %zu of %zu matched images\n",
 					baselineFails, matched);
-		return caught ? 0 : 1;
+		caught = verdict::CaughtExactly(kSelfTestFails, static_cast<int>(atBaseline.size()));
 	}
-	return pass ? 0 : 1;
+
+	// The shared last line (tools/Common/Verdict.h), the encoder's own numbers
+	// between the counts and the mode.
+	char fields[192];
+	std::snprintf(fields, sizeof fields,
+				  " images=%zu consistency_bad=%zu thread_diff=%zu regressed=%zu "
+				  "matched=%zu minpsnr=%.2f",
+				  corpus.size(), badTotal, threadFails, baselineFails, matched, minPsnr);
+	return verdict::Finish("bc7test", selfTest, caught, fields);
 }

@@ -2,7 +2,7 @@
 # straight in — the Bc7Test pattern — so what is measured is the shipping code
 # and not a copy of it. Links Core only: Game/Roll.cpp is deliberately pure and
 # must STAY that way, so a link error here is the wall doing its job.
-#   RollTest.exe [--self-test]   — one verdict line, exit 0 = PASS
+#   RollTest.exe [--self-test]   - one verdict line (tools/Common/Verdict.h), exit 0 = PASS
 # Combat.cpp comes in too so the hit-rate section measures the SHIPPING
 # ResolveAttack — the margin multiplier and the accuracy->d100 mapping are the
 # numbers that decide how the game feels, and a copy of them here would be
@@ -64,9 +64,12 @@ add_executable(RollTest
 # attacker's type axis dragged Catalog -> assets::ReadBinaryFile, i.e. the file
 # layer. That is the wall doing exactly what it was built for. The arithmetic moved
 # into Defense.cpp instead (defense::Potent) with Balance::Potent as a thin adapter
-# passing its clamp — the same split the armor floor already uses.
-# src/ on the include path so the harness and the engine both say "Game/Roll.h".
-target_include_directories(RollTest PRIVATE ${CMAKE_SOURCE_DIR}/src)
+# passing its clamp - the same split the armor floor already uses. The knob
+# DEFAULTS need no link at all: they are Game/BalanceKnobs.h, a header that
+# includes nothing (code-review C423 - the harness used to retype them).
+# src/ on the include path so the harness and the engine both say "Game/Roll.h";
+# tools/ for the shared verdict line, "Common/Verdict.h".
+target_include_directories(RollTest PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/tools)
 target_link_libraries(RollTest PRIVATE Core)
 
 # Solution Explorer: headers visible, folders mirrored (dn_ide_layout, root

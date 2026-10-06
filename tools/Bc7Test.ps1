@@ -111,8 +111,13 @@ else { $bc7Args += @('--baseline', $baseline) }
 
 if ($SelfTest) { $bc7Args += '--self-test' }
 
-& $exe @bc7Args
-$code = $LASTEXITCODE
+# Shown as it comes and kept, so its last line - the shared verdict,
+# `bc7test RESULT=.. checks=N failures=M ..` - can be read back against the
+# exit code (tools\Verdict.ps1, code-review C425). stderr is left alone: under
+# 'Stop' a redirected stderr line would be a terminating error.
+. (Join-Path $PSScriptRoot 'Verdict.ps1')
+$lines = @(& $exe @bc7Args | ForEach-Object { Write-Host $_; $_ })
+$code = Confirm-Verdict $lines 'bc7test' $LASTEXITCODE -SelfTest:$SelfTest
 
 Write-Host ''
 if ($code -eq 0) {

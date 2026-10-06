@@ -26,6 +26,7 @@ harness refuses a stale exe on its own (exit 4).
   diag           quick  no self-test   the health record: ring, wrap, cross-thread writes, torn reads
   rolls          quick  self-testable  the pure rules: dice, strike, armour, blasts, resources, ledger, carve, party
   docs           quick  self-testable  the /check-* commands list what CheckAll -List and Eval -List print
+  verdict        quick  self-testable  the native judges' last-line reader refuses every bad or contradictory line
   threads        full   self-testable  ThreadManager + AI buckets under load: no force-terminate, clean reboots
   ingame         quick  self-testable  level files + installed models, and a uioverlap sweep of every screen
   pipeline       quick  self-testable  every source of damage goes through fx::Deal; nothing else writes health

@@ -34,8 +34,9 @@
 #pragma once
 
 #include "Core/Types.h"
-#include "Game/Roll.h"   // RollRules (the dice ResolveAttack rolls)
-#include "Game/Spells.h" // SpellSymbol (a type's school, below)
+#include "Game/BalanceKnobs.h" // kBalanceDefaults (StrikeRules' defaults)
+#include "Game/Roll.h"         // RollRules (the dice ResolveAttack rolls)
+#include "Game/Spells.h"       // SpellSymbol (a type's school, below)
 
 #include <array>
 #include <random>
@@ -209,25 +210,28 @@ struct DefenseProfile {
 };
 
 // The resolver's knobs, filled from Balance (balance.cat) by Balance::Strike().
+// The defaults are the knob sheet's (Game/BalanceKnobs.h) rather than a copy,
+// so StrikeRules{} - what tools/RollTest's strike sections roll with - is the
+// game's default strike by construction (code-review C423).
 struct StrikeRules {
-	float damageJitter = 0.15f; // ± roll on every hit
-	float woundFloor = 1.0f;    // a landed blow always stings
+	float damageJitter = kBalanceDefaults.damageJitter; // ± roll on every hit
+	float woundFloor = kBalanceDefaults.woundFloor;     // a landed blow always stings
 
 	// --- the opposed roll (docs/damage-system.md) ---------------------------
 	// Attacker and defender each add a d100 to a bonus and the higher total
 	// wins. The bonuses arrive already in POINTS — rollScale is gone, and with
 	// it the last of the 0..1 accuracy model it was bridging.
-	float critThreshold = 95.0f;  // >= this face re-rolls and adds
-	float fumbleThreshold = 5.0f; // <= this on the first face is a fumble
-	float maxEscalations = 20.0f; // termination guard, NOT balance (Roll.h)
+	float critThreshold = kBalanceDefaults.critThreshold;     // >= this face re-rolls and adds
+	float fumbleThreshold = kBalanceDefaults.fumbleThreshold; // <= this on the first face is a fumble
+	float maxEscalations = 20.0f; // termination guard, NOT balance (Roll.h), so no knob
 
 	// The margin (attack total - defense total) MULTIPLIES the hit: a
 	// massively superior attack does not merely land, it lands harder. Capped
 	// because the two compound — the roll is open-ended, so a lucky swing
 	// widens the margin AND the margin scales the damage, and RollTest
 	// measures the extreme margin at ~9x the typical winning one.
-	float marginDamage = 0.01f; // + this much multiplier per point of margin
-	float marginCap = 3.0f;     // ceiling on the resulting multiplier
+	float marginDamage = kBalanceDefaults.marginDamage; // + this much multiplier per point of margin
+	float marginCap = kBalanceDefaults.marginCap;       // ceiling on the resulting multiplier
 
 	// The dice these knobs describe, in the form Roll.h takes them. The one
 	// place the float knobs become RollRules - ResolveAttack takes the dice as

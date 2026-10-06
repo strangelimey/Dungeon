@@ -17,9 +17,11 @@
 // that skips when its evidence is missing passes on nothing. Tests 9 and 11
 // each wait one log window out, which is most of the run's few seconds.
 //
-// One machine-readable verdict line, like `alloctest`:  diagtest RESULT=PASS
+// One machine-readable verdict line, the shared one (tools/Common/Verdict.h):
+//   diagtest RESULT=PASS checks=N failures=0 self_test=0
 // Exit code 0 = PASS.
 // ============================================================================
+#include "Common/Verdict.h"
 #include "Core/Diagnostics.h"
 #include "Core/Log.h"
 
@@ -43,14 +45,8 @@ using namespace dungeon;
 
 namespace {
 
-int g_checks = 0;
-int g_failures = 0;
-
-void Check(bool ok, const std::string& what) {
-	++g_checks;
-	if (!ok) ++g_failures;
-	std::printf("  [%s] %s\n", ok ? "ok  " : "FAIL", what.c_str());
-}
+// One check, tallied by the shared verdict (tools/Common/Verdict.h).
+void Check(bool ok, const std::string& what) { verdict::Check(ok, what, "  "); }
 
 // A thread's slot, found by the name it registered under. SnapshotThreads is
 // the only way in from outside, and it reports dormant slots too — which is
@@ -745,7 +741,6 @@ int main() {
 				t.Count(diag::Kind::Restart), t.Count(diag::Kind::Killed),
 				t.Count(diag::Kind::Fatal));
 
-	std::printf("\ndiagtest RESULT=%s checks=%d failures=%d\n",
-				g_failures == 0 ? "PASS" : "FAIL", g_checks, g_failures);
-	return g_failures == 0 ? 0 : 1;
+	std::printf("\n");
+	return verdict::Finish("diagtest", false, false);
 }

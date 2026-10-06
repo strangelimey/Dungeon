@@ -11,9 +11,10 @@
 //
 // So the arithmetic moved here and the world keeps only the ADAPTERS that gather
 // its inputs (an inventory to a worn class, a weapon id to a skill level). This
-// TU is deliberately pure — Combat.h for ArmorClass, Curve.h for the curves,
-// nothing else — which is what lets tools/RollTest compile the SHIPPING code
-// straight in rather than a copy of it. Keep it that way: a catalog lookup or a
+// TU is deliberately pure - Combat.h for ArmorClass, Curve.h for the curves,
+// BalanceKnobs.h (which includes nothing) for the stance's defaults, nothing
+// else - which is what lets tools/RollTest compile the SHIPPING code straight
+// in rather than a copy of it. Keep it that way: a catalog lookup or a
 // Character reference in here would put the wall back up.
 //
 // Deliberately NOT here: the parts that are lookups rather than decisions —
@@ -25,8 +26,9 @@
 // ============================================================================
 #pragma once
 
-#include "Game/Combat.h" // ArmorClass
-#include "Game/Curve.h"  // CurveRules, CurveValue
+#include "Game/BalanceKnobs.h" // kBalanceDefaults (the stance's defaults)
+#include "Game/Combat.h"       // ArmorClass
+#include "Game/Curve.h"        // CurveRules, CurveValue
 
 namespace dungeon::game::defense {
 
@@ -96,13 +98,17 @@ float HandGuard(float held, CurveRules skillCurve, float leftLevel,
 // 100% swing fumbles on a first face of 5 + 45 = 50: half the time. The bill is
 // paid either way (every exit pays), and a swing that does not fumble still
 // carries the floor's bonus - so it is a coin flip, not a sure loss.
+//
+// The defaults are the knob sheet's (Game/BalanceKnobs.h), not a copy of them:
+// this was the second of three places the six numbers were typed (code-review
+// C423), and StanceRules{} is what tools/RollTest measures the stance against.
 struct StanceRules {
-	float exertMax = 2.0f;
-	float exertAttackMax = 5.0f;
-	float guardDefenseMax = 2.0f;
-	float exertFloor = 5.0f;
-	float exertFumble = 45.0f;
-	float exertSkilledLevel = 5.0f;
+	float exertMax = kBalanceDefaults.exertMax;
+	float exertAttackMax = kBalanceDefaults.exertAttackMax;
+	float guardDefenseMax = kBalanceDefaults.guardDefenseMax;
+	float exertFloor = kBalanceDefaults.exertFloor;
+	float exertFumble = kBalanceDefaults.exertFumble;
+	float exertSkilledLevel = kBalanceDefaults.exertSkilledLevel;
 };
 
 // The extra first-roll faces that fumble for a swing (or cast) thrown from

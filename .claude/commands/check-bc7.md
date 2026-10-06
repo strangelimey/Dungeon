@@ -35,9 +35,21 @@ nobody can explain.
 
 `-SelfTest` injects two faults and requires exactly the two checks they aim at to
 fail - `consistency` (a corrupted copy of the bytes) and `quality` (the baseline
-raised 1 dB, caught on every matched image) - and every other check to pass. Its
-last line names any mismatch: `SELF-TEST PASS - 2 of 2 expected failures, 0
-unexpected; the raised baseline caught on 16 of 16 matched images`.
+raised 1 dB, caught on every matched image) - and every other check to pass. It
+prints `SELF-TEST: the raised baseline caught on 16 of 16 matched images`, with
+any image the raised bar missed named above it, then by name any check that
+failed or passed against expectation, and last the self-test's own verdict,
+`SELF-TEST PASS - 2 of 2 expected failures, 0 unexpected`. That line counts the
+missed images too (one miss makes it `SELF-TEST FAIL - ..., 1 other miss (named
+above)`), so it always agrees with the `caught=` on the line after it.
+
+The last line is the shared verdict every native judge prints
+(tools\Common\Verdict.h): `bc7test RESULT=PASS checks=7 failures=0 images=..
+consistency_bad=0 thread_diff=0 regressed=0 matched=.. minpsnr=.. self_test=0`.
+Under `-SelfTest` it reads `RESULT=FAIL ... self_test=1 caught=1` - the checks
+failed on the faults, exactly the expected ones. `Bc7Test.ps1` reads that line
+back against the exit code (tools\Verdict.ps1) and fails a run where they
+disagree.
 
 ## Reading the numbers
 

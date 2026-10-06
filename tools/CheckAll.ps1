@@ -62,6 +62,35 @@ function Get-BuildLog([string]$cfg) {
 . (Join-Path $PSScriptRoot 'HarnessAudio.ps1')
 if (-not $List -and -not $Plan -and -not (Test-HarnessMuted $bin)) { exit (Invoke-Muted $bin $PSCommandPath $PSBoundParameters) }
 
+# THE NATIVE JUDGES (DiagTest, RollTest, ThreadStress) are read by their LAST
+# LINE as well as their exit code: the shared `<tool> RESULT=.. checks=N
+# failures=M .. self_test=N` (tools\Common\Verdict.h), checked against the exit
+# code by tools\Verdict.ps1, so a run that lost its verdict line, counted
+# nothing or contradicts itself fails here (code-review C425). Bc7Test.ps1 reads
+# its own exe's line the same way.
+#
+# The verdict is the last line of STDOUT, so the two streams are kept APART.
+# These tools log warnings to stderr, and some of it lands after the verdict:
+# ThreadStress's manager joins - and may force-terminate - its workers as main
+# returns, so merging the streams (cmd's 2>&1, as these rows once did) put a
+# FORCE-TERMINATED warning where the verdict line should be. PowerShell's own
+# 2>&1 separates them by type, and each stderr line is shown as plain text in
+# arrival order - not as the four-line NativeCommandError banner its default
+# formatting would print, and not saved up until after the suite summary.
+. (Join-Path $PSScriptRoot 'Verdict.ps1')
+function Invoke-NativeJudge([string]$exeName, [string]$tool, [switch]$Self) {
+	$exe = Join-Path $bin $exeName
+	$exeArgs = @()
+	if ($Self) { $exeArgs += '--self-test' }
+	$stdout = New-Object System.Collections.Generic.List[string]
+	& $exe @exeArgs 2>&1 | ForEach-Object {
+		if ($_ -is [System.Management.Automation.ErrorRecord]) { Write-Host "$_" }
+		else { Write-Host $_; $stdout.Add("$_") }
+	}
+	$code = $LASTEXITCODE
+	return (Confirm-Verdict $stdout.ToArray() $tool $code -SelfTest:$Self)
+}
+
 # ---------------------------------------------------------------------------
 # THE SUITE. `tier` is quick or full; `selfTest` is how to ask this check to
 # fail on purpose (absent = it has no such mode, and is skipped under -SelfTest
@@ -87,13 +116,9 @@ $checks = @(
 	@{
 		name = 'diag'; tier = 'quick'; needs = "build-$Config"
 		what = 'the health record: ring, wrap, cross-thread writes, torn reads'
-		# Streams merged by CMD, not by PowerShell. These tools log warnings to
-		# stderr, and without merging they arrive unbuffered AFTER the suite
-		# summary, reading like a late failure. But PowerShell's own `2>&1` wraps
-		# every stderr line in a four-line NativeCommandError banner, which is far
-		# worse than the ordering it fixes. cmd merges before PowerShell ever sees
-		# the stream, so the output is both ordered and clean.
-		run  = { & cmd /c "`"$(Join-Path $bin 'DiagTest.exe')`" 2>&1" | Out-Host; $LASTEXITCODE }
+		# A native judge: stderr shown apart from stdout, and stdout's last line
+		# read back as its verdict (Invoke-NativeJudge, above).
+		run  = { Invoke-NativeJudge 'DiagTest.exe' 'diagtest' }
 	},
 	@{
 		name = 'rolls'; tier = 'quick'; needs = "build-$Config"
@@ -101,8 +126,8 @@ $checks = @(
 		# RollTest links the real Game rules (never a copy) and runs in seconds,
 		# so it belongs where it is run most (code-review C213). --self-test
 		# injects a broken die and must name exactly the checks that fail.
-		run      = { & cmd /c "`"$(Join-Path $bin 'RollTest.exe')`" 2>&1" | Out-Host; $LASTEXITCODE }
-		selfTest = { & cmd /c "`"$(Join-Path $bin 'RollTest.exe')`" --self-test 2>&1" | Out-Host; $LASTEXITCODE }
+		run      = { Invoke-NativeJudge 'RollTest.exe' 'rolltest' }
+		selfTest = { Invoke-NativeJudge 'RollTest.exe' 'rolltest' -Self }
 	},
 	@{
 		name = 'docs'; tier = 'quick'
@@ -113,10 +138,19 @@ $checks = @(
 		selfTest = { & (Join-Path $root 'tools\CheckDocs.ps1') -SelfTest | Out-Host; $LASTEXITCODE }
 	},
 	@{
+		name = 'verdict'; tier = 'quick'
+		what = 'the native judges'' last-line reader refuses every bad or contradictory line'
+		# tools\VerdictTest.ps1 feeds Confirm-Verdict lines no judge prints today;
+		# a reader decayed to trusting the exit code would leave every other row
+		# green. Needs no build. Its self-test plants exactly that decay.
+		run      = { & (Join-Path $root 'tools\VerdictTest.ps1') | Out-Host; $LASTEXITCODE }
+		selfTest = { & (Join-Path $root 'tools\VerdictTest.ps1') -SelfTest | Out-Host; $LASTEXITCODE }
+	},
+	@{
 		name = 'threads'; tier = 'full'; needs = "build-$Config"
 		what = 'ThreadManager + AI buckets under load: no force-terminate, clean reboots'
-		run      = { & cmd /c "`"$(Join-Path $bin 'ThreadStress.exe')`" 2>&1" | Out-Host; $LASTEXITCODE }
-		selfTest = { & cmd /c "`"$(Join-Path $bin 'ThreadStress.exe')`" --self-test 2>&1" | Out-Host; $LASTEXITCODE }
+		run      = { Invoke-NativeJudge 'ThreadStress.exe' 'threadstress' }
+		selfTest = { Invoke-NativeJudge 'ThreadStress.exe' 'threadstress' -Self }
 	},
 	@{
 		name = 'ingame'; tier = 'quick'; needs = "build-$Config"
