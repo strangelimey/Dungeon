@@ -54,6 +54,19 @@ raised that is yours, not a fix. Each line names the batch and its commit.
 - **Translations to check** (batch 72). `map.type.classbacked` ("The game's
   code defines this one - its entry only tunes it, so it cannot be renamed or
   deleted.") has new de / es / it / ru text written by the batch, unchecked.
+- **A smashed bracket drops its torch unlit** (batch 19, 2828ae7f). The bracket
+  remembers its torch by the UNLIT id and the smash puts the fire out first, so
+  the dropped torch is dark; a torch set down or thrown while lit keeps
+  burning. The comment now says so (it claimed "anything set down goes out").
+  Is an unlit drop what you want there?
+- **What docs/ai.md says is not built** (batch 19). ai.md now lists it:
+  call-for-help and a group leader (ProvokeMonster wakes only the monster that
+  was hit), hearing, an authorable sight cone, Patrol and Cast as intents, and
+  patrol pathing that is greedy only. Which of these are still wanted?
+- **UsageLinesTest.ps1** (batch 20, ab47ca4c). The check that every Fetch*
+  usage line still selects what it names is a standalone script for now (it
+  needs the OneDrive archive and says SKIP without it). Should it join
+  CheckAll's full tier?
 - **`readfile <path>`** (batch 47, 049936cd). A new dev command (Diagnostics
   group) that PathsTest uses to read a file through the game's own UTF-8 path
   code. Keep it there, or name a different home for that check.
@@ -75,6 +88,18 @@ raised that is yours, not a fix. Each line names the batch and its commit.
   Also: a bolt that flies past a lone member and breaks behind him now leaves
   its burn on him (only reachable when the column a caster aimed at falls
   while the bolt is in flight).
+- **A press during an alt-tab** (batch 8, 2be14913). Losing focus no longer
+  wipes the frame's key PRESS edges, so a key or click that lands in the same
+  frame as a focus change still counts once (held keys are still released, so
+  nothing sticks down). It fixed a harness's lost console toggle while other
+  sessions' games took the foreground.
+- **InGameTest is slower** (batch 8): about 9.5 minutes instead of under one,
+  because every screen now gets a marker and a status probe and must prove it
+  opened before its audit counts.
+- **More effects per bearer** (batch 19): the ceiling went from 16 to 24, and a
+  static_assert now counts the worst case from the named constants.
+- **FetchTextures / FetchModels -WhatIf** (batch 20): lists what would be
+  imported and bakes nothing.
 - **A carried Firelight's shadow cube** (batch 60). It now re-renders while the
   party walks (about every other frame at the walk's pace here), at about the
   cost the held torch's cube already paid. Slot 0 is documented as "the
@@ -94,6 +119,14 @@ raised that is yours, not a fix. Each line names the batch and its commit.
   them back. Also: deleting a catalog's FIRST entry now moves its whole lead
   comment to the next entry (or the file header would go with it), so a
   comment only about the deleted entry may need removing by hand.
+- **/check-selftest and other sessions' games** (batch 8). ProfileTest refuses
+  beside ANY running game (on purpose: a second game on the GPU would be
+  measured), so the `profile` row of a full self-test run fails whenever
+  another session has a game up. Run it alone.
+- **`partypage status` on the default four** (seen by batch 8, not touched).
+  On the title screen, after `partypage default`, it printed "start: refused -
+  Brand cannot be made: " with an empty reason, and race=- for the four
+  premade members. Possibly a real oddity on the party page.
 - **CheckAll's alloc-lights row** (batch 60) adds about 1.5 minutes to the full
   tier. Say if you would rather keep its checks as a manual `AllocTest
   -Lights` run.
