@@ -19,10 +19,6 @@ namespace {
 constexpr gfx::Rect kPanel{0.14f, 0.10f, 0.72f, 0.80f};
 constexpr float kTabsFill = 0.62f, kPaneFill = 0.38f, kGutterRow = 1.0f;
 
-// Archetype option order MUST match the ai::Archetype enum (dropdown index -> enum).
-constexpr const char* kArchKeys[] = {"brute",  "skirmisher", "caster",
-									 "swarm", "lurker",     "sentry"};
-
 std::string StateLabel(anim::CreatureState s) {
 	return loc::Tr("anim.state." + std::string(anim::StateName(s)));
 }
@@ -58,6 +54,9 @@ void MonsterConfigDialog::Open(const std::string& type, const std::string& displ
 	m_original = m_cfg; // snapshot for revert
 	m_modelClips = modelClips;
 	m_spellIds = spellIds;
+	// A caster type with no spell shows - and saves - the first one (C99). Only
+	// the working copy: Esc puts back the original, spell-less as it was.
+	if (m_cfg.archetype == ai::Archetype::Caster) DefaultCasterSpell(m_cfg.spell, m_spellIds);
 	m_selState = static_cast<int>(anim::CreatureState::Idle);
 	m_selClip = FirstClipOf(m_selState); // auto-preview the first clip of the state
 	m_activeTab = 0;
@@ -90,10 +89,8 @@ void MonsterConfigDialog::BuildUI() {
 	m_ui.Clear();
 	m_pane = nullptr;
 	DialogChrome chrome = BuildDialogChrome(
-		m_ui, kPanel, loc::Format("map.cfg.title", m_display), m_closeIcon, [this] {
-			if (onApply) onApply(m_original); // revert the live kind
-			Close();
-		});
+		m_ui, kPanel, loc::Format("map.cfg.title", m_display), m_closeIcon,
+		[this] { Cancel(); });
 
 	chrome.body->horizontal = true;
 	m_tabs = chrome.body->Row<ui::TabControl>(ui::Len::Fill(kTabsFill), 0.075f);
@@ -115,11 +112,43 @@ void MonsterConfigDialog::BuildUI() {
 	m_pane->hint = loc::Tr("map.cfg.nopreview");
 
 	chrome.footer->Space(ui::Len::Fill());
-	FooterIcon(*chrome.footer, m_device, "save", loc::Tr("map.cfg.save"), [this] {
-		if (onSave) onSave(m_cfg);
-		Close();
-	});
+	FooterIcon(*chrome.footer, m_device, "save", loc::Tr("map.cfg.save"),
+			   [this] { ClickSave(); });
 	chrome.footer->Space(ui::Len::Fill());
+}
+
+void MonsterConfigDialog::PickArchetype(ai::Archetype archetype) {
+	m_cfg.archetype = archetype;
+	// Made a caster, the kind casts something from this edit on (C99) - the
+	// live kind too, not only the rows the rebuild draws next frame.
+	if (archetype == ai::Archetype::Caster) DefaultCasterSpell(m_cfg.spell, m_spellIds);
+	Apply();
+	m_rebuild = true; // dependent fields change
+}
+
+void MonsterConfigDialog::ClickSave() {
+	if (onSave) onSave(m_cfg);
+	Close();
+}
+
+void MonsterConfigDialog::Cancel() {
+	if (onApply) onApply(m_original); // revert the live kind to the snapshot
+	Close();
+}
+
+void MonsterConfigDialog::ApplyPending() {
+	if (!m_open || !m_rebuild) return;
+	if (m_tabs) m_activeTab = m_tabs->ActiveTab(); // as Update keeps it
+	m_rebuild = false;
+	BuildUI();
+}
+
+std::string MonsterConfigDialog::ShownSpell() const {
+	if (!m_spellDrop) return {};
+	const int i = m_spellDrop->Selected();
+	return i >= 0 && i < static_cast<int>(m_spellDrop->items.size())
+			   ? m_spellDrop->items[static_cast<size_t>(i)]
+			   : std::string();
 }
 
 void MonsterConfigDialog::BuildBehaviorTab(size_t tab) {
@@ -129,14 +158,12 @@ void MonsterConfigDialog::BuildBehaviorTab(size_t tab) {
 	ui::Stack* rows = TabStack(*m_tabs, tab);
 
 	std::vector<std::string> archItems;
-	for (const char* k : kArchKeys) archItems.push_back(loc::Tr("archetype." + std::string(k)));
+	// In enum order, so the dropdown's index IS the archetype.
+	for (const char* k : ai::kArchetypeNames)
+		archItems.push_back(loc::Tr("archetype." + std::string(k)));
 	rows->Row<ui::Label>(FormRow(), loc::Tr("map.cfg.archetype"))->centerV = true;
-	rows->Row<ui::DropDown>(FormRow(), archItems,
-							static_cast<int>(m_cfg.archetype), [this](int i) {
-								m_cfg.archetype = static_cast<ai::Archetype>(i);
-								Apply();
-								m_rebuild = true; // dependent fields change
-							});
+	rows->Row<ui::DropDown>(FormRow(), archItems, static_cast<int>(m_cfg.archetype),
+							[this](int i) { PickArchetype(static_cast<ai::Archetype>(i)); });
 
 	const bool kites = m_cfg.archetype == ai::Archetype::Skirmisher ||
 					   m_cfg.archetype == ai::Archetype::Caster;
@@ -152,19 +179,9 @@ void MonsterConfigDialog::BuildBehaviorTab(size_t tab) {
 							  m_cfg.fleeBelow = v;
 							  Apply();
 						  });
-	if (m_cfg.archetype == ai::Archetype::Caster) {
-		rows->Row<ui::Label>(FormRow(), loc::Tr("map.cfg.spell"))->centerV = true;
-		int sel = 0;
-		for (size_t i = 0; i < m_spellIds.size(); ++i)
-			if (m_spellIds[i] == m_cfg.spell) { sel = static_cast<int>(i); break; }
-		std::vector<std::string> items = m_spellIds;
-		if (items.empty()) items.push_back(loc::Tr("map.cfg.nospells"));
-		rows->Row<ui::DropDown>(FormRow(), items, sel, [this](int i) {
-			if (i >= 0 && i < static_cast<int>(m_spellIds.size()))
-				m_cfg.spell = m_spellIds[i];
-			Apply();
-		});
-	}
+	m_spellDrop = nullptr;
+	if (m_cfg.archetype == ai::Archetype::Caster)
+		m_spellDrop = CasterSpellRow(*rows, m_spellIds, m_cfg.spell, [this] { Apply(); });
 
 	// Per-type THREAT multipliers (× the balance.cat globals; 1 = unchanged) —
 	// this kind's targeting personality. Rows past the tab bottom scroll.
@@ -281,9 +298,8 @@ void MonsterConfigDialog::Update(const Input& input, float w, float h) {
 	const float fh = std::clamp(h * 0.020f, 12.0f, 24.0f);
 	m_ui.UseFont(ui::FontRole::Body, fh);
 
-	if (input.WasKeyPressed(VK_ESCAPE)) { // cancel: revert live to the snapshot
-		if (onApply) onApply(m_original);
-		Close();
+	if (input.WasKeyPressed(VK_ESCAPE)) {
+		Cancel();
 		return;
 	}
 

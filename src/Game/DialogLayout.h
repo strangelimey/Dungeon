@@ -34,6 +34,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace dungeon::game {
 
@@ -163,6 +164,23 @@ ui::Len RowIconWidth();
 // schema-driven form no longer steps a y cursor by a guessed row pitch, and a
 // row that needs two lines just says so.
 ui::Stack* TabStack(ui::TabControl& tabs, size_t tab);
+
+// A CASTER's spell: its label and a dropdown of the project's spells, bound to
+// `spell` (the owner's member - it outlives the tree). ONE BUILDER for the
+// monster type dialog and the instance inspector (code-review C99), because
+// both copies showed the first spell while the config stayed empty, so Save
+// wrote no spell and the next load warned. What it SHOWS is what Save writes:
+// an empty `spell` takes the first offered (DefaultCasterSpell, called by the
+// owner where it can still apply the change - see there), and a value the list
+// lacks stays selectable rather than reading as the first row. `onChange` runs
+// after `spell` is set. Returns the dropdown, so a harness can read what shows.
+ui::DropDown* CasterSpellRow(ui::Stack& rows, const std::vector<std::string>& spellIds,
+							 std::string& spell, std::function<void()> onChange);
+// The rule alone: an empty `spell` becomes the first offered. For the moment
+// Caster is PICKED, so the live monster gets it with the same edit (the rows
+// rebuild a frame later), and for an open on a caster that has none. False when
+// nothing changed.
+bool DefaultCasterSpell(std::string& spell, const std::vector<std::string>& spellIds);
 
 // The GitHub-style confirmation for a delete NOTHING brings back — a world
 // (W9), a dungeon and its levels (W10). What goes, one line each (scrolled,

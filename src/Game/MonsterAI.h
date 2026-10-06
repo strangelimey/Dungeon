@@ -33,7 +33,9 @@
 
 #include <array>
 #include <atomic>
+#include <cstddef>
 #include <cstdint>
+#include <iterator>
 #include <memory>
 #include <mutex>
 #include <span>
@@ -118,6 +120,14 @@ public:
 //                a per-instance patrol route + leash (it walks a beat and returns).
 // ----------------------------------------------------------------------------
 enum class Archetype { Brute, Skirmisher, Caster, Swarm, Lurker, Sentry };
+// Each archetype's word - monsters.cat `archetype =`, the archetype.<word> lang
+// key, the console - in ENUM ORDER, so an index converts either way. The one
+// table the editor's dialogs, the type writer and their harness verbs read
+// (code-review C99 found three hand copies; the .ent writer and the loader's
+// parse still spell theirs out).
+inline constexpr const char* kArchetypeNames[] = {"brute", "skirmisher", "caster",
+												  "swarm", "lurker",     "sentry"};
+static_assert(std::size(kArchetypeNames) == static_cast<size_t>(Archetype::Sentry) + 1);
 
 // ----------------------------------------------------------------------------
 // The monster as the brain sees it — a flat snapshot of the few fields thinking

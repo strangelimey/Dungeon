@@ -727,10 +727,7 @@ void Game::OpenMonsterConfig(const std::string& id) {
 	m_world->MonsterBehaviorConfig(id, archetype, keepRange, fleeBelow, spell, threat);
 	m_monsterDialog.Open(id, display, supported, clips, archetype, keepRange, fleeBelow,
 						 spell, threat, m_world->MonsterClipNames(id), m_world->SpellIds());
-	m_previewType.clear(); // force the preview animator to (re)build on first frame
-	m_previewClip.clear();
-	m_previewMonMesh = nullptr;
-	m_previewMonSubs.clear();
+	ForgetMonsterPreview(); // the preview animator (re)builds on the first frame
 }
 
 // One line of provenance per imported asset. The key is the POOL name (what a
@@ -979,7 +976,9 @@ bool Game::RenameType(const std::string& catalogKey, const std::string& id,
 	// Live objects still point at kinds cached under the old id (and monsters
 	// hold their type by name), so rebuild them from the records we just wrote.
 	// A FEATURE's mesh is filed by its type and stamped into the surfaces, so
-	// both kinds re-stamp - the surface ones were left out (C305).
+	// both kinds re-stamp - the surface ones were left out (C305). An open
+	// inspector names an object the respawn replaces, so it goes first (C232).
+	CloseInspectors();
 	m_world->RespawnFromRecords(DungeonWorld::StampedIntoSurfaces(catalogKey));
 	// The undo stack holds level snapshots taken BEFORE the rename; restoring
 	// one would bring back records naming a type that no longer exists.
@@ -1253,9 +1252,7 @@ void Game::ApplyMonsterConfig(CatalogEntry& entry, const MonsterConfigDialog::Co
 	std::vector<std::pair<std::string, std::string>> rows;
 	// Behaviour fields (Behavior tab). archetype is always written; the params are
 	// written only when they apply / are non-default, to keep the .cat tidy.
-	static const char* kArch[] = {"brute",  "skirmisher", "caster",
-								  "swarm", "lurker",     "sentry"};
-	rows.emplace_back("archetype", kArch[static_cast<int>(cfg.archetype)]);
+	rows.emplace_back("archetype", ai::kArchetypeNames[static_cast<int>(cfg.archetype)]);
 	if (cfg.archetype == ai::Archetype::Skirmisher || cfg.archetype == ai::Archetype::Caster)
 		rows.emplace_back("keeprange", std::format("{:g}", cfg.keepRange));
 	if (cfg.fleeBelow > 0.0f) rows.emplace_back("fleebelow", std::format("{:g}", cfg.fleeBelow));

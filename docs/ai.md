@@ -447,6 +447,10 @@ regression guard before any new behaviour rides on it.
      selected creature's route as high-contrast ARROWS; a second click opens the
      inspector. Routes are authored by grid-click (inspector Patrol tab → "Edit
      route on map" → click cells; Backspace undo, Enter done); the .ent writer
-     round-trips `patrol=`. **P1–P3 complete.**
+     round-trips `patrol=`. **P1–P3 complete.** (Code-review batch 74: the keys
+     are the route's on the EDITOR map only; Enter reopens the inspector on the
+     route's own monster, looked up by runtimeId; and the route belongs to a live
+     monster, so a respawn - a type saved, an undo, a load - or a world switch
+     ends it.)
 6. **P4** — (Deferred/optional) behaviour-graph authoring (Layer 3) only if
    needed.

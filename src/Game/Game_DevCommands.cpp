@@ -225,6 +225,10 @@ void Game::RegisterDevCommands() {
 								  "fill <category> <id> level\n"
 								  "inspect <x> <z>\n"
 								  "inspect off\n"
+								  "inspector [status|esc|save|tab <n>]\n"
+								  "inspector editroute|clearroute|archetype <name>\n"
+								  "route [status|<x> <z>]\n"
+								  "route key enter|esc|back\n"
 								  "pick <x> <z>\n"
 								  "cell <x> <z>\n"
 								  "move <x> <z> <to-x> <to-z>\n"
@@ -644,12 +648,22 @@ void Game::RegisterDevCommands() {
 														   args[2], x, z));
 							   return;
 						   }
+						   // The open inspector's controls and keys, and the patrol
+						   // route's grid clicks and keys (Game_Inspect.cpp): each
+						   // the call its control makes, then where it stands.
+						   if (!args.empty() && args[0] == "inspector") {
+							   InspectorCommand(args);
+							   return;
+						   }
+						   if (!args.empty() && args[0] == "route") {
+							   RouteCommand(args);
+							   return;
+						   }
 						   // The right-click, for a harness: select the square and
 						   // open its inspector (or the chooser), then say which.
 						   if (!args.empty() && args[0] == "inspect") {
 							   if (args.size() >= 2 && args[1] == "off") {
-								   for (InstanceInspector* ii : InstanceInspectors()) ii->Close();
-								   m_inspectPicker.Close();
+								   CloseInspectors();
 								   m_console.Print("editor inspect: closed");
 								   return;
 							   }

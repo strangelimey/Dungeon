@@ -602,20 +602,16 @@ void Game::UnloadWorld() {
 	m_newWorldDialog.Close();
 	m_validateDialog.Close();
 	m_generateDialog.Close();
-	m_entityInspector.Close();
-	m_fixtureInspector.Close();
-	m_propInspector.Close();
-	m_doorInspector.Close();
-	m_buttonInspector.Close();
-	m_nicheInspector.Close();
-	m_stairInspector.Close();
-	m_projectileInspector.Close();
-	m_inspectPicker.Close();
+	CloseInspectors();
+	// The editor's session is this world's: a route being laid names one of its
+	// monsters by an id the next world hands to another, and a selection or a
+	// stroke is of its cells (code-review C233 - an Esc in the next world used
+	// to reopen the inspector on the stale id, and its Save wrote that world's
+	// .ent).
+	m_mapEditor.ResetSession();
 	// Borrowed GPU pointers into the world's kind caches.
-	m_previewMonMesh = nullptr;
-	m_previewType.clear();
-	m_previewClip.clear();
-	m_inspectPreview = {};
+	ForgetMonsterPreview();
+	m_previewAnim = anim::Animator();
 	// Keyed by the old world's catalog ids — a new world made from this one
 	// shares them, so a stale entry would show the wrong icon, not a gap.
 	m_itemIcons.byType.clear();
@@ -2494,19 +2490,13 @@ void Game::UpdateStates(float dt) {
 	// early return - see SetOverlay there.)
 	if (m_mapView.IsOpen()) {
 		// While laying a patrol route (grid clicks lay waypoints), keys finish/undo
-		// it — ahead of the overlay's own Esc-to-close.
-		if (!typingFilter && m_mapEditor.LayingRoute()) {
-			if (input.WasKeyPressed(VK_BACK))
-				m_world->RemoveLastPatrolWaypoint(m_mapEditor.RouteId());
-			if (input.WasKeyPressed(VK_RETURN) || input.WasKeyPressed(VK_ESCAPE)) {
-				const u32 id = m_mapEditor.RouteId();
-				m_mapEditor.EndRoute();
-				if (const auto* r = m_world->MonsterPatrol(id))
-					m_inspectCfg.patrolCount = static_cast<int>(r->size());
-				m_entityInspector.Open(m_inspectCfg, m_world->SpellIds(),
-									   m_inspectPreview); // back to the inspector (with preview)
-				return;
-			}
+		// it - ahead of the overlay's own Esc-to-close. On the editor map only
+		// (RouteKeyPressed says no anywhere else).
+		if (!typingFilter) {
+			if (input.WasKeyPressed(VK_BACK)) RouteKeyPressed(RouteKey::Back);
+			if ((input.WasKeyPressed(VK_RETURN) || input.WasKeyPressed(VK_ESCAPE)) &&
+				RouteKeyPressed(RouteKey::Finish))
+				return; // back to the inspector
 		}
 		// Esc in the editor backs out one layer at a time (the rule for Esc
 		// everywhere): a drag in progress is let go, then an armed brush is put

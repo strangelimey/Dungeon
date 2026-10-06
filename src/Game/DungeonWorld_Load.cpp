@@ -1150,6 +1150,13 @@ void DungeonWorld::LoadMonsters() {
 		if (const std::string* v = spawn.Param("fleebelow"))
 			monster.fleeOverride = std::strtof(v->c_str(), nullptr);
 		if (const std::string* v = spawn.Param("spell")) monster.spellOverride = *v;
+		// A monster MADE a caster here with nothing to cast - the instance twin of
+		// the kind's own warning (code-review C99: the inspector used to show a
+		// spell its Save never wrote).
+		if (monster.archOverride == ai::Archetype::Caster &&
+			monster.spellOverride.value_or(kind.spell).empty())
+			log::Warn("{}.ent: the {} at {},{} has archetype=caster but no spell= set",
+					  m_currentLevel, spawn.type, spawn.x, spawn.z);
 		// Patrol route: a ;-separated list of x,z waypoints walked when idle (P3b).
 		if (const std::string* v = spawn.Param("patrol")) {
 			size_t start = 0;

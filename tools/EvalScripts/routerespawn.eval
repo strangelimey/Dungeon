@@ -1,0 +1,43 @@
+; routerespawn.eval - saving a monster type while its monster's route is being
+; laid, or while its inspector or the monster dialog is open (code-review C232).
+; Judged by tools/EditorTest.py phase 23, which runs it WINDOWED: the fault was
+; in the drawing - the reopened inspector drew a preview whose mesh the save
+; had freed. Each line after a save is a frame drawn.
+;
+;   --- route ---   A (the skel_warrior at 23,9) gets a route; `typeset` saves
+;                   its kind, which respawns every monster with a new id: the
+;                   route has ended with A's old id, and Enter reopens nothing.
+;   --- open ---    the respawned warrior's inspector open, then a save of its
+;                   kind: the save closes it first.
+;   --- dialog ---  the monster dialog open on the kind, then a save: closed.
+;
+; The field saved is hp, at the value it already has.
+
+logecho on
+reset
+timescale 0
+echo --- route ---
+editor inspect 23 9
+editor inspector
+editor inspector editroute
+editor route 23 11
+editor route
+typeset monsters skel_warrior hp 22
+editor route
+editor route key enter
+editor inspector
+editor route
+editor route
+echo --- open ---
+editor inspect 23 9
+editor inspector
+typeset monsters skel_warrior hp 22
+editor inspector
+editor inspector
+editor inspector
+echo --- dialog ---
+monsterdialog skel_warrior
+typeset monsters skel_warrior hp 22
+monsterdialog
+monsterdialog
+echo --- end ---

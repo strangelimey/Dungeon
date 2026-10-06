@@ -3,6 +3,7 @@
 // ============================================================================
 #include "Game/DialogLayout.h"
 
+#include "Core/Loc.h"
 #include "Game/AssetUtil.h" // ToolbarIcon (FooterIcon)
 
 #include <algorithm>
@@ -204,6 +205,36 @@ ui::Stack* TabStack(ui::TabControl& tabs, size_t tab) {
 	stack->padRem = 0.5f;
 	stack->gapRem = 0.5f;
 	return stack;
+}
+
+bool DefaultCasterSpell(std::string& spell, const std::vector<std::string>& spellIds) {
+	if (!spell.empty() || spellIds.empty()) return false;
+	spell = spellIds.front();
+	return true;
+}
+
+ui::DropDown* CasterSpellRow(ui::Stack& rows, const std::vector<std::string>& spellIds,
+							 std::string& spell, std::function<void()> onChange) {
+	rows.Row<ui::Label>(FormRow(), loc::Tr("map.cfg.spell"))->centerV = true;
+	// The rows are the spells, then the value they lack (a spell since renamed or
+	// deleted) so it shows as itself - the inspectors' FlagDropDown rule. An
+	// empty value the owner has not defaulted (no spells at all) shows the
+	// "no spells" row, which picks nothing.
+	std::vector<std::string> items = spellIds;
+	int sel = 0;
+	if (const auto it = std::find(items.begin(), items.end(), spell); it != items.end())
+		sel = static_cast<int>(it - items.begin());
+	else if (!spell.empty()) {
+		items.push_back(spell);
+		sel = static_cast<int>(items.size()) - 1;
+	}
+	if (items.empty()) items.push_back(loc::Tr("map.cfg.nospells"));
+	return rows.Row<ui::DropDown>(FormRow(), items, sel,
+								  [&spell, spellIds, onChange = std::move(onChange)](int i) {
+									  if (i >= 0 && i < static_cast<int>(spellIds.size()))
+										  spell = spellIds[static_cast<size_t>(i)];
+									  if (onChange) onChange();
+								  });
 }
 
 void DrawHelpOverlay(gfx::SpriteBatch& batch, const ui::Theme& theme,

@@ -765,7 +765,7 @@ void MapEditor::ApplyBrush(int cx, int cz, bool dragging, const WallFace& face,
 	// Laying a patrol route: a click appends the cell as a waypoint instead of
 	// painting the armed brush (a drag doesn't spam duplicates). Routes belong
 	// to a LIVE monster, so clicks on a browsed level are ignored.
-	if (m_routeId != 0) {
+	if (LayingRoute()) {
 		if (!dragging && !remote && onRouteWaypoint) onRouteWaypoint(m_routeId, cx, cz);
 		return;
 	}
@@ -938,6 +938,22 @@ void MapEditor::ApplyBrush(int cx, int cz, bool dragging, const WallFace& face,
 
 	if (ownStep) m_world->CommitUndoStep(changed);
 	else m_strokeChanged = m_strokeChanged || changed;
+}
+
+bool MapEditor::LayingRoute() const {
+	return m_routeId != 0 && m_world && m_world->MonsterPatrol(m_routeId) != nullptr;
+}
+
+void MapEditor::ResetSession() {
+	m_routeId = 0;
+	// Dropped, not committed: the step it would close belongs to the world that
+	// is going, and dies with it.
+	m_strokeOpen = false;
+	m_strokeChanged = false;
+	m_moving = false;
+	m_selX = m_selZ = -1;
+	m_selMonster = 0;
+	preview = {};
 }
 
 void MapEditor::BeginStroke() {

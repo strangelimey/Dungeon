@@ -576,6 +576,16 @@ void Game::WireModuleCallbacks() {
 			else if (cfg.catalogKey == "lights" || cfg.catalogKey == "trails")
 				m_world->ReloadLightProfiles();
 			else {
+				// The reload frees this kind's mesh and respawns EVERY object
+				// with a new id - and an open inspector, or the monster dialog,
+				// borrows that mesh for its preview and names its object by the
+				// old id. A mouse cannot get here with one open (each is modal);
+				// `typeset` can (code-review C232).
+				CloseInspectors();
+				if (m_monsterDialog.IsOpen()) {
+					m_monsterDialog.Close();
+					ForgetMonsterPreview();
+				}
 				m_world->ReloadTypeKind(cfg.catalogKey, cfg.id);
 				// An item kind outlives that reload; its `light` is re-read here.
 				if (cfg.catalogKey == "items" || cfg.catalogKey == "weapons" ||

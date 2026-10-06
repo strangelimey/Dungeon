@@ -1,0 +1,69 @@
+; inspectroute.eval - the monster inspector and its patrol routes (code-review
+; C80, C104, C99, and C233's editor-map-only rule). Judged by tools/EditorTest.py
+; phase 23, on its scratch world; casterload.eval reads the saves back.
+;
+; eval_arena's monsters stand where they were put (timescale 0): A is the
+; skel_warrior at 23,9, B the skeleton at 12,6.
+;
+;   --- c80 ---     inspect A, Edit route, three waypoints; right-click B (its
+;                   inspector opens), Esc, then Enter finishes A's route - and
+;                   the inspector that reopens must be A's, with A's three
+;                   waypoints (it used to reopen on B, showing A's count).
+;   --- c104 ---    on the Patrol tab, Clear route: the rebuild keeps the Patrol
+;                   tab (it used to drop back to the AI tab) and shows 0.
+;   --- player ---  a route with two waypoints, then the PLAYER map: its keys are
+;                   not the route's (Backspace keeps both, Esc finishes nothing);
+;                   back on the editor map they are.
+;   --- caster ---  B made a Caster in its inspector, the skel_coward TYPE made
+;                   one in the monster dialog: each shows a spell, holds that
+;                   same spell, and saves it (the .ent and monsters.cat, which
+;                   the judge reads).
+
+logecho on
+reset
+timescale 0
+echo --- c80 ---
+editor inspect 23 9
+editor inspector
+editor inspector editroute
+editor route 23 11
+editor route 22 11
+editor route 21 11
+editor route
+editor inspect 12 6
+editor inspector
+editor inspector esc
+editor route key enter
+editor route
+editor inspector
+echo --- c104 ---
+editor inspector tab 1
+editor inspector
+editor inspector clearroute
+editor inspector
+echo --- player ---
+editor inspector editroute
+editor route 23 11
+editor route 22 11
+editor off
+editor route key back
+editor route
+editor route key esc
+editor route
+editor
+editor route key back
+editor route
+editor route key esc
+editor route
+editor inspector
+editor inspector esc
+echo --- caster ---
+editor inspect 12 6
+editor inspector archetype caster
+editor inspector save
+editor inspector
+monsterdialog skel_coward
+monsterdialog archetype caster
+monsterdialog save
+monsterdialog
+echo --- end ---

@@ -232,10 +232,20 @@ public:
 
 	// Patrol-route laying mode: while active, a grid click appends a waypoint to the
 	// monster's route (via onRouteWaypoint) instead of painting the armed brush.
+	// THE ROUTE BELONGS TO A LIVE MONSTER, so laying it is DERIVED, not latched
+	// (code-review C232): a respawn - a type saved, an undo, a load, a level
+	// change - gives every monster a new runtimeId, and the route ends with the
+	// one it named. Ids are never reused within a world; a world switch ends it
+	// outright (ResetSession), since the next world numbers from 1 again.
 	void BeginRoute(u32 runtimeId) { m_routeId = runtimeId; }
 	void EndRoute() { m_routeId = 0; }
-	bool LayingRoute() const { return m_routeId != 0; }
-	u32 RouteId() const { return m_routeId; }
+	bool LayingRoute() const;
+	u32 RouteId() const { return LayingRoute() ? m_routeId : 0; }
+	// Everything this editor holds about the world it edits, let go: the route,
+	// a stroke or a move under way, the selection and the shape preview. For a
+	// world being unloaded (code-review C233) - the next world's monsters, cells
+	// and undo history are not these.
+	void ResetSession();
 
 	// The currently SELECTED square (Select tool), for the highlight + route overlay.
 	// -1 = nothing selected; SelectedMonster is the creature there at select time (0

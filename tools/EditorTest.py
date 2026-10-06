@@ -148,6 +148,19 @@
 #      the pass uploads one per skinned kind, among them several the same size
 #      (the renderer knows a palette by its address, and a throwaway animator
 #      per bake handed eight of sixteen kinds another kind's upload).
+#  23. THE MONSTER INSPECTOR AND PATROL ROUTES (code-review C80, C232, C233,
+#      C104, C99): a route finished after another monster was inspected
+#      reopens on ITS monster with its waypoints; the player map's keys are not
+#      the route's; Clear route keeps the Patrol tab; a Caster picked in the
+#      inspector and in the monster dialog shows the spell it saves, and a new
+#      process loads both with no warning, each dialog OPENING on that spell;
+#      with the spells taken out of the files the load warns for both, each
+#      dialog opens on none yet holds and shows the first spell offered, and
+#      Esc puts the spell-less original back; a route laid before a world switch
+#      is gone after it, with the next world's level files untouched though its
+#      monster holds the same id; and, WINDOWED, saving the route's monster
+#      type ends the route (Enter reopens nothing) and closes an open
+#      inspector and the monster dialog, with no fault in the log.
 #
 # NOTHING HERE EDITS THE REAL WORLD (code-review C431). Each phase starts on a
 # FRESH SCRATCH COPY of dungeon-demo, et_demo, and every run opens it with
@@ -181,7 +194,7 @@ COPIES = os.path.join(ROOT, r"build\harness-scripts\editortest")
 # each with the .building-<name> a create killed half-way leaves.
 WORLDS = (SCRATCH, "nw_blank", "nw_copy", "nw_level", "nw_bad", ".building-nw_ghost",
           "nwd_level", "nwd_blank", "wz_a", "wz_b", "wz_c", "wz_undead", "wz_dlg",
-          "p7_world", "p7_wiz")
+          "p7_world", "p7_wiz", "et_next")
 
 # Never a stale exe, and never beside this worktree's own game, which shares
 # the log every phase reads (tools/harness_game.py).
@@ -1986,6 +1999,305 @@ try:
           f"bake {bake} (passes, kinds, skinned, uploads, reuses); joint counts {sizes}")
 finally:
     drop()
+
+# --- phase 23: the monster inspector and patrol routes ----------------------------
+print("23 - the monster inspector and patrol routes: the right monster, a live one, this world's")
+NEXT = "et_next"  # routeworld.eval switches to it by name
+# Both dialogs report three spells: the one the monster or kind OPENED with
+# (what a load gave it), the working copy's (which Open may have defaulted)
+# and the one the Caster row shows. A reload check reads `opened`: the other
+# two would show the default even had the save dropped the spell.
+INSP = re.compile(r"editor inspector: monster (\d+) (\S+) (live|gone) tab (-?\d+) waypoints (\d+) "
+                  r"archetype (\S+) opened '([^']*)' spell '([^']*)' shown '([^']*)'$")
+ROUTE = re.compile(r"editor route: (?:laying monster (\d+) \((\d+) waypoint\(s\)\)|none)$")
+MDLG = re.compile(r"monsterdialog: open (\S+) archetype (\S+) opened '([^']*)' spell '([^']*)' "
+                  r"shown '([^']*)'$")
+NOT_ROUTES = "not the route's"
+
+
+def inspectors(lines):
+    """Each monster inspector status in `lines`, as a dict."""
+    out = []
+    for l in lines:
+        m = INSP.match(l)
+        if m:
+            out.append({"id": int(m.group(1)), "type": m.group(2), "live": m.group(3) == "live",
+                        "tab": int(m.group(4)), "waypoints": int(m.group(5)),
+                        "archetype": m.group(6), "opened": m.group(7), "spell": m.group(8),
+                        "shown": m.group(9)})
+    return out
+
+
+def dialogs(lines):
+    """Each monster type dialog status in `lines` (console or raw log lines), as a dict."""
+    out = []
+    for l in lines:
+        m = MDLG.search(l)
+        if m:
+            out.append({"line": m.group(0), "type": m.group(1), "archetype": m.group(2),
+                        "opened": m.group(3), "spell": m.group(4), "shown": m.group(5)})
+    return out
+
+
+def drop_ent_param(path, kind, x, z, key):
+    """Take `key=...` off the .ent record of `kind` at x,z (a scratch world's file)."""
+    text = io.open(path, encoding="utf-8", newline="").read()
+    out = []
+    for l in text.splitlines(keepends=True):
+        w = l.split()
+        if w[:1] == ["monster"] and w[1:4] == [kind, str(x), str(z)]:
+            body = l.rstrip("\r\n")
+            l = " ".join(t for t in body.split() if not t.startswith(key + "=")) + l[len(body):]
+        out.append(l)
+    io.open(path, "w", encoding="utf-8", newline="").write("".join(out))
+
+
+def drop_cat_field(path, block_id, key):
+    """Take the `key = ...` line out of one [id] block of a .cat file (a scratch world's)."""
+    text = io.open(path, encoding="utf-8", newline="").read()
+    m = re.search(r"^\[" + re.escape(block_id) + r"\]\s*$(.*?)(?=^\[|\Z)", text, re.M | re.S)
+    if not m:
+        return
+    body = re.sub(r"^" + re.escape(key) + r"\s*=.*(\r?\n)?", "", m.group(1), flags=re.M)
+    io.open(path, "w", encoding="utf-8", newline="").write(text[:m.start(1)] + body + text[m.end(1):])
+
+
+def routes(lines):
+    """Each route status in `lines`: (monster id, waypoints), or None for no route."""
+    out = []
+    for l in lines:
+        m = ROUTE.match(l)
+        if m:
+            out.append((int(m.group(1)), int(m.group(2))) if m.group(1) else None)
+    return out
+
+
+def route_keys(lines):
+    """The answers to `editor route key ...`, in order: taken / not the route's."""
+    return [l.split(": ", 1)[1] for l in lines if l.startswith("editor route key ")]
+
+
+def after_command(lines, prefix):
+    """The lines after the first echoed command starting with `prefix`."""
+    for i, l in enumerate(lines):
+        if l.startswith("> " + prefix):
+            return lines[i + 1:]
+    return []
+
+
+def ent_line(text, kind, x, z):
+    """The .ent record of `kind` at x,z (its words), or None."""
+    for l in text.splitlines():
+        w = l.split()
+        if w[:1] == ["monster"] and w[1:4] == [kind, str(x), str(z)]:
+            return w
+    return None
+
+
+def level_files(world):
+    """{file name: bytes} of a world's levels folder."""
+    folder = os.path.join(PROJECTS, world, "levels")
+    return {n: io.open(os.path.join(folder, n), "rb").read() for n in sorted(os.listdir(folder))}
+
+
+settings_before = io.open(SETTINGS, "rb").read() if os.path.isfile(SETTINGS) else None
+fresh()
+try:
+    # 1. THE INSPECTOR AND ITS ROUTE, on et_demo.
+    log = run("inspectroute.eval")
+    check(passed(log), "the script ran clean")
+    sec = console_sections(log)
+    c80, c104, player, caster = (sec.get(n, []) for n in ("c80", "c104", "player", "caster"))
+
+    ins = inspectors(c80)
+    a = ins[0] if ins else {}
+    b = ins[1] if len(ins) > 1 else {}
+    # THE CONTROL: two different monsters really were inspected, and A's route
+    # really was laid - or "it reopened on A with three" could be A all along.
+    check(a.get("type") == "skel_warrior" and b.get("type") == "skeleton" and a.get("id") != b.get("id"),
+          "A (the warrior) and then B (the skeleton) were inspected mid-route", str(ins[:2]))
+    # (Every route click prints the route as it then stands.)
+    check(routes(c80)[:4] == [(a.get("id"), n) for n in (1, 2, 3, 3)],
+          "A's route was laid with three waypoints", str(routes(c80)))
+    check(route_keys(c80) == ["taken"] and routes(c80)[-1:] == [None],
+          "Enter on the editor map finished it", f"{route_keys(c80)} {routes(c80)}")
+    back = ins[2] if len(ins) > 2 else {}
+    check(back.get("id") == a.get("id") and back.get("type") == "skel_warrior" and back.get("waypoints") == 3
+          and back.get("live"),
+          "the inspector reopened on A - not B, the last one inspected - with A's three waypoints",
+          str(back))
+
+    ins = inspectors(c104)
+    check(ins[:1] and ins[0]["tab"] == 1 and ins[0]["waypoints"] == 3,
+          "the Patrol tab is up, showing three waypoints", str(ins[:1]))
+    cleared = inspectors(after_command(c104, "editor inspector clearroute"))
+    check(cleared[:1] and cleared[0]["tab"] == 1 and cleared[0]["waypoints"] == 0,
+          "Clear route leaves the Patrol tab up, showing none (it used to fall back to the AI tab)",
+          str(cleared[:1]))
+
+    aid = a.get("id")
+    check(route_keys(player) == [NOT_ROUTES, NOT_ROUTES, "taken", "taken"],
+          "Backspace and Esc on the player map are not the route's; on the editor map they are",
+          str(route_keys(player)))
+    check(routes(player) == [(aid, 1), (aid, 2), (aid, 2), (aid, 2), (aid, 2), (aid, 2),
+                             (aid, 1), (aid, 1), None, None],
+          "the player map left both waypoints and the route; the editor's Backspace took one back",
+          str(routes(player)))
+    ins = inspectors(player)
+    check(ins[-1:] and ins[-1]["id"] == aid and ins[-1]["waypoints"] == 1,
+          "...and its Esc reopened A's inspector on the one left", str(ins))
+
+    ins = inspectors(caster)
+    spell = ins[0]["spell"] if ins else ""
+    check(len(ins) == 1 and ins[0]["type"] == "skeleton" and ins[0]["archetype"] == "caster"
+          and spell != "" and ins[0]["shown"] == spell,
+          "B made a Caster in its inspector holds the spell its row shows", str(ins))
+    d = (dialogs(after_command(caster, "monsterdialog archetype")) or [{}])[0]
+    type_spell = d.get("spell", "")
+    check(d.get("type") == "skel_coward" and d.get("archetype") == "caster"
+          and type_spell != "" and d.get("shown") == type_spell,
+          "the skel_coward TYPE made a Caster in the monster dialog holds the spell its row shows",
+          d.get("line") or " | ".join(l for l in caster if l.startswith("monsterdialog")))
+    arena = io.open(os.path.join(PROJ, r"levels\eval_arena.ent"), encoding="utf-8").read()
+    rec = ent_line(arena, "skeleton", 12, 6) or []
+    check("archetype=caster" in rec and f"spell={spell}" in rec,
+          "the inspector's Save wrote the spell on the .ent record", " ".join(rec))
+    coward = cat_block(io.open(os.path.join(PROJ, r"catalog\monsters.cat"), encoding="utf-8").read(),
+                       "skel_coward") or {}
+    check(coward.get("archetype") == "caster" and coward.get("spell") == type_spell,
+          "the monster dialog's Save wrote the spell into monsters.cat",
+          str({k: coward.get(k) for k in ("archetype", "spell")}))
+
+    # 2. ...AND A NEW PROCESS LOADS THEM: the kind is built and the skeleton
+    # spawns from the files those saves wrote.
+    log = run("casterload.eval")
+    check(passed(log), "the reload ran clean")
+    warns = [l for l in log.splitlines() if "archetype=caster but no spell" in l]
+    check(not warns, "no caster-without-a-spell warning at the load", " | ".join(warns[:2]))
+    # OPENED, not only the working copy: Open defaults a spell-less caster's
+    # working copy to the first spell offered - the very one the pick above
+    # defaulted to - so the working copy would read the same had the Save
+    # dropped the spell.
+    ins = inspectors([l.split("console: ", 1)[1] for l in log.splitlines() if "console: " in l])
+    check(ins[:1] and ins[0]["archetype"] == "caster"
+          and ins[0]["opened"] == spell == ins[0]["spell"] == ins[0]["shown"],
+          "the skeleton loads a Caster with its spell (it opens on it, not on the default)",
+          str(ins[:1]))
+    d = (dialogs(log.splitlines()) or [{}])[0]
+    check(d.get("archetype") == "caster"
+          and d.get("opened") == type_spell == d.get("spell") == d.get("shown"),
+          "the skel_coward type loads a Caster with its spell (it opens on it, not on the default)",
+          d.get("line", "no status"))
+
+    # 3. A CASTER WITH NO SPELL, as a file can hold one: the spells taken back
+    # out of this scratch world's files, and a new process loads them.
+    ent = os.path.join(PROJ, r"levels\eval_arena.ent")
+    cat = os.path.join(PROJ, r"catalog\monsters.cat")
+    drop_ent_param(ent, "skeleton", 12, 6, "spell")
+    drop_cat_field(cat, "skel_coward", "spell")
+    rec = ent_line(io.open(ent, encoding="utf-8").read(), "skeleton", 12, 6) or []
+    coward = cat_block(io.open(cat, encoding="utf-8").read(), "skel_coward") or {}
+    check("archetype=caster" in rec and not any(t.startswith("spell=") for t in rec)
+          and coward.get("archetype") == "caster" and "spell" not in coward,
+          "the scratch files now hold both casters without a spell",
+          f"{' '.join(rec)} | {coward.get('archetype')} {coward.get('spell')}")
+    log = run("casterdefault.eval")
+    check(passed(log), "the spell-less load ran clean")
+    # THE CONTROL for the reload's "no warning" check: the warning it looks
+    # for does come, for the kind and for the instance, when a spell is lost.
+    warns = [l for l in log.splitlines() if "archetype=caster but no spell" in l]
+    check(any("[skel_coward]" in l for l in warns) and any("the skeleton at 12,6" in l for l in warns),
+          "THE CONTROL: the load warns for the spell-less kind and instance",
+          " | ".join(warns[:3]) or "no warning")
+    sec = console_sections(log)
+    ins = inspectors(sec.get("inspector", []))
+    first = ins[0] if ins else {}
+    check(first.get("archetype") == "caster" and first.get("opened") == ""
+          and first.get("spell") == spell == first.get("shown"),
+          "a spell-less Caster's inspector opens on none, holding and showing the first spell offered",
+          str(ins[:1]))
+    check(len(ins) == 2 and ins[1]["id"] == first.get("id") and ins[1]["opened"] == "",
+          "...and its Esc put the spell-less original back: reopened, it opens on none again",
+          str(ins))
+    dl = dialogs(sec.get("dialog", []))
+    first = dl[0] if dl else {}
+    check(first.get("archetype") == "caster" and first.get("opened") == ""
+          and first.get("spell") == type_spell == first.get("shown"),
+          "a spell-less Caster type's dialog opens on none, holding and showing the first spell offered",
+          first.get("line", "no status"))
+    check(len(dl) == 2 and dl[1]["opened"] == "",
+          "...and its Esc put the spell-less kind back: reopened, it opens on none again",
+          " | ".join(x["line"] for x in dl))
+finally:
+    drop()
+
+fresh()
+harness_game.scratch_world(ROOT, NEXT)
+try:
+    # 4. A ROUTE DOES NOT OUTLIVE ITS WORLD (C233).
+    before = level_files(NEXT)
+    log = run("routeworld.eval")
+    check(passed(log), "the script ran clean")
+    sec = console_sections(log)
+    pre, post, ids = sec.get("before", []), sec.get("after", []), sec.get("ids", [])
+    ins = inspectors(pre)
+    aid = ins[0]["id"] if ins else None
+    check(routes(pre)[-1:] == [(aid, 1)] and aid is not None,
+          "a route was being laid on A before the switch", str(routes(pre)))
+    check("switching to " + NEXT in pre, "the script switched worlds")
+    check(routes(post) and all(r is None for r in routes(post)),
+          "after the switch no route is being laid", str(routes(post)))
+    check(route_keys(post) == [NOT_ROUTES] and "editor inspector: closed" in post
+          and "editor inspector save: no inspector is open" in post,
+          "on the player map Esc is not the route's: no inspector opens, its Save has nothing to save",
+          " | ".join(l for l in post if l.startswith("editor ")))
+    nxt = inspectors(ids)
+    check(nxt[:1] and nxt[0]["type"] == "skel_warrior" and nxt[0]["id"] == aid,
+          "THE CONTROL: the next world's warrior holds A's id, so a stale route would have reached it",
+          f"{nxt[:1]} vs A {aid}")
+    check(level_files(NEXT) == before, "the next world's level files are untouched")
+finally:
+    harness_game.remove_world(ROOT, NEXT)
+    drop()
+
+fresh()
+try:
+    # 5. SAVING THE MONSTER'S TYPE (C232), WINDOWED: the fault was in the drawing.
+    log = run("routerespawn.eval", headless=False)
+    check("crash: unattended" in log, "the windowed run is unattended (a fatal error exits)")
+    check(passed(log), "the windowed script ran to its verdict")
+    sec = console_sections(log)
+    rt, op, dl = sec.get("route", []), sec.get("open", []), sec.get("dialog", [])
+    ins = inspectors(rt)
+    aid = ins[0]["id"] if ins else None
+    saved = after_command(rt, "typeset")
+    check(routes(rt[:len(rt) - len(saved)])[-1:] == [(aid, 1)] and aid is not None,
+          "a route was being laid on the warrior", str(routes(rt)))
+    check(any(l.startswith("typeset monsters 'skel_warrior': hp = 22") for l in rt),
+          "its type was saved mid-route", " | ".join(l for l in rt if l.startswith("typeset")))
+    check(routes(saved) and all(r is None for r in routes(saved)),
+          "the save respawned the warrior under a new id, and the route ended with the old one",
+          str(routes(saved)))
+    check(route_keys(rt) == [NOT_ROUTES] and "editor inspector: closed" in after_command(rt, "editor route key"),
+          "Enter afterwards reopens nothing", " | ".join(after_command(rt, "editor route key")[:3]))
+    ins = inspectors(op)
+    check(ins[:1] and ins[0]["type"] == "skel_warrior" and ins[0]["live"] and ins[0]["id"] != aid,
+          "the respawned warrior (a new id) has its inspector open", str(ins[:1]))
+    tail = [l for l in after_command(op, "typeset") if l.startswith("editor inspector")]
+    check(len(tail) == 3 and all(l == "editor inspector: closed" for l in tail),
+          "a save of its type closes it first", " | ".join(tail))
+    opened = [l for l in dl if MDLG.match(l)]
+    tail = [l for l in after_command(dl, "typeset") if l.startswith("monsterdialog")]
+    check(len(opened) == 1 and tail and all(l == "monsterdialog: closed" for l in tail),
+          "...and the monster dialog", " | ".join(opened + tail))
+    errors = [l for l in log.splitlines() if l.startswith("[ERROR]")]
+    check(not errors, "no fault in the log through the saves", " | ".join(e[:140] for e in errors[:3]))
+finally:
+    drop()
+    if settings_before is not None:
+        io.open(SETTINGS, "wb").write(settings_before)
+    elif os.path.isfile(SETTINGS):
+        os.remove(SETTINGS)
 
 # --- the real tree: LAST, after every phase --------------------------------------
 print("the real tree: dungeon-demo and the library as the run found them")

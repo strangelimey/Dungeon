@@ -1,0 +1,42 @@
+; routeworld.eval - a patrol route does not outlive its world (code-review C233).
+; Judged by tools/EditorTest.py phase 23, which makes the second scratch world
+; this script switches to (et_next, a copy of the same world) and then checks
+; every level file there is untouched.
+;
+; ONE `reset`, the one that loads the world: monster ids number from 1 in each
+; world, and the same level loaded the same way hands out the same ids - so A's
+; id names a live monster in et_next too, which is exactly how a stale route
+; used to reach the next world's monster. A second reset would respawn, and
+; renumber, before the inspect. The last section prints et_next's monster and
+; its id, so the judge can see the collision was there to be had.
+;
+;   --- before ---  A (the skel_warrior at 23,9) gets a route with a waypoint.
+;   --- after ---   in et_next: no route is being laid; on the player map (M)
+;                   Esc is not the route's, no inspector opens, and its Save
+;                   has nothing to save (it used to write et_next's .ent).
+;   --- ids ---     et_next's skel_warrior and its id.
+
+logecho on
+reset
+timescale 0
+echo --- before ---
+editor inspect 23 9
+editor inspector
+editor inspector editroute
+editor route 23 11
+editor route
+worlds load et_next
+echo --- after ---
+timescale 0
+editor route
+mappage open
+editor route key esc
+editor inspector
+editor inspector save
+editor route
+mappage close
+echo --- ids ---
+editor inspect 23 9
+editor inspector
+editor inspect off
+echo --- end ---

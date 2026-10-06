@@ -23,6 +23,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <format>
+#include <iterator>
 #include <string>
 #include <utility>
 
@@ -1585,6 +1586,69 @@ void Game::RegisterWorldCommands() {
 			if (m_typeDialog.onSave) m_typeDialog.onSave(cfg);
 			m_console.Print(std::format("typeset {} '{}': {} = {}", args[0], args[1], args[2],
 										value.empty() ? "(removed)" : value));
+		});
+	// The monster type's animation + behaviour dialog (the type editor's extra
+	// button), for a harness: the same calls its controls make (code-review
+	// C99 - a Caster pick has to leave a spell that Save writes).
+	m_console.Register(
+		{.name = "monsterdialog",
+		 .group = CmdGroup::Types,
+		 .params = "[status]\n"
+				   "<id>\n"
+				   "archetype <name>\n"
+				   "save\n"
+				   "esc\n"
+				   "off",
+		 .summary = "open the monster type dialog, pick its archetype, save or cancel it, "
+					"or report it"},
+		[this](const std::vector<std::string>& args) {
+			const auto& kArch = ai::kArchetypeNames; // in enum order
+			const std::string verb = args.empty() ? std::string("status") : args[0];
+			if (verb == "off") {
+				m_monsterDialog.Close();
+			} else if (verb == "save" || verb == "esc" || verb == "archetype") {
+				if (!m_monsterDialog.IsOpen()) {
+					m_console.Refuse("monsterdialog: the dialog is not open");
+					return;
+				}
+				if (verb == "save") {
+					m_monsterDialog.ClickSave();
+				} else if (verb == "esc") {
+					m_monsterDialog.Cancel(); // Esc's own call: the live kind put back
+				} else {
+					int found = -1;
+					for (int i = 0; i < static_cast<int>(std::size(kArch)); ++i)
+						if (args.size() >= 2 && args[1] == kArch[i]) found = i;
+					if (found < 0) {
+						m_console.RefuseUsage();
+						return;
+					}
+					m_monsterDialog.PickArchetype(static_cast<ai::Archetype>(found));
+					m_monsterDialog.ApplyPending(); // no Update runs under the console
+				}
+			} else if (verb != "status") {
+				if (!m_project.monsters.Find(verb)) {
+					m_console.Refuse(std::format("monsterdialog: no monster '{}'", verb));
+					return;
+				}
+				OpenMonsterConfig(verb);
+				if (!m_monsterDialog.IsOpen()) {
+					m_console.Refuse(std::format("monsterdialog: '{}' did not open", verb));
+					return;
+				}
+			}
+			if (!m_monsterDialog.IsOpen()) {
+				m_console.Print("monsterdialog: closed");
+				return;
+			}
+			// The spell the kind OPENED with (what a load gave it) beside the
+			// working copy's, which may be the default, and the row's.
+			const MonsterConfigDialog::Config& c = m_monsterDialog.Current();
+			const int arch = static_cast<int>(c.archetype);
+			m_console.Print(std::format(
+				"monsterdialog: open {} archetype {} opened '{}' spell '{}' shown '{}'", c.type,
+				arch >= 0 && arch < static_cast<int>(std::size(kArch)) ? kArch[arch] : "?",
+				m_monsterDialog.Opened().spell, c.spell, m_monsterDialog.ShownSpell()));
 		});
 	m_console.Register(
 		{.name = "typerefs",

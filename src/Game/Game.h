@@ -1283,10 +1283,32 @@ private:
 	void OpenFixtureInspector(const FixtureInspector::Config& fc,
 							  const std::vector<Direction>& walls,
 							  const DungeonWorld::FixturePreviewData& sp);
-	// The inspector's config for the monster being edited — kept so route-laying can
-	// reopen the inspector (with an updated waypoint count) when it finishes.
-	EntityInspector::Config m_inspectCfg;
-	// Live animation preview for that dialog: an Animator over the selected type's
+	// Every per-instance dialog, the projectile card and the chooser, closed with
+	// NO revert, and the chooser's targets dropped: what they edit is about to be
+	// rebuilt (a respawn hands every monster a new id and frees a reloaded kind's
+	// mesh, which their previews borrow) or is going (an unload). Code-review
+	// C232/C233.
+	void CloseInspectors();
+	// The monster dialog's preview borrows its kind's mesh, skeleton and clips:
+	// forgotten whenever that kind may go, and rebuilt by the next Update.
+	void ForgetMonsterPreview();
+	// THE PATROL ROUTE'S KEYS, while one is being laid: Backspace takes the last
+	// waypoint back, Enter or Esc finishes it - and the inspector reopens on the
+	// monster the route BELONGS to, looked up afresh by its runtimeId through
+	// OpenInspectorFor, which declines when that monster is gone (code-review
+	// C80, C232: it used to re-pass a cached config and preview, so it reopened
+	// on whichever monster was inspected last, or drew a freed mesh). ONLY ON THE
+	// EDITOR MAP (C233): the player's map has no route to finish. True when the
+	// key was the route's; the map's Update and `editor route key` both ask.
+	enum class RouteKey { Back, Finish };
+	bool RouteKeyPressed(RouteKey key);
+	// `editor inspector ...` / `editor route ...` (Game_Inspect.cpp): the open
+	// inspector's clicks and keys, and the route's grid clicks and keys, for a
+	// harness - each the call its control makes.
+	void InspectorCommand(const std::vector<std::string>& args);
+	void RouteCommand(const std::vector<std::string>& args);
+	// Live animation preview for the monster dialog (and a monster inspector's,
+	// which shares the Animator): an Animator over the selected type's
 	// (borrowed) skeleton+clips, rendered into m_modelPreview and blitted into the
 	// dialog's preview pane. m_previewType/Clip track what it's currently playing so
 	// a change re-Plays; the mesh/material/scale are cached from MonsterPreviewFor.
@@ -1317,7 +1339,6 @@ private:
 	// The project's flags as the inspectors' dropdowns list them: (id, "name
 	// (scope)").
 	FlagChoices FlagChoiceList() const;
-	PreviewSpec m_inspectPreview;                 // cached spec (re-pass on route return)
 	gfx::ParticleBatch m_previewParticles;        // preview-only particle batch (torch)
 	FireEffect m_previewFire;
 	std::vector<gfx::ParticleInstance> m_previewFireScratch;

@@ -19,7 +19,7 @@
 #include <vector>
 
 namespace dungeon::ui {
-class TabControl;
+class DropDown;
 }
 
 namespace dungeon::game {
@@ -51,6 +51,20 @@ public:
 	void Open(const Config& cfg, const std::vector<std::string>& spellIds,
 			  PreviewSpec preview = {});
 
+	// --- the clicks, for the harness (`editor inspector ...`) ---------------
+	// Each is what its control's callback does - the control CALLS it - so a
+	// script and a mouse take one path.
+	void PickArchetype(ai::Archetype archetype); // the archetype dropdown
+	void ClickEditRoute();                      // Patrol tab: Edit route
+	void ClickClearRoute();                     // Patrol tab: Clear route
+	// The working copy, and the spell the Caster row SHOWS, read off its
+	// dropdown ("" when there is no such row) - the two must agree (C99).
+	// Opened() is the monster as the dialog opened on it, before the working
+	// copy's default spell: what a load gave it, and what Esc puts back.
+	const Config& Current() const { return m_cfg; }
+	const Config& Opened() const { return m_original; }
+	std::string ShownSpell() const;
+
 	std::function<void(const Config&)> onApply;
 	std::function<void(const Config&)> onSave;
 	// Patrol-route authoring (grid-click). onEditRoute closes the inspector and puts
@@ -70,7 +84,7 @@ private:
 	Config m_cfg;      // working copy
 	Config m_original; // snapshot for revert on Close/Esc
 	std::vector<std::string> m_spellIds; // caster spell dropdown options
-	ui::TabControl* m_tabs = nullptr;
+	ui::DropDown* m_spellDrop = nullptr; // the Caster row's, owned by the tree
 };
 
 } // namespace dungeon::game

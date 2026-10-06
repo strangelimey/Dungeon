@@ -1,0 +1,18 @@
+; casterload.eval - what inspectroute.eval's Caster saves come back as (code-review
+; C99). Judged by tools/EditorTest.py phase 23, which runs it as a NEW process
+; on the same scratch world: the level and the kinds load from the files the
+; saves wrote, so a caster written without its spell warns in this run's log
+; (the skel_coward kind as it is built, the skeleton at 12,6 as it spawns).
+; The judge demands no such warning, and both dialogs OPENING on the spell saved
+; - not only showing it, since Open gives a spell-less caster's working copy the
+; first spell offered, the same one the saves wrote. casterdefault.eval, run
+; next with the spells taken out of the files, is the control for both.
+
+logecho on
+reset
+timescale 0
+editor inspect 12 6
+editor inspector
+editor inspector esc
+monsterdialog skel_coward
+monsterdialog off

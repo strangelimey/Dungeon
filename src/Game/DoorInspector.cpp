@@ -77,7 +77,7 @@ void DoorInspector::BuildContent(ui::Stack& c) {
 	// Each page is a content-sized Stack (DialogLayout's TabStack), so a page is
 	// as long as its rows and scrolls if it outgrows the card. Nothing here
 	// writes a coordinate.
-	ui::TabControl* tabs = c.Row<ui::TabControl>(ui::Len::Fill(), 0.09f);
+	ui::TabControl* tabs = ContentTabs(c.Row<ui::TabControl>(ui::Len::Fill(), 0.09f));
 	// The LOCK has its own page (tool-refinement Phase 4): a key and a flag are
 	// both "what keeps it shut", and with the flag row the Door page ran past
 	// its card.

@@ -9,6 +9,9 @@
 
 #include <algorithm>
 #include <array>
+#include <cstdlib>
+#include <format>
+#include <iterator>
 #include <string>
 #include <utility>
 
@@ -39,6 +42,143 @@ InstanceInspector* Game::ActiveInstanceInspector() {
 	return nullptr;
 }
 
+void Game::CloseInspectors() {
+	for (InstanceInspector* ii : InstanceInspectors()) ii->Close();
+	m_projectileInspector.Close();
+	m_inspectPicker.Close();
+	m_inspectTargets.clear();
+}
+
+void Game::ForgetMonsterPreview() {
+	m_previewType.clear();
+	m_previewClip.clear();
+	m_previewMonMesh = nullptr;
+	m_previewMonSubs.clear();
+}
+
+bool Game::RouteKeyPressed(RouteKey key) {
+	if (!m_mapView.IsOpen() || m_mapView.CurrentMode() != MapView::Mode::Editor ||
+		!m_mapEditor.LayingRoute())
+		return false;
+	const u32 id = m_mapEditor.RouteId();
+	if (key == RouteKey::Back) {
+		m_world->RemoveLastPatrolWaypoint(id);
+		return true;
+	}
+	m_mapEditor.EndRoute();
+	// Back to the inspector, built afresh from the live monster: its waypoints
+	// as they now are, and a preview of the kind as it now is.
+	InspectTarget t{InspectTarget::Kind::Monster};
+	t.runtimeId = id;
+	OpenInspectorFor(t);
+	return true;
+}
+
+// --- the harness's hands (`editor inspector`, `editor route`) ----------------
+
+void Game::InspectorCommand(const std::vector<std::string>& args) {
+	// args[0] is "inspector"; the verb, if any, follows.
+	const std::string verb = args.size() >= 2 ? args[1] : std::string("status");
+	InstanceInspector* open = ActiveInstanceInspector();
+	const bool monster = open == &m_entityInspector;
+	if (verb != "status") {
+		if (!open) {
+			// Not a refusal: "nothing to press" is often the answer a script is
+			// checking for (a route that ended, a world that changed).
+			m_console.Print(std::format("editor inspector {}: no inspector is open", verb));
+			return;
+		}
+		if (verb == "esc") {
+			open->Cancel();
+		} else if (verb == "save") {
+			open->ClickSave();
+		} else if (verb == "tab" && args.size() >= 3) {
+			open->SelectTab(std::atoi(args[2].c_str()));
+		} else if (monster && verb == "editroute") {
+			m_entityInspector.ClickEditRoute();
+		} else if (monster && verb == "clearroute") {
+			m_entityInspector.ClickClearRoute();
+		} else if (monster && verb == "archetype" && args.size() >= 3) {
+			int found = -1;
+			for (int i = 0; i < static_cast<int>(std::size(ai::kArchetypeNames)); ++i)
+				if (args[2] == ai::kArchetypeNames[i]) found = i;
+			if (found < 0) {
+				m_console.Refuse(std::format("editor inspector: no archetype '{}'", args[2]));
+				return;
+			}
+			m_entityInspector.PickArchetype(static_cast<ai::Archetype>(found));
+		} else {
+			m_console.RefuseUsage();
+			return;
+		}
+		// A click queued its rebuild for the next Update, which does not run
+		// while the console is up: do it now, so what is read next is the view
+		// the click produced.
+		open->ApplyPending();
+		open = ActiveInstanceInspector();
+	}
+	if (!open) {
+		m_console.Print("editor inspector: closed");
+		return;
+	}
+	if (open != &m_entityInspector) {
+		m_console.Print(std::format("editor inspector: open (not a monster) tab {}",
+									open->ActiveTab()));
+		return;
+	}
+	// The monster's: which one (and whether it still lives), the tab, the
+	// waypoint count the Patrol tab shows, and the behaviour - with the spell
+	// the monster OPENED with (what a load gave it; the working copy may have
+	// defaulted it), the one Save would write and the one the Caster row SHOWS.
+	const EntityInspector::Config& c = m_entityInspector.Current();
+	const int arch = static_cast<int>(c.archetype);
+	m_console.Print(std::format(
+		"editor inspector: monster {} {} {} tab {} waypoints {} archetype {} opened '{}' "
+		"spell '{}' shown '{}'",
+		c.runtimeId, c.type, m_world->MonsterPatrol(c.runtimeId) ? "live" : "gone",
+		m_entityInspector.ActiveTab(), c.patrolCount,
+		arch >= 0 && arch < static_cast<int>(std::size(ai::kArchetypeNames))
+			? ai::kArchetypeNames[arch]
+			: "?",
+		m_entityInspector.Opened().spell, c.spell, m_entityInspector.ShownSpell()));
+}
+
+void Game::RouteCommand(const std::vector<std::string>& args) {
+	// args[0] is "route".
+	if (args.size() >= 3 && args[1] == "key") {
+		// A key as the map's Update hears it: the route's only on the editor map.
+		const bool back = args[2] == "back";
+		if (!back && args[2] != "enter" && args[2] != "esc") {
+			m_console.RefuseUsage();
+			return;
+		}
+		const bool taken = RouteKeyPressed(back ? RouteKey::Back : RouteKey::Finish);
+		m_console.Print(std::format("editor route key {}: {}", args[2],
+									taken ? "taken" : "not the route's"));
+	} else if (args.size() >= 3) {
+		// A grid click while laying: the left press MapView hands the editor.
+		if (!m_mapEditor.LayingRoute()) {
+			m_console.Print("editor route: no route is being laid");
+			return;
+		}
+		m_mapEditor.Paint(std::atoi(args[1].c_str()), std::atoi(args[2].c_str()),
+						  /*dragging*/ false);
+	} else if (args.size() >= 2 && args[1] != "status") {
+		m_console.RefuseUsage();
+		return;
+	}
+	// What the EDITOR believes, not what the world can find: a route left
+	// naming a monster that is gone must read as laid, or this could not see it.
+	if (!m_mapEditor.LayingRoute()) {
+		m_console.Print("editor route: none");
+		return;
+	}
+	const u32 id = m_mapEditor.RouteId();
+	const auto* route = m_world->MonsterPatrol(id);
+	m_console.Print(std::format("editor route: laying monster {} ({} waypoint(s))", id,
+								route ? route->size() : 0));
+}
+
 void Game::OpenInspectorFor(const InspectTarget& t) {
 	const int cx = m_inspectCellX, cz = m_inspectCellZ;
 	switch (t.kind) {
@@ -51,7 +191,6 @@ void Game::OpenInspectorFor(const InspectTarget& t) {
 		if (const auto* r = m_world->MonsterPatrol(c.runtimeId))
 			c.patrolCount = static_cast<int>(r->size());
 		m_world->MonsterThreatById(t.runtimeId, c.threat, c.threatLock);
-		m_inspectCfg = c; // remembered so route-laying can reopen the inspector
 		// Preview: the type's mesh + an idle animation (front-on). Build the animator
 		// now (the spec carries the skeleton/clips the render loop reads).
 		PreviewSpec pv;
@@ -67,7 +206,6 @@ void Game::OpenInspectorFor(const InspectTarget& t) {
 			m_previewAnim = DungeonWorld::MonsterAnimator(d.skeleton, d.clips); // as in the world
 			if (!pv.idleClip.empty()) m_previewAnim.Play(pv.idleClip, /*loop*/ true);
 		}
-		m_inspectPreview = pv; // cached so route-laying can re-pass it on reopen
 		// Delete: by runtimeId, so it takes THIS monster even if several share
 		// the cell or it walks off mid-dialog.
 		m_entityInspector.onDelete = [this, id = t.runtimeId] {

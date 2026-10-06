@@ -70,10 +70,26 @@ std::vector<Direction> InstanceInspector::FacingChoices() const {
 void InstanceInspector::OpenModal() {
 	m_open = true;
 	m_rebuild = false;
+	m_tabs = nullptr; // a fresh open starts on the first tab
 	BuildUI();
 }
 
+void InstanceInspector::ApplyPending() {
+	if (!m_open || !m_rebuild) return;
+	m_rebuild = false;
+	BuildUI();
+}
+
+int InstanceInspector::ActiveTab() const { return m_tabs ? m_tabs->ActiveTab() : -1; }
+
+void InstanceInspector::SelectTab(int tab) {
+	if (m_tabs) m_tabs->SetActiveTab(tab);
+}
+
 void InstanceInspector::BuildUI() {
+	// The tab the user is on, read BEFORE the tree it lives in is cleared.
+	const int keepTab = m_tabs ? m_tabs->ActiveTab() : 0;
+	m_tabs = nullptr;
 	m_ui.Clear();
 	m_pane = nullptr;
 
@@ -81,10 +97,7 @@ void InstanceInspector::BuildUI() {
 	// close box in a slot of its own, body, footer. Nothing here writes a
 	// coordinate; the rest of this function only says how tall each row is.
 	DialogChrome chrome = BuildDialogChrome(m_ui, Panel(), Title(), m_closeIcon,
-											[this] {
-												Revert();
-												Close();
-											});
+											[this] { Cancel(); });
 
 	// Body: the control column, and beside it the preview pane when there is one.
 	ui::Stack* body = chrome.body;
@@ -148,14 +161,13 @@ void InstanceInspector::BuildUI() {
 	content->debugName = "content";
 	content->gapRem = 0.5f;
 	BuildContent(*content);
+	if (m_tabs) m_tabs->SetActiveTab(keepTab); // out of range (a new strip) = ignored
 
 	// Footer: Save (persist), plus Delete (remove the object from the map)
 	// when the owner armed it — closing lives in the "x"/Esc, not down here.
 	// Left-aligned under the control column, so the preview pane keeps its side.
-	FooterIcon(*chrome.footer, m_device, "save", loc::Tr("map.cfg.save"), [this] {
-		Persist();
-		Close();
-	});
+	FooterIcon(*chrome.footer, m_device, "save", loc::Tr("map.cfg.save"),
+			   [this] { ClickSave(); });
 	if (onDelete)
 		FooterIcon(*chrome.footer, m_device, "delete", loc::Tr("map.cfg.delete"), [this] {
 			onDelete(); // gone - no Revert
@@ -176,8 +188,7 @@ void InstanceInspector::Update(const Input& input, float w, float h) {
 	m_ui.UseFont(ui::FontRole::Body, std::clamp(h * 0.020f, 12.0f, 24.0f));
 
 	if (input.WasKeyPressed(VK_ESCAPE)) {
-		Revert();
-		Close();
+		Cancel();
 		return;
 	}
 	m_ui.Update(input, w, h);

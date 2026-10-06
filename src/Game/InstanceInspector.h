@@ -31,6 +31,10 @@
 #include <utility>
 #include <vector>
 
+namespace dungeon::ui {
+class TabControl;
+}
+
 namespace dungeon::game {
 
 // What a dialog wants shown in its 3D preview pane. Populated by the owner (Game
@@ -82,6 +86,25 @@ public:
 
 	bool IsOpen() const { return m_open; }
 	void Close() { m_open = false; }
+	// What Esc and the close box do: put the live object back as it was, then
+	// close. Public so the harness can press it (`editor inspector esc`).
+	void Cancel() {
+		Revert();
+		Close();
+	}
+	// The footer's Save: persist, then close.
+	void ClickSave() {
+		Persist();
+		Close();
+	}
+	// A rebuild a click queued is done by the next Update; a harness, which
+	// runs no Update while its console is up, does it now (the type editor's
+	// ApplyPending rule).
+	void ApplyPending();
+	// The content's tab strip, when it has one (-1 = none), and a pick of a tab
+	// as its strip's click makes it.
+	int ActiveTab() const;
+	void SelectTab(int tab);
 
 	// Optional Delete action: when the OWNER sets this before Open, the footer
 	// shows a Delete button beside Save (in the old Close slot — closing moved
@@ -143,6 +166,15 @@ protected:
 	// --- helpers for derived ------------------------------------------------
 	void OpenModal(); // set open + build the UI (call after seeding config)
 	void RequestRebuild() { m_rebuild = true; } // rebuild rows next frame
+	// Registers the content's tab strip (BuildContent hands back the one it
+	// made). A REBUILD keeps the tab the user is on - a dependent field or a
+	// cleared route used to throw the dialog back to its first tab, so the
+	// change was never seen (code-review C104); a fresh Open starts on the
+	// first.
+	ui::TabControl* ContentTabs(ui::TabControl* tabs) {
+		m_tabs = tabs;
+		return tabs;
+	}
 	Direction FacingValue() const { return m_facing; }
 	void SetFacingValue(Direction d) { m_facing = d; }
 	ui::UIContext& UI() { return m_ui; }
@@ -161,6 +193,9 @@ private:
 	// PreviewRect hands its rect out, so the backing and the 3D blit are the
 	// same area by construction.
 	ui::Widget* m_pane = nullptr;
+	// The content's tab strip (ContentTabs), owned by the tree; null when it
+	// has none.
+	ui::TabControl* m_tabs = nullptr;
 
 	bool m_open = false;
 	bool m_rebuild = false;

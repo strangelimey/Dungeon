@@ -1,0 +1,24 @@
+; casterdefault.eval - a Caster with NO spell, as a file can hold one (code-review
+; C99). Judged by tools/EditorTest.py phase 23, which first takes the spells
+; casterload.eval read back OUT of its scratch world's files (the skeleton at 12,6
+; in eval_arena.ent, the skel_coward kind in monsters.cat) and runs this as a new
+; process: the load warns for both (the control for casterload's "no warning"),
+; each dialog OPENS on no spell yet holds and shows the first one offered, and
+; Esc puts the spell-less original back, so a reopen opens on none again.
+
+logecho on
+reset
+timescale 0
+echo --- inspector ---
+editor inspect 12 6
+editor inspector
+editor inspector esc
+editor inspect 12 6
+editor inspector
+editor inspector esc
+echo --- dialog ---
+monsterdialog skel_coward
+monsterdialog esc
+monsterdialog skel_coward
+monsterdialog esc
+echo --- end ---

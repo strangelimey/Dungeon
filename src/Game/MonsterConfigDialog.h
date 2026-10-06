@@ -36,6 +36,7 @@
 #include <vector>
 
 namespace dungeon::ui {
+class DropDown;
 class TabControl;
 }
 
@@ -91,6 +92,22 @@ public:
 	std::function<void(const Config&)> onApply;
 	std::function<void(const Config&)> onSave;
 
+	// --- the clicks, for the harness (`monsterdialog ...`) ------------------
+	// What the archetype dropdown, the footer's Save and Esc / the close box
+	// do (they call these), and a queued rebuild done now: the harness runs
+	// no Update while its console is up.
+	void PickArchetype(ai::Archetype archetype);
+	void ClickSave();
+	void Cancel(); // the live kind back to Opened(), then close
+	void ApplyPending();
+	// The working copy, and the spell the Caster row SHOWS, read off its
+	// dropdown ("" when there is no such row) - the two must agree (C99).
+	// Opened() is the kind as the dialog opened on it, before the working
+	// copy's default spell: what a load gave it, and what Cancel puts back.
+	const Config& Current() const { return m_cfg; }
+	const Config& Opened() const { return m_original; }
+	std::string ShownSpell() const;
+
 private:
 	// (Re)builds the whole widget tree from m_cfg (tabs + rows + footer). Called on
 	// Open and whenever a deferred rebuild is queued (archetype/state selection
@@ -122,6 +139,7 @@ private:
 	// so the backing it draws and the owner's blit are the same area.
 	PreviewPane* m_pane = nullptr;
 	ui::TabControl* m_tabs = nullptr; // owned by m_ui; kept to restore the tab
+	ui::DropDown* m_spellDrop = nullptr; // the Caster row's, owned by m_ui
 	int m_activeTab = 0;
 	bool m_rebuild = false; // a widget callback queued a rebuild (done after Update)
 };
