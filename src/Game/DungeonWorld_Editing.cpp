@@ -15,7 +15,7 @@
 #include "Core/Loc.h"
 #include "Core/Log.h"
 #include "Core/Paths.h"
-#include "Game/AssetUtil.h" // LoadTextureThumb (surface swatches)
+#include "Game/AssetUtil.h" // LoadTextureThumb (surface swatches), WornBlockFile
 
 #include <algorithm>
 #include <cstdlib> // atof — the .ent `seconds=` override
@@ -176,7 +176,7 @@ bool DungeonWorld::SurfaceAssetsAvailable(SurfaceSel sel,
 										  const std::string& id) const {
 	const CatalogEntry* def = SurfaceCatalog(sel).Find(id);
 	if (!def) return false;
-	const std::string set = CatalogGet(def, "texture", id);
+	const std::string set = SurfaceSetOf(def, id);
 	// A texture stem resolves as .dds (baked) else .png (source) — TryLoadTextureFile's
 	// order.
 	const auto textureAt = [](const std::string& stem) {
@@ -185,9 +185,7 @@ bool DungeonWorld::SurfaceAssetsAvailable(SurfaceSel sel,
 	};
 	// The worn block mesh is baked per texture set AND per mesh tier, and its
 	// load is a LoadModelOrDie — a missing one would abort, so it gates first.
-	if (!std::filesystem::exists(paths::Asset(
-			std::format("models\\worn_{}_{}.gltf", set, m_settings.MeshSuffix()))))
-		return false;
+	if (!ModelFileInstalled(WornBlockFile(set, m_settings.MeshSuffix()))) return false;
 	// The tier's texture resolution may be uninstalled; LoadPbrSet falls back
 	// to the always-present 2k set, so either satisfies the load.
 	return textureAt(std::format("{}_{}", set, m_settings.TextureSuffix())) ||

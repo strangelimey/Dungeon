@@ -5,12 +5,15 @@
 # sharing one launch because the expensive part is loading the dungeon, not
 # running them:
 #
-#   levelcheck  every level file is present and every model a catalog type
-#               names is installed. The baked pool is GITIGNORED, so a fresh
-#               clone or a stale worktree provision has entries whose assets are
-#               absent - and a missing model is a LoadModelOrDie that takes the
-#               process down at level load, possibly on a level nobody has
-#               visited in weeks.
+#   levelcheck  every level file is present and every model a catalog type or
+#               a level's palette loads is installed - as the FILE its loader
+#               opens (AssetUtil's ModelFileOf / WornBlockFile). The baked pool
+#               is GITIGNORED, so a fresh clone or a stale worktree provision
+#               has entries whose assets are absent - and a missing model is a
+#               LoadModelOrDie that takes the process down at level load,
+#               possibly on a level nobody has visited in weeks. Then its
+#               MUTATIONS ($levelcheckMutations below), each of which must FAIL
+#               naming the file it planted.
 #
 #   uioverlap   CLAUDE.md says RUN IT AFTER TOUCHING ANY SCREEN, and the one
 #               manual sweep found four defects nobody had reported. The command
@@ -514,6 +517,18 @@ $titleScreens = @(
 # The checks -SelfTest expects to fail, and no others (see the header).
 $selfTestExpected = @('sweep_gencomplexity: status', 'sweep_worlds: label')
 
+# levelcheck's MUTATIONS (code-review C441), run after the real check on every
+# run: each plants one fault in what the check reads - never in the files - and
+# must come back FAIL with exactly one more model missing than the real run, the
+# planted file named. Each is a shape the old stem match passed: a fixture's
+# missing empty_model and part2_model, a .glb-only model named by a type whose
+# loader opens .gltf, an entry with no `model` (its loader opens the id), a
+# door's `trim` naming no doors.cat entry (its loader opens the name), and a
+# worn block tier the session did not load - chosen by the command apart from
+# the check's own walk, so a check that skips that tier comes back PASSED here
+# rather than refused.
+$levelcheckMutations = @('empty_model', 'part2_model', 'glb', 'id', 'trim', 'worn')
+
 # Every screen must say how it is known to have OPENED. One with no `status`
 # would be judged on its label, state and audit alone - "the command ran", the
 # coverage C427 removed - and the real run and the -SelfTest would both still
@@ -589,6 +604,10 @@ try {
 	if (-not (Wait-ConsoleReady)) { throw 'the console never accepted a command after the new game' }
 	# Retried until it answers, counting only a NEW report.
 	Wait-ConsoleReady 'levelcheck' 'levelcheck RESULT=' 10 4000 | Out-Null
+	# Then the check's own mutations, each awaited by its own verdict line.
+	foreach ($m in $levelcheckMutations) {
+		Wait-ConsoleReady "levelcheck mutate $m" "^\[info \] levelcheck RESULT=\S+ .* mutate=$m " 5 4000 | Out-Null
+	}
 
 	# THE ETCHED GOLD (code-review C204): every material's inks swept into the log
 	# (judged below), then the movement pad shown on a snow material and
@@ -670,13 +689,53 @@ for ($i = 0; $i -lt $lines.Count; $i++) {
 }
 
 Write-Host ''
-$lc = $lines | Select-String 'levelcheck RESULT=' | Select-Object -Last 1
-if ($lc) {
-	Write-Host "  $($lc.Line.Substring($lc.Line.IndexOf('levelcheck')))"
-	if ($lc.Line -notmatch 'RESULT=PASS') { $global++ }
+# levelcheck: the real check must PASS, and each mutation must FAIL by exactly
+# its planted file. Read from the game's own verdict lines, never the console's
+# mirror of them.
+function Get-LcMissing([string]$line) {
+	$n = 0
+	foreach ($f in 'missing_models', 'missing_worn') {
+		if ($line -match "\b$f=(\d+)") { $n += [int]$Matches[1] }
+	}
+	return $n
+}
+function Fail-Global([string]$why) {
+	Write-Host "  [FAIL] $why" -ForegroundColor Red
+	$script:global++
+}
+$lcAt = @(for ($i = 0; $i -lt $lines.Count; $i++) {
+	if ($lines[$i] -match '^\[info \] levelcheck RESULT=') { $i }
+})
+$lcReal = @($lcAt | Where-Object { $lines[$_] -notmatch ' mutate=' }) | Select-Object -Last 1
+if ($null -eq $lcReal) {
+	Fail-Global 'levelcheck never reported'
 } else {
-	Write-Host '  [FAIL] levelcheck never reported' -ForegroundColor Red
-	$global++
+	$lcLine = $lines[$lcReal]
+	Write-Host "  $($lcLine.Substring($lcLine.IndexOf('levelcheck')))"
+	if ($lcLine -notmatch 'RESULT=PASS') { $global++ }
+	$lcBase = Get-LcMissing $lcLine
+	foreach ($m in $levelcheckMutations) {
+		$at = @($lcAt | Where-Object { $_ -gt $lcReal -and $lines[$_] -match " mutate=$m " }) |
+			Select-Object -Last 1
+		if ($null -eq $at) { Fail-Global "levelcheck mutate ${m}: never reported (refused?)"; continue }
+		$v = $lines[$at]
+		$planted = if ($v -match ' planted=(\S+)') { $Matches[1] } else { '' }
+		$from = @($lcAt | Where-Object { $_ -lt $at }) | Select-Object -Last 1
+		$named = @(@(Lines-Between $from $at) -match
+			("^\[warn \] levelcheck: missing .*'" + [regex]::Escape($planted) + "'"))
+		$got = Get-LcMissing $v
+		if (-not $planted) {
+			Fail-Global "levelcheck mutate ${m}: its verdict names no planted file"
+		} elseif ($v -notmatch 'RESULT=FAIL') {
+			Fail-Global "levelcheck mutate ${m}: PASSED - the check missed the planted $planted"
+		} elseif ($got -ne $lcBase + 1) {
+			Fail-Global "levelcheck mutate ${m}: $got missing, expected $($lcBase + 1) (the real run's $lcBase and the planted $planted)"
+		} elseif ($named.Count -eq 0) {
+			Fail-Global "levelcheck mutate ${m}: failed without naming the planted $planted"
+		} else {
+			Write-Host "  [ok  ] levelcheck mutate ${m}: FAIL, naming the planted $planted"
+		}
+	}
 }
 
 foreach ($s in @($titleScreens) + @($screens)) {

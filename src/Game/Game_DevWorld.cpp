@@ -4,11 +4,12 @@
 // Split out of Game_DevCommands.cpp (past three thousand lines) by concern:
 // travelling the overworld (world/worldmap/travel/quest/camp/encounters/
 // enter/leave/worldpos/discover), the worlds beside this one and the map's
-// pages, the project-wide file checks (catround/levels/levelcheck), and the
-// world editor (worldedit/worldview/terrainbrush/paint/worldprops/worldloc/
-// worldarea/worldsettings/newtype/typeset/typerefs/saveworld; `typeset dialog` drives the
-// type editor itself, step by step). The dungeon tier's commands are
-// next door in Game_DevDungeons.cpp.
+// pages, the project-wide file checks (catround/levels; levelcheck has its own
+// file, Game_LevelCheck.cpp), and the world editor (worldedit/worldview/
+// terrainbrush/paint/worldprops/worldloc/worldarea/worldsettings/newtype/
+// typeset/typerefs/saveworld; `typeset dialog` drives the type editor itself,
+// step by step). The dungeon tier's commands are next door in
+// Game_DevDungeons.cpp.
 // ============================================================================
 #include "Game/Game.h"
 
@@ -870,75 +871,7 @@ void Game::RegisterWorldCommands() {
 											? "no dungeon"
 											: m_mapView.ViewedDungeon()));
 		});
-	m_console.Register(
-		{.name = "levelcheck",
-		 .group = CmdGroup::Levels,
-		 .summary = "check level files, the models types name, and the pool's normal maps"},
-		[this](const std::vector<std::string>&) {
-			// WHAT THIS GUARDS, and why it is scoped this narrowly: the baked pool
-			// (assets/models, assets/textures) is GITIGNORED, so a fresh clone — or
-			// a new worktree provisioned from a stale file list — has catalog
-			// entries whose assets are absent. A missing TEXTURE renders magenta
-			// and is survivable; a missing MODEL is a LoadModelOrDie and takes the
-			// process down at level load, possibly on a level nobody has visited
-			// in weeks. That asymmetry is why only models are fatal here.
-			//
-			// It does NOT re-validate records against the map (bounds, walkability,
-			// a button facing a wall) — the loader already does that, and a second
-			// copy of those rules here would be the very drift this suite exists
-			// to catch.
-			const std::vector<std::string> installed = InstalledModels();
-			const auto haveModel = [&installed](const std::string& m) {
-				return std::ranges::find(installed, m) != installed.end();
-			};
-
-			int types = 0, missingModels = 0, missingFiles = 0;
-			for (const Catalog* cat : m_project.AllCatalogs()) {
-				for (const CatalogEntry& e : cat->Entries()) {
-					++types;
-					const std::string model = e.Get("model", "");
-					if (model.empty() || haveModel(model)) continue;
-					++missingModels;
-					m_console.Print(std::format("  MISSING MODEL '{}' named by type '{}'",
-												model, e.id));
-					log::Warn("levelcheck: missing model '{}' named by type '{}'", model,
-							  e.id);
-				}
-			}
-
-			for (const std::string& stem : m_project.levels) {
-				for (const std::string& path :
-					 {m_project.LevelMapPath(stem), m_project.LevelEntPath(stem)}) {
-					std::error_code ec;
-					if (std::filesystem::exists(path, ec)) continue;
-					++missingFiles;
-					m_console.Print(std::format("  MISSING LEVEL FILE {}", path));
-					log::Warn("levelcheck: missing level file {}", path);
-				}
-			}
-
-			// THE POOL'S NORMAL MAPS (code-review C471). An albedo with no `_n`
-			// beside it at its resolution loads FLAT - no relief, no parallax, one
-			// warning at load (LoadNormalMapFile) - which is survivable, so it is
-			// counted and named rather than failed: the same asymmetry as above.
-			// The whole pool, not only the sets a catalog names, because a
-			// partly provisioned set is exactly the gap this command exists for,
-			// whichever set it hits.
-			const std::vector<std::string> flat = TextureStemsMissingNormals();
-			for (const std::string& stem : flat) {
-				m_console.Print(std::format("  NO NORMAL MAP {} - it loads flat", stem));
-				log::Warn("levelcheck: no normal map for {} (it loads flat)", stem);
-			}
-
-			const bool ok = missingModels == 0 && missingFiles == 0;
-			const std::string verdict = std::format(
-				"levelcheck RESULT={} levels={} types={} missing_models={} "
-				"missing_files={} installed_models={} missing_normals={}",
-				ok ? "PASS" : "FAIL", m_project.levels.size(), types, missingModels,
-				missingFiles, installed.size(), flat.size());
-			m_console.Print(verdict);
-			log::Info("{}", verdict); // the harness reads this from dungeon.log
-		});
+	// `levelcheck`, the project-wide check of the pool, is Game_LevelCheck.cpp.
 
 	// --- the world editor -------------------------------------------------
 	m_console.Register(

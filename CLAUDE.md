@@ -2274,7 +2274,7 @@ least-recently-seen past a cap (drain before freeing — the SRV rule).
 A model tile and the preview show the model AS THE WORLD DRAWS IT, through ONE
 loader, `DungeonWorld::LoadPoolModelLook`: every primitive with its own glTF
 material and embedded maps (the baked .dds sidecars), and the texture set a
-catalog binds to it (`AssetPicker::textureFor`, the ModelAndTexture rule) - on a
+catalog binds to it (`AssetPicker::textureFor`, the ModelFileOf / TextureOf rule) - on a
 single-primitive .gltf the set WINS (the world's single-mesh path), elsewhere it
 only fills an untextured part. A tile drops that model's meshes and textures
 kFrameCount Ticks after its bake (`Thumb::bakedAt`), keeping only the 256 px
@@ -2607,8 +2607,23 @@ Serialize.* is the block (de)serialization primitive (free Find/Get/GetFloat/
 GetBool/Set over a Field vector; Block + CatalogEntry both delegate). Catalog.*
 adds CatalogGet/CatalogBool (null-safe). Project.* loads/saves the manifest +
 catalogs and maps a key→Catalog (CatalogForKey). DungeonWorld resolves catalog ids
-to model+texture at load (ModelAndTexture helper). Game owns the active Project,
-passes it to DungeonWorld; MapView reads it for the palette. NOTE: editor/asset/
+to model+texture at load. The model FILE comes from ONE resolver, AssetUtil's
+`ModelFileOf(family, entry, id, field)` (+ `WornBlockFile` for a palette's worn
+blocks): per family - prop / monster / fixture / feature / item, each a loader -
+the `model` field else the id (an item: none = the tablet), the extension its
+loader opens (.glb for items and `multimaterial` props, else .gltf), and a
+fixture's `empty_model` / `part2_model`. The loaders and the dev console's
+`levelcheck` both ask it, so the check cannot pass an entry the load would abort
+on (it compared stems, and passed four such shapes - code-review C441); levelcheck
+also checks a door type's `trim` that names no doors.cat entry (SpawnDoor opens
+that name as a file; `frame` / `opener` / `mount` are looked up only when the
+catalog has them), every level palette's worn blocks at EVERY mesh tier (a
+quality swap loads another tier's), and its `levelcheck mutate <case>` cases, run
+by InGameTest, plant each shape - chosen apart from the check's own walk, so a
+check that stops reading one comes back PASS, not refused - and must FAIL. A NEW
+loader path that opens a model by ANOTHER type's id with no `Contains` guard
+needs a levelcheck rule too. Game owns the active Project, passes
+it to DungeonWorld; MapView reads it for the palette. NOTE: editor/asset/
 level WRITES go through paths::Asset, which in a dev build IS the git source
 tree — a `savemap` or an editor import dirties the working copy immediately, so
 `git status` (and `git checkout` to discard) is the review surface. The "To

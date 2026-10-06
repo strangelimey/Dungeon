@@ -246,6 +246,9 @@ struct GameSettings {
 
 	// Quality-derived asset suffixes.
 	const char* MeshSuffix() const;    // "low" / "med" / "high" (worn blocks)
+	// The same for any tier: `levelcheck` asks every one, since a quality swap
+	// loads the worn blocks of whichever tier it picks.
+	static const char* MeshSuffixFor(Quality q);
 	const char* TextureSuffix() const; // "1k" / "2k" / "4k" (texture sets)
 	const char* QualityLabel() const;  // "Low" / "Medium" / "High" / "Ultra"
 

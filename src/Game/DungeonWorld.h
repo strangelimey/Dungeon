@@ -1855,6 +1855,14 @@ public:
 	// without owning it. Default = a project with no overworld.
 	std::vector<validate::Issue> Validate(const validate::WorldView& world = {});
 
+	// The static map of `stem` AS IT IS, for READING: the live map when it is
+	// the active level, else its edit stash, else a read-only copy of its files -
+	// Validate's walk, and like Validate it never creates a stash. Null when the
+	// level is neither and a file of it is missing (the parse would assert).
+	// `levelcheck` reads every level's surface palette through it. NOT const for
+	// Validate's reason; the map stays put until that level is next re-parsed.
+	const DungeonMap* LevelMapAsItIs(const std::string& stem);
+
 	// Rebuilds the live dynamic objects from the current records — the tail of
 	// an undo restore, reused after a type rename retypes those records.
 	// Surfaces are untouched (a rename doesn't move geometry) EXCEPT features,

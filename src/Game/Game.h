@@ -271,6 +271,7 @@ private:
 	void RegisterDevCommands(); // the general ones (Game_DevCommands.cpp)
 	void RegisterDungeonCommands(); // the dungeon tier's (Game_DevDungeons.cpp)
 	void RegisterWorldCommands(); // the world tier's (Game_DevWorld.cpp)
+	void RegisterLevelCheckCommands(); // `levelcheck` and its mutations (Game_LevelCheck.cpp)
 	void RegisterDiagnosticCommands(); // guards, threads, health (Game_DevDiagnostics.cpp)
 	void RegisterPartyCommands(); // members, gear, pools (Game_DevParty.cpp)
 	void RegisterEvalCommands(); // the eval harness's (Game_DevEval.cpp)

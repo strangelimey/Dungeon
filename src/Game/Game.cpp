@@ -458,6 +458,7 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	RegisterDevCommands();
 	RegisterDungeonCommands();
 	RegisterWorldCommands();
+	RegisterLevelCheckCommands();
 	RegisterDiagnosticCommands();
 	RegisterPartyCommands();
 	RegisterPartyCreationCommands();

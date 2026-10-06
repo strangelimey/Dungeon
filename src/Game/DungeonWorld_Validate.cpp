@@ -168,6 +168,17 @@ const DungeonWorld::ReadOnlyLevel& DungeonWorld::ReadOnlyLevelOf(const std::stri
 	return ro;
 }
 
+const DungeonMap* DungeonWorld::LevelMapAsItIs(const std::string& stem) {
+	if (stem == m_currentLevel) return &m_map;
+	if (const auto ms = m_levelMaps.find(stem); ms != m_levelMaps.end())
+		return ms->second.get();
+	std::error_code ec;
+	if (!std::filesystem::is_regular_file(m_project.LevelMapPath(stem), ec) ||
+		!std::filesystem::is_regular_file(m_project.LevelEntPath(stem), ec))
+		return nullptr;
+	return ReadOnlyLevelOf(stem).map.get();
+}
+
 std::vector<validate::Issue> DungeonWorld::Validate(const validate::WorldView& world) {
 	// The catalog half of the rules. Both are id SETS rather than lookups so the
 	// inner flood never touches a Catalog.

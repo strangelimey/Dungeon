@@ -688,10 +688,10 @@ void Game::WireModuleCallbacks() {
 		return out;
 	};
 	// The set a model is drawn in: the first catalog entry drawing that model
-	// names it, by the world's own rule (ModelAndTexture: `model` and `texture`
-	// each default to the entry's id; a second part pairs part2_model with
-	// part2_texture). A model no entry uses falls back to a set of its own name,
-	// the import convention.
+	// names it, by the world's own rule (ModelFileOf / TextureOf: `model` and
+	// `texture` each default to the entry's id; a second part pairs part2_model
+	// with part2_texture). A model no entry uses falls back to a set of its own
+	// name, the import convention.
 	m_assetPicker.textureFor = [this](const std::string& model) {
 		// A FEATURE has no set of its own: it is stamped in place of a surface
 		// block and wears that cell's texture. Show it in the project's first

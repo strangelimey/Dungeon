@@ -81,6 +81,7 @@ add_library(Game STATIC
 	Game_Generate.cpp
 	Game_Populate.cpp
 	Game_Inspect.cpp
+	Game_LevelCheck.cpp
 	Game_MapIcons.cpp
 	Game_NewWorld.cpp
 	NewWorldDialog.cpp

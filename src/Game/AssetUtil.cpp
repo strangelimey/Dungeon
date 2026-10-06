@@ -9,12 +9,14 @@
 #include "Core/Assert.h"
 #include "Core/Log.h"
 #include "Core/Paths.h"
+#include "Game/Catalog.h"
 #include "UI/ControlIcons.h"
 
 #include <algorithm>
 #include <cctype>
 #include <cstring>
 #include <filesystem>
+#include <format>
 #include <functional>
 #include <map>
 
@@ -34,6 +36,42 @@ std::optional<assets::ModelData> LoadModelIfPresent(const std::string& name) {
 	auto model = assets::LoadModel(paths::Asset("models\\" + name), kGameModel);
 	if (!model) return std::nullopt;
 	return std::move(*model);
+}
+
+// --- which model FILE a type loads ------------------------------------------
+std::span<const std::string_view> ModelFields(ModelFamily family) {
+	static constexpr std::string_view kMain[] = {"model"};
+	static constexpr std::string_view kFixture[] = {"model", "empty_model", "part2_model"};
+	if (family == ModelFamily::Fixture) return kFixture;
+	return kMain;
+}
+
+std::string ModelFileOf(ModelFamily family, const CatalogEntry* e, const std::string& id,
+						std::string_view field) {
+	// Only a MAIN model falls back to the id, and an item's not even that (no
+	// model = the tablet). A fallback name is used even when an authored field
+	// is empty, exactly as the loaders' CatalogGet uses it.
+	const bool fallsBack = field == "model" && family != ModelFamily::Item;
+	const std::string name =
+		CatalogGet(e, field, fallsBack ? std::string_view(id) : std::string_view());
+	if (name.empty() && !fallsBack) return {};
+	const bool glb = family == ModelFamily::Item ||
+					 (family == ModelFamily::Prop && CatalogBool(e, "multimaterial", false));
+	return name + (glb ? ".glb" : ".gltf");
+}
+
+bool ModelFileInstalled(const std::string& file) {
+	if (file.empty()) return false; // "models\" is the directory itself
+	std::error_code ec;
+	return std::filesystem::is_regular_file(paths::Asset("models\\" + file), ec);
+}
+
+std::string SurfaceSetOf(const CatalogEntry* e, const std::string& id) {
+	return CatalogGet(e, "texture", id);
+}
+
+std::string WornBlockFile(std::string_view set, std::string_view tier, std::string_view panel) {
+	return std::format("worn_{}_{}{}.gltf", set, tier, panel);
 }
 
 assets::SoundData LoadSound(const std::string& name) {
@@ -307,7 +345,7 @@ bool SplitSetStem(std::string stem, std::string& name, u32& res, bool& normal,
 // Game::AdoptSurfaceSet.
 bool HasWornMeshes(const std::filesystem::path& modelsDir, const std::string& set) {
 	std::error_code ec;
-	return std::filesystem::exists(modelsDir / ("worn_" + set + "_med.gltf"), ec);
+	return std::filesystem::exists(modelsDir / WornBlockFile(set, "med"), ec);
 }
 
 bool HasWornMeshes(const std::string& set) {

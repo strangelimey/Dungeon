@@ -358,7 +358,11 @@ void GameSettings::Save() const {
 }
 
 const char* GameSettings::MeshSuffix() const {
-	switch (quality) {
+	return MeshSuffixFor(quality);
+}
+
+const char* GameSettings::MeshSuffixFor(Quality q) {
+	switch (q) {
 	case Quality::Low:   return "low";
 	case Quality::High:
 	case Quality::Ultra: return "high"; // Ultra = high meshes + 4K textures

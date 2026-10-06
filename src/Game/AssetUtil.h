@@ -19,13 +19,69 @@
 #include <filesystem>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace dungeon::game {
 
+struct CatalogEntry;
+
 // Loads models/<name> or aborts with the loader's error.
 assets::ModelData LoadModelOrDie(const std::string& name);
+
+// --- which model FILE a type loads ------------------------------------------
+// THE ONE STATEMENT of how a catalog entry becomes a file under assets/models,
+// asked by the loaders (DungeonWorld_Load.cpp) and by `levelcheck` alike.
+// levelcheck used to compare the `model` field against the installed file
+// STEMS, which passed four kinds of entry that each end in a LoadModelOrDie
+// abort (code-review C441): a .glb named where the loader opens .gltf, an
+// entry with no `model` (the loader falls back to the id), a fixture's
+// `empty_model` / `part2_model`, and a palette's worn block meshes. Each
+// family IS a loader, and its rules are the loader's:
+enum class ModelFamily : u8 {
+	// decorations, doors, stairs, buttons (DecorationKindFor): `model`, else the
+	// id; .glb when the entry is `multimaterial`, else .gltf.
+	Prop,
+	// monsters (MonsterKindFor): `model`, else the id; .gltf.
+	Monster,
+	// fixtures (FixtureKindFor): `model`, else the id, plus `empty_model` (the
+	// bare bracket) and `part2_model` (the coal bed) when named; all .gltf.
+	Fixture,
+	// wallfeatures, surfacefeatures (LoadFeatureMeshes): `model`, else the id;
+	// .gltf.
+	Feature,
+	// items, weapons, armor (ItemKindFor): `model` only - an item naming none
+	// draws as the shared tablet; .glb.
+	Item,
+};
+
+// The fields `family`'s loader reads a model from, `model` first.
+std::span<const std::string_view> ModelFields(ModelFamily family);
+
+// The file the `field` of a type loads - `e` its catalog entry (null when the
+// catalog lacks it), `id` its id - extension included, or "" when that field
+// loads nothing. A type's MAIN model is never "" outside the Item family: the
+// loader opens `<id>.gltf` for an entry with no `model`, and `.gltf` itself for
+// one whose `model` is empty, and both are what this returns.
+std::string ModelFileOf(ModelFamily family, const CatalogEntry* e, const std::string& id,
+						std::string_view field = "model");
+
+// Whether assets/models holds `file`, the name LoadModelOrDie(file) opens.
+bool ModelFileInstalled(const std::string& file);
+
+// A surface type's texture SET: its `texture`, else its id - also for an id the
+// catalog lacks, so a hand-edited level still loads something
+// (ResolveSurfacePalettes).
+std::string SurfaceSetOf(const CatalogEntry* e, const std::string& id);
+
+// A surface set's worn block mesh at a mesh tier (GameSettings::MeshSuffix:
+// low / med / high). `panel` names a wall panel's phase and open sides
+// (assets::WornPanelSuffix); empty is the fully pinned panel, the one file every
+// set must have at every tier.
+std::string WornBlockFile(std::string_view set, std::string_view tier,
+						  std::string_view panel = {});
 
 // Loads models/<name>, or nullopt when it is absent. For an OPTIONAL sibling of
 // a required asset, where missing is a legitimate answer rather than a broken
@@ -116,7 +172,9 @@ void ReleaseSharedIcons();
 std::vector<std::string> InstalledTextureSets();
 // Model names in assets/models, sorted, extension stripped — what a catalog's
 // `model` field names. The worn_* block meshes are baked per surface texture,
-// not authored types, so they are left out.
+// not authored types, so they are left out. A NAME, not a file: whether a type
+// can load it is ModelFileOf + ModelFileInstalled's question, since the loader
+// appends one extension and a stem installed with the other does not load.
 std::vector<std::string> InstalledModels();
 // The UI materials in assets/ui/stones (tools/BuildUiStones.py), sorted, as
 // stems - what settings' ui_stone, dungeons.cat's `ui_stone` and a level's

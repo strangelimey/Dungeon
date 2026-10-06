@@ -30,12 +30,13 @@ using namespace DirectX;
 
 namespace dungeon::game {
 
-// A catalog entry's model + texture asset names, both defaulting to `fallback`
-// (usually the id) when the entry or field is absent. Shared by the monster,
-// decoration, and fixture loaders.
-static std::pair<std::string, std::string> ModelAndTexture(const CatalogEntry* e,
-														   const std::string& fallback) {
-	return {CatalogGet(e, "model", fallback), CatalogGet(e, "texture", fallback)};
+// A catalog entry's texture set name, defaulting to `fallback` (usually the id)
+// when the entry or field is absent. Shared by the monster, decoration, and
+// fixture loaders. Their model FILES come from AssetUtil's ModelFileOf - the one
+// resolver, which `levelcheck` asks too, so the check cannot pass a type its
+// loader would abort on.
+static std::string TextureOf(const CatalogEntry* e, const std::string& fallback) {
+	return CatalogGet(e, "texture", fallback);
 }
 
 // Whether a model ships an animation clip by name — the one membership test the
@@ -149,7 +150,7 @@ void DungeonWorld::ResolveSurfacePalettes() {
 		d.factors.clear();
 		for (const std::string& id : d.palette) {
 			const CatalogEntry* e = d.catalog.Find(id);
-			d.sets.push_back(CatalogGet(e, "texture", id));
+			d.sets.push_back(SurfaceSetOf(e, id));
 			const float h = e ? e->GetFloat("height_scale", d.fallbackHeight)
 							  : d.fallbackHeight;
 			const float wear = e ? std::clamp(e->GetFloat("wear", 1.0f), 0.0f, 1.0f)
@@ -252,9 +253,7 @@ void DungeonWorld::LoadDungeonBlocks() {
 		blocks.clear();
 		for (const std::string& name : names)
 			blocks.push_back(
-				LoadModelOrDie(
-					std::format("worn_{}_{}.gltf", name, m_settings.MeshSuffix()))
-					.meshes[0]);
+				LoadModelOrDie(WornBlockFile(name, m_settings.MeshSuffix())).meshes[0]);
 	};
 	load(m_floorBlocks, m_floorSets);
 	load(m_ceilingBlocks, m_ceilingSets);
@@ -274,8 +273,7 @@ void DungeonWorld::LoadDungeonBlocks() {
 	for (const std::string& name : m_wallSets) {
 		const std::string tier = m_settings.MeshSuffix();
 		const auto panelName = [&](int phase, int open) {
-			return std::format("worn_{}_{}{}.gltf", name, tier,
-							   assets::WornPanelSuffix(phase, open));
+			return WornBlockFile(name, tier, assets::WornPanelSuffix(phase, open));
 		};
 		WallPanels panels;
 		for (int phase = 0; phase < assets::kMaxWornPhases; ++phase) {
@@ -306,11 +304,12 @@ void DungeonWorld::LoadDungeonBlocks() {
 // model file is the same mesh whichever level asks. ReloadDungeonBlocks empties
 // the cache when the files themselves may have changed.
 void DungeonWorld::LoadFeatureMeshes() {
-	const auto mesh = [this](const std::string& model) -> const assets::MeshData* {
-		auto it = m_featureMeshCache.find(model);
+	const auto mesh = [this](const CatalogEntry& e) -> const assets::MeshData* {
+		const std::string file = ModelFileOf(ModelFamily::Feature, &e, e.id);
+		auto it = m_featureMeshCache.find(file);
 		if (it == m_featureMeshCache.end())
 			it = m_featureMeshCache
-					 .emplace(model, std::move(LoadModelOrDie(model + ".gltf").meshes[0]))
+					 .emplace(file, std::move(LoadModelOrDie(file).meshes[0]))
 					 .first;
 		return &it->second;
 	};
@@ -323,8 +322,7 @@ void DungeonWorld::LoadFeatureMeshes() {
 	for (const CatalogEntry& e : m_project.wallfeatures.Entries())
 		// A `bore` feature is a see-through window (its own mesh map); everything
 		// else is a niche.
-		(e.GetBool("bore", false) ? m_boreMeshes : m_nicheMeshes)
-			.emplace(e.id, mesh(CatalogGet(&e, "model", e.id)));
+		(e.GetBool("bore", false) ? m_boreMeshes : m_nicheMeshes).emplace(e.id, mesh(e));
 
 	// Surface-feature tiles, one per surfacefeatures.cat type, filed by the
 	// type's `surface`. Same shape as the niches above, referenced by a level's
@@ -335,7 +333,7 @@ void DungeonWorld::LoadFeatureMeshes() {
 	for (const CatalogEntry& e : m_project.surfacefeatures.Entries())
 		(CatalogGet(&e, "surface", "floor") == "ceiling" ? m_ceilingFeatureMeshes
 														 : m_floorFeatureMeshes)
-			.emplace(e.id, mesh(CatalogGet(&e, "model", e.id)));
+			.emplace(e.id, mesh(e));
 }
 
 const assets::MeshData* DungeonWorld::BoreMeshFor(const std::string& type) const {
@@ -645,11 +643,12 @@ DungeonWorld::MonsterKind& DungeonWorld::MonsterKindFor(const std::string& type)
 		// Resolve model + texture set through the monsters catalog; an unlisted
 		// type falls back to the old name convention (<type>.gltf).
 		const CatalogEntry* def = m_project.monsters.Find(type);
-		const auto [model, tex] = ModelAndTexture(def, type);
+		const std::string file = ModelFileOf(ModelFamily::Monster, def, type);
+		const std::string tex = TextureOf(def, type);
 		auto assets = std::make_unique<MonsterKind>();
-		assets->model = ModelFile(model + ".gltf"); // shared by every kind on the file
+		assets->model = ModelFile(file); // shared by every kind on the file
 		assets->name = type; // catalog id — drives the monster.<id> loc key
-		assets->mesh = ModelMesh(model + ".gltf");
+		assets->mesh = ModelMesh(file);
 		// The rig's root joint and its rest position: the model is drawn centred
 		// on it (MonsterModelWorld) and a burn rides it (BurnOrigin); the
 		// Animator keeps its clips from carrying it away (LockRootTravel).
@@ -658,7 +657,7 @@ DungeonWorld::MonsterKind& DungeonWorld::MonsterKindFor(const std::string& type)
 		if (std::abs(assets->rigRest.x) > 0.05f || std::abs(assets->rigRest.z) > 0.05f)
 			log::Info("monster model {}: rig root rests at ({:.3f}, {:.3f}) units off the "
 					  "origin - drawn centred on it",
-					  model, assets->rigRest.x, assets->rigRest.z);
+					  file, assets->rigRest.x, assets->rigRest.z);
 		// A bound PBR set serves the single-mesh path; an authored
 		// multi-material rig carries its textures EMBEDDED and its entry
 		// usually names no set — don't warn-hunt one by the id (the skeleton
@@ -669,7 +668,7 @@ DungeonWorld::MonsterKind& DungeonWorld::MonsterKindFor(const std::string& type)
 			assets->tex = LoadPropTextures(tex); // <tex>_<res> PBR set, if present
 		// Authored multi-material rig (bones/armor/weapons primitives, embedded
 		// textures): build the per-material submeshes the draw paths loop.
-		if (multi) assets->multi = ModelMulti(model + ".gltf");
+		if (multi) assets->multi = ModelMulti(file);
 		// Map head-shot icon RT; a fresh kind re-arms the one-shot bake pass.
 		assets->iconTarget = gfx::Texture::RenderTarget(m_device, kIconSize);
 		m_monsterIconsBaked = false;
@@ -870,9 +869,8 @@ std::vector<std::string> DungeonWorld::SpellIds() const {
 // <model>.gltf is missing shows a warning instead of aborting in LoadModelOrDie.
 bool DungeonWorld::MonsterModelAvailable(const std::string& type) const {
 	if (m_monsterKinds.contains(type)) return true; // already loaded => present
-	const CatalogEntry* def = m_project.monsters.Find(type);
-	const auto [model, tex] = ModelAndTexture(def, type);
-	return std::filesystem::exists(paths::Asset("models\\" + model + ".gltf"));
+	return ModelFileInstalled(
+		ModelFileOf(ModelFamily::Monster, m_project.monsters.Find(type), type));
 }
 
 DungeonWorld::MonsterPreviewData DungeonWorld::MonsterPreviewFor(const std::string& type) {
@@ -1547,13 +1545,13 @@ DungeonWorld::ItemKind& DungeonWorld::ItemKindFor(const std::string& type) {
 		// Authored model (catalog `model`): the item draws as this 3D model on the
 		// floor and its baked render becomes the icon/cursor. null = the tablet+tint
 		// placeholder. Items ship as embedded-texture multi-material .glb.
-		if (const std::string modelName = CatalogGet(def, "model", ""); !modelName.empty()) {
+		if (const std::string file = ModelFileOf(ModelFamily::Item, def, type); !file.empty()) {
 			// The file's meshes + textures are shared (an enchanted blade and its
 			// plain twin, five armours on one model); the materials are this
 			// kind's own copy, so its overrides touch nothing else.
-			kind->model = ModelMulti(modelName + ".glb");
+			kind->model = ModelMulti(file);
 			BakeCatalogMaterial(*kind->model, def); // dialog material overrides
-			if (def) AddLiquid(*kind, *def, modelName + ".glb");
+			if (def) AddLiquid(*kind, *def, file);
 		}
 		// Every item draws as the shared carved-stone tablet (loaded once) — runes
 		// carve their element's set in; other categories ride the flat tint above.
@@ -2112,7 +2110,9 @@ DungeonWorld::DecorationKind& DungeonWorld::DecorationKindFor(const std::string&
 	auto it = m_decorationKinds.find(type);
 	if (it == m_decorationKinds.end()) {
 		const CatalogEntry* def = catalog.Find(type);
-		const auto [model, tex] = ModelAndTexture(def, type);
+		// .glb for a `multimaterial` entry, .gltf otherwise - ModelFileOf's rule.
+		const std::string file = ModelFileOf(ModelFamily::Prop, def, type);
+		const std::string tex = TextureOf(def, type);
 		auto kind = std::make_unique<DecorationKind>();
 		kind->id = type; // the record type, for the .map writer
 		kind->authored = CatalogBool(def, "authored", true);
@@ -2147,16 +2147,16 @@ DungeonWorld::DecorationKind& DungeonWorld::DecorationKindFor(const std::string&
 		// own glTF textures per material from a single embedded-texture .glb,
 		// bypassing the single-mesh / one-bound-set path below.
 		if (CatalogBool(def, "multimaterial", false)) {
-			kind->model = ModelFile(model + ".glb");
-			kind->multi = ModelMulti(model + ".glb"); // shared GPU, own materials
+			kind->model = ModelFile(file);
+			kind->multi = ModelMulti(file); // shared GPU, own materials
 			BakeCatalogMaterial(*kind->multi, def); // overrides baked per submesh
 			kind->solidDefault = CatalogBool(def, "solid", true);
 			kind->cullRadius = ModelOriginRadius(*kind->model) * kUnit * kind->modelScale;
 			it = m_decorationKinds.emplace(type, std::move(kind)).first;
 			return *it->second;
 		}
-		kind->model = ModelFile(model + ".gltf"); // marble + stone columns share one
-		kind->mesh = ModelMesh(model + ".gltf");
+		kind->model = ModelFile(file); // marble + stone columns share one
+		kind->mesh = ModelMesh(file);
 		kind->color = kind->model->materials[0].baseColorFactor;
 		kind->tex = LoadPropTextures(tex);
 		kind->solidDefault = CatalogBool(def, "solid", true);
@@ -2172,14 +2172,15 @@ DungeonWorld::DecorationKind& DungeonWorld::DecorationKindFor(const std::string&
 
 // Fixture counterpart of DecorationKindFor: resolves a fixtures.cat id into
 // its renderable assets once and caches it. An unknown id still resolves (the
-// ModelAndTexture fallback names the id itself) so a stale record aborts with
-// a clear missing-model message instead of silently vanishing.
+// ModelFileOf / TextureOf fallback names the id itself) so a stale record
+// aborts with a clear missing-model message instead of silently vanishing.
 DungeonWorld::FixtureKind& DungeonWorld::FixtureKindFor(const std::string& type) {
 	auto it = m_fixtureKinds.find(type);
 	if (it == m_fixtureKinds.end()) {
 		const CatalogEntry* def = m_project.fixtures.Find(type);
 		if (!def) log::Warn("fixture kind '{}' is not in fixtures.cat", type);
-		const auto [model, set] = ModelAndTexture(def, type);
+		const std::string file = ModelFileOf(ModelFamily::Fixture, def, type);
+		const std::string set = TextureOf(def, type);
 		auto kind = std::make_unique<FixtureKind>();
 		kind->id = type;
 		kind->wallMount = CatalogGet(def, "mount", "floor") == "wall";
@@ -2198,13 +2199,14 @@ DungeonWorld::FixtureKind& DungeonWorld::FixtureKindFor(const std::string& type)
 		// What going out leaves on the fire (`on_douse = smoke 0.8 2.5`).
 		fx::ParseProcs(CatalogGet(def, "on_douse", ""), kind->onDouse,
 					   "fixtures.cat [" + type + "] on_douse");
-		kind->model = ModelFile(model + ".gltf");
-		kind->mesh = ModelMesh(model + ".gltf");
+		kind->model = ModelFile(file);
+		kind->mesh = ModelMesh(file);
 		kind->color = kind->model->materials[0].baseColorFactor;
 		kind->tex = LoadPropTextures(set);
 		// A takeable torch: the bare bracket left behind, and what it becomes.
-		if (const std::string empty = CatalogGet(def, "empty_model", ""); !empty.empty()) {
-			kind->meshEmpty = ModelMesh(empty + ".gltf");
+		if (const std::string empty = ModelFileOf(ModelFamily::Fixture, def, type, "empty_model");
+			!empty.empty()) {
+			kind->meshEmpty = ModelMesh(empty);
 			kind->torchItem = CatalogGet(def, "torch_item", "torch");
 		}
 		// Flame attachment: catalog fields override the mount's defaults so an
@@ -2222,8 +2224,10 @@ DungeonWorld::FixtureKind& DungeonWorld::FixtureKindFor(const std::string& type)
 			// (the two models were normalized TOGETHER at import, so their
 			// placements already align).
 			if (const std::string model2 = def->Get("part2_model"); !model2.empty()) {
-				kind->mesh2 = ModelMesh(model2 + ".gltf");
-				kind->color2 = ModelFile(model2 + ".gltf")->materials[0].baseColorFactor;
+				const std::string file2 =
+					ModelFileOf(ModelFamily::Fixture, def, type, "part2_model");
+				kind->mesh2 = ModelMesh(file2);
+				kind->color2 = ModelFile(file2)->materials[0].baseColorFactor;
 				kind->tex2 = LoadPropTextures(def->Get("part2_texture", model2));
 			}
 		}
