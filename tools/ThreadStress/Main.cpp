@@ -10,10 +10,23 @@
 // per-tick timing, effective think-rate vs the bucket's nominal cadence, watchdog
 // stalls, the global governor, and cooperative kill + supervised restart.
 //
-// Faithful to the live wiring: BucketForIq thresholds (140/110/80/50 land in
-// buckets 0/1/2/3), aggroRange set high so every monster engages (=> every
-// monster pays a BFS), and `blocked` carrying the party cell + every monster
-// cell exactly like ai::Snapshot in DungeonWorld.
+// Faithful to the live wiring (DungeonWorld::BuildAISnapshot):
+//   * one IQ per bucket DERIVED from Scheduler::BucketForIq, never a copy of
+//     its thresholds;
+//   * every monster aware with a huge aggroRange, so every one engages and
+//     pays a BFS, chasing the PARTY'S CELL (the formation pass aims monsters
+//     at that cell or a side of it);
+//   * `blocked` holds the party cell, and the monsters go into `occ` (count +
+//     size capacity), the way the game crowds them - not into `blocked`.
+// Every plan batch the workers publish is AUDITED against the snapshot it was
+// thought from, twice over. WHOLE: a batch of this snapshot plans every monster
+// of its bucket exactly once, nothing else, and every bucket that has monsters
+// publishes one. PATHS: in a reachable phase each plan is an engage with a real
+// path (4-connected, over walkable cells, round other monsters, ending on the
+// party); in a walled-off phase none finds one. Before this the targets were
+// never set, so every monster chased (0,0) - a border wall - and every search
+// explored the whole map and failed: the "reachable" phases measured the worst
+// case, and path reconstruction and the pooled path vectors never ran.
 //
 // NOTE on safety: the AI workers carry watchdogMs=100, autoRestart=true, so the
 // supervisor reboots any tick that runs past 5x the watchdog (500 ms). If that
@@ -35,6 +48,8 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
+#include <iterator>
 #include <memory>
 #include <string>
 #include <thread>
@@ -46,6 +61,8 @@ static double SinceMs(Clock::time_point t) {
 	return std::chrono::duration<double, std::milli>(Clock::now() - t).count();
 }
 
+static constexpr int kBuckets = ai::Scheduler::kBucketCount;
+
 // ---------------------------------------------------------------------------
 // The verdict. This harness used to compute every pass/fail condition below —
 // including the one it exists for, "was the worker force-terminated" — print it
@@ -56,21 +73,90 @@ static double SinceMs(Clock::time_point t) {
 // ---------------------------------------------------------------------------
 static int g_checks = 0;
 static int g_failures = 0;
+// The label of every check that failed, in order - what --self-test compares
+// against kSelfTestFails.
+static std::vector<std::string> g_failedLabels;
 
-static void Check(bool ok, const char* what) {
+static void Check(bool ok, const std::string& what) {
 	++g_checks;
-	if (!ok) ++g_failures;
-	std::printf("    [%s] %s\n", ok ? "ok  " : "FAIL", what);
+	if (!ok) {
+		++g_failures;
+		g_failedLabels.push_back(what);
+	}
+	std::printf("    [%s] %s\n", ok ? "ok  " : "FAIL", what.c_str());
+}
+
+// ---------------------------------------------------------------------------
+// THE SELF-TEST'S EXPECTED FAILURES, by label (the tools/SpellTest.py rule: the
+// self-test passes only when exactly these fail and every other check passes).
+// --self-test injects two faults, and each must be caught where it lands:
+//   * a worker that ignores its stop token, so the supervisor force-terminates
+//     it - only the health-record check can see that (the state scans read a
+//     flag Restart clears), so it is the one listed for it;
+//   * C418's bug put back: every monster's chase target left at (0,0), a border
+//     wall. Every REACHABLE path audit must then find plans engaged with no
+//     path; the walled-off ones still find none, as they should, and every
+//     batch is still whole - so all of those stay green.
+// A label listed twice would be a check that runs twice and must fail both.
+// ---------------------------------------------------------------------------
+static constexpr const char* kSelfTestFails[] = {
+	"A: every plan engaged, with a real path to the party",
+	"B: every plan engaged, with a real path to the party",
+	"D: every recovery plan engaged, with a real path to the party",
+	"E: every plan engaged, with a real path to the party",
+	"F: every plan engaged, with a real path to the party",
+	"nothing was force-terminated all run (from the health record)",
+};
+
+// The second injected fault (see above): leave Agent::targetX/Z at (0,0).
+static bool g_oldTargets = false;
+
+// ---------------------------------------------------------------------------
+// One IQ per think bucket, DERIVED from Scheduler::BucketForIq rather than
+// copied from it: scan the IQ range and take the middle of each bucket's band,
+// so a retuned threshold carries these along. (They were a hand copy -
+// 140/110/80/50 - that would have quietly loaded the wrong buckets the day the
+// thresholds moved.) False if a bucket has no IQ in the scanned range, or its
+// band's middle does not map back into it (a non-monotone mapping).
+// ---------------------------------------------------------------------------
+static float g_bucketIq[kBuckets] = {};
+
+static bool DeriveBucketIqs() {
+	constexpr int kMaxIq = 400;
+	int lo[kBuckets], hi[kBuckets];
+	for (int b = 0; b < kBuckets; ++b) lo[b] = hi[b] = -1;
+	for (int q = 0; q <= kMaxIq; ++q) {
+		const int b = ai::Scheduler::BucketForIq(static_cast<float>(q));
+		if (b < 0 || b >= kBuckets) continue;
+		if (lo[b] < 0) lo[b] = q;
+		hi[b] = q;
+	}
+	bool ok = true;
+	for (int b = 0; b < kBuckets; ++b) {
+		if (lo[b] < 0) {
+			ok = false;
+			continue;
+		}
+		g_bucketIq[b] = 0.5f * static_cast<float>(lo[b] + hi[b]);
+		if (ai::Scheduler::BucketForIq(g_bucketIq[b]) != b) ok = false;
+	}
+	return ok;
 }
 
 // ---------------------------------------------------------------------------
 // Synthetic world. Build an immutable ai::Snapshot with `counts[b]` monsters in
-// IQ bucket b, on a WxH open map. `reachable=false` walls the party's 8
-// neighbours so the chase target can never be reached => every engaged monster
-// pays a FULL-map BFS (the worst case). Monsters scatter on a lattice so they do
-// not box each other in, and each engages (aggroRange huge).
+// IQ bucket b, on a WxH open map, every one chasing the party's cell.
+// `reachable=false` walls the party's 8 neighbours so that cell can never be
+// reached => every engaged monster pays a FULL-map BFS (the worst case) and
+// finds nothing. Monsters scatter on a lattice (step >= 2) so they never box
+// each other or the party in, and each engages (aware, aggroRange huge).
+//
+// Agent ids come from one counter for the whole run, so no two snapshots share
+// an id: a batch a worker thought from an EARLIER snapshot names monsters the
+// current one does not have, and the audit can tell it apart (DungeonWorld drops
+// such a plan, its monster being gone - see AuditBatch for when it is allowed).
 // ---------------------------------------------------------------------------
-static const float kBucketIq[ai::Scheduler::kBucketCount] = {140.f, 110.f, 80.f, 50.f};
+static u32 g_nextAgentId = 1;
 
 static std::shared_ptr<const ai::Snapshot>
 BuildSnapshot(int W, int H, const int counts[4], bool reachable) {
@@ -80,7 +166,7 @@ BuildSnapshot(int W, int H, const int counts[4], bool reachable) {
 	snap->partyX = W / 2;
 	snap->partyZ = H / 2;
 
-	auto walk = std::make_shared<std::vector<uint8_t>>(static_cast<size_t>(W) * H, 1);
+	auto walk = std::make_shared<std::vector<uint8_t>>(static_cast<size_t>(W) * H, uint8_t{1});
 	auto at = [&](int x, int z) -> uint8_t& { return (*walk)[static_cast<size_t>(z) * W + x]; };
 	for (int x = 0; x < W; ++x) { at(x, 0) = 0; at(x, H - 1) = 0; }      // border walls
 	for (int z = 0; z < H; ++z) { at(0, z) = 0; at(W - 1, z) = 0; }
@@ -90,7 +176,8 @@ BuildSnapshot(int W, int H, const int counts[4], bool reachable) {
 				if (dx || dz) at(snap->partyX + dx, snap->partyZ + dz) = 0;
 	snap->walkable = walk;
 
-	// The flat per-publish grids (sized like `walkable` — see ai::Snapshot).
+	// The flat per-publish grids (sized like `walkable` - see ai::Snapshot). The
+	// party cell is the one hard block here; the monsters go into `occ` below.
 	snap->blocked.assign(static_cast<size_t>(W) * H, 0);
 	snap->occ.assign(static_cast<size_t>(W) * H, ai::CellOcc{});
 	snap->blocked[static_cast<size_t>(snap->partyZ) * W + snap->partyX] = 1; // party cell
@@ -102,7 +189,6 @@ BuildSnapshot(int W, int H, const int counts[4], bool reachable) {
 	const int step = std::max(2, static_cast<int>(std::sqrt(
 								   static_cast<double>(W - 2) * (H - 2) / (total + 1))));
 	snap->monsters.reserve(total);
-	u32 id = 1;
 	int b = 0, placedInB = 0;
 	for (int z = 1; z < H - 1 && static_cast<int>(snap->monsters.size()) < total; z += step)
 		for (int x = 1; x < W - 1 && static_cast<int>(snap->monsters.size()) < total; x += step) {
@@ -111,10 +197,20 @@ BuildSnapshot(int W, int H, const int counts[4], bool reachable) {
 			while (b < 4 && placedInB >= counts[b]) { ++b; placedInB = 0; }
 			if (b >= 4) break;
 			ai::Agent a;
-			a.id = id++;
+			a.id = g_nextAgentId++;
 			a.x = x;
 			a.z = z;
-			a.iq = kBucketIq[b];
+			a.iq = g_bucketIq[b];
+			// The chase goal: the party's cell. DungeonWorld's formation pass
+			// aims an unaware monster there and an aware one at a side of the
+			// party; the party's cell is the one goal every monster here can
+			// share. Left at (0,0) - a border wall FindPath can never accept -
+			// every search explored the whole map and failed (C418; the
+			// self-test's fault).
+			if (!g_oldTargets) {
+				a.targetX = snap->partyX;
+				a.targetZ = snap->partyZ;
+			}
 			a.aggroRange = 1e9f; // force engage => every monster runs a BFS
 			// AND `aware`, which is what actually makes that true now. This
 			// harness was written when a huge aggroRange was enough; ai::Agent
@@ -126,10 +222,206 @@ BuildSnapshot(int W, int H, const int counts[4], bool reachable) {
 			// Nothing caught it because this harness always returned 0.
 			a.aware = true; // sticky "has noticed the party": engages on range alone
 			snap->monsters.push_back(a);
-			snap->blocked[static_cast<size_t>(z) * W + x] = 1;
+			// Crowding is capacity-based, as in the game: the cell's occupant
+			// count, tagged with the size's slots per cell. A full cell (here one
+			// single-slot monster) turns other monsters away through
+			// CellFreeForMonster's occupancy test, not through `blocked`.
+			ai::CellOcc& o = snap->occ[static_cast<size_t>(z) * W + x];
+			o.capacity = static_cast<uint8_t>(a.capacity);
+			++o.count;
 			++placedInB;
 		}
 	return snap;
+}
+
+// ---------------------------------------------------------------------------
+// The audit: every new plan batch, judged against the snapshot it was meant
+// for, as a WHOLE and plan by plan.
+//
+// THE BATCH. A plan is matched to its monster by id. A batch of this snapshot
+// must plan every monster of its bucket exactly once and nothing else - no
+// monster twice, none of another bucket's, none missing, and no plan of an
+// earlier snapshot beside them (a pooled batch that kept a bigger tick's tail).
+// A batch with nothing of this snapshot in it was thought from an earlier one,
+// or is empty; either is allowed only as the FIRST after a baseline (a tick in
+// flight when the snapshot changed - a worker runs one tick at a time, and any
+// tick that starts later reads the new snapshot), or when the bucket has no
+// monsters here. And every bucket that has monsters must publish at least one
+// whole batch, so a bucket that publishes nothing, or only empties, fails too.
+//
+// THE PLAN. A path counts as REACHING the party only if it is a real walk: each
+// step one orthogonal move from the last, over walkable cells, never through
+// the party's cell or another monster's square before its end, and ending on
+// the party.
+// ---------------------------------------------------------------------------
+struct PathAudit {
+	uint64_t lastSeq[kBuckets] = {}; // the last batch audited, per bucket
+	bool mayBeStale[kBuckets] = {};  // the next batch may predate the snapshot
+	bool owes[kBuckets] = {};        // an audited snapshot had monsters in this bucket
+
+	// Plans, from every batch: those matched to a monster of the snapshot.
+	int plans = 0;
+	int engaged = 0;   // Intent::Engage - the only mode that paths
+	int reached = 0;   // a real path ending on the party
+	int empty = 0;     // engaged, no path
+	int malformed = 0; // a path, but not a real walk to the party
+
+	// Batches, each judged whole.
+	int whole[kBuckets] = {}; // planned every monster of its bucket, each once
+	int stale = 0;            // the first after a baseline, of an earlier snapshot
+	int bad = 0;              // anything else; the first is described below
+	char firstBad[200] = {};
+	std::vector<uint8_t> seen; // scratch: which monsters a batch has planned
+
+	// About to drive a new snapshot: the batch standing now is not audited, and
+	// the next one may still be the old snapshot's.
+	void Baseline(int b, uint64_t seq) {
+		lastSeq[b] = seq;
+		mayBeStale[b] = true;
+	}
+};
+
+// Across the whole run: a plan must come from the bucket its monster's IQ maps
+// to, or the director thought for the wrong worker.
+static int g_auditedPlans = 0;
+static int g_wrongBucket = 0;
+
+static const ai::Agent* AgentFor(const ai::Snapshot& s, u32 id) {
+	if (s.monsters.empty()) return nullptr;
+	const u32 first = s.monsters.front().id; // ids are contiguous per snapshot
+	if (id < first) return nullptr;
+	const size_t i = id - first;
+	return i < s.monsters.size() && s.monsters[i].id == id ? &s.monsters[i] : nullptr;
+}
+
+static bool PathReachesParty(const ai::Snapshot& s, const ai::Agent& a,
+							 const std::vector<ai::Cell>& path) {
+	if (path.empty()) return false;
+	int px = a.x, pz = a.z;
+	for (size_t i = 0; i < path.size(); ++i) {
+		const ai::Cell c = path[i];
+		if (std::abs(c.x - px) + std::abs(c.z - pz) != 1) return false;
+		if (c.x < 0 || c.z < 0 || c.x >= s.mapW || c.z >= s.mapH) return false;
+		const size_t idx = static_cast<size_t>(c.z) * s.mapW + c.x;
+		if (!s.walkable || (*s.walkable)[idx] == 0) return false;
+		const bool last = i + 1 == path.size();
+		if (!last && (s.blocked[idx] != 0 || s.occ[idx].count != 0)) return false;
+		px = c.x;
+		pz = c.z;
+	}
+	return px == s.partyX && pz == s.partyZ;
+}
+
+static void AuditBatch(const ai::Snapshot& s, int bucket,
+					   const ai::AsyncDirector::Batch& batch, PathAudit& pa) {
+	// What this bucket owes: one plan per monster of it in this snapshot. Noted
+	// on every call, not only when a batch arrives - a bucket that never
+	// publishes owes just the same.
+	int owed = 0;
+	for (const ai::Agent& m : s.monsters)
+		if (ai::Scheduler::BucketForIq(m.iq) == bucket) ++owed;
+	if (owed > 0) pa.owes[bucket] = true;
+
+	if (!batch.plans || batch.seq == pa.lastSeq[bucket]) return;
+	pa.lastSeq[bucket] = batch.seq;
+	const bool mayBeStale = pa.mayBeStale[bucket];
+	pa.mayBeStale[bucket] = false;
+
+	const std::vector<ai::Plan>& plans = *batch.plans;
+	pa.seen.assign(s.monsters.size(), 0);
+	int fresh = 0, older = 0, twice = 0, foreign = 0;
+	for (const ai::Plan& plan : plans) {
+		const ai::Agent* a = AgentFor(s, plan.id);
+		if (!a) {
+			++older; // an earlier snapshot's monster
+			continue;
+		}
+		++fresh;
+		uint8_t& seen = pa.seen[static_cast<size_t>(a - s.monsters.data())];
+		if (seen) ++twice;
+		seen = 1;
+		++pa.plans;
+		++g_auditedPlans;
+		if (ai::Scheduler::BucketForIq(a->iq) != bucket) {
+			++g_wrongBucket;
+			++foreign;
+		}
+		if (plan.intent.mode != ai::Intent::Mode::Engage) continue;
+		++pa.engaged;
+		if (plan.path.empty()) ++pa.empty;
+		else if (PathReachesParty(s, *a, plan.path)) ++pa.reached;
+		else ++pa.malformed;
+	}
+
+	// The batch, whole.
+	const char* why = nullptr;
+	if (fresh == 0) {
+		if (owed == 0 && plans.empty()) return; // owed nothing, planned nothing
+		if (mayBeStale) {
+			++pa.stale; // a tick that was in flight when the snapshot changed
+			return;
+		}
+		why = plans.empty() ? "is empty, though its bucket has monsters"
+							: "is an earlier snapshot's, though this one was already out";
+	} else if (older > 0) {
+		why = "mixes this snapshot's plans with an earlier one's";
+	} else if (twice > 0) {
+		why = "plans a monster more than once";
+	} else if (foreign > 0) {
+		why = "plans another bucket's monsters";
+	} else if (fresh != owed) {
+		why = "misses some of its bucket's monsters";
+	}
+	if (!why) {
+		++pa.whole[bucket];
+		return;
+	}
+	if (pa.bad++ == 0)
+		std::snprintf(pa.firstBad, sizeof(pa.firstBad),
+					  "bucket %d batch #%llu %s (%d plans: %d of this snapshot, %d older, "
+					  "%d repeats, %d foreign; %d owed)",
+					  bucket, static_cast<unsigned long long>(batch.seq), why,
+					  static_cast<int>(plans.size()), fresh, older, twice, foreign, owed);
+}
+
+// Every bucket that owed plans published a whole batch, and at least one did.
+static bool Covered(const PathAudit& pa) {
+	bool any = false;
+	for (int b = 0; b < kBuckets; ++b) {
+		if (!pa.owes[b]) continue;
+		if (pa.whole[b] == 0) return false;
+		any = true;
+	}
+	return any;
+}
+
+static void ReportAudit(const PathAudit& pa, const char* what = "paths") {
+	std::printf("  %s: %d plans audited - %d engaged, %d reached the party, %d empty, "
+				"%d malformed\n",
+				what, pa.plans, pa.engaged, pa.reached, pa.empty, pa.malformed);
+	std::printf("    batches: whole b0=%d b1=%d b2=%d b3=%d, %d stale skipped, %d bad\n",
+				pa.whole[0], pa.whole[1], pa.whole[2], pa.whole[3], pa.stale, pa.bad);
+	for (int b = 0; b < kBuckets; ++b)
+		if (pa.owes[b] && pa.whole[b] == 0)
+			std::printf("    bucket %d has monsters and published no whole batch\n", b);
+	if (pa.bad > 0) std::printf("    first bad: %s\n", pa.firstBad);
+}
+
+// The batch verdict: every batch whole, and every bucket that owed plans
+// published one - so every monster was planned, once, by its own bucket.
+static void CheckBatches(const PathAudit& pa, const std::string& label) {
+	Check(Covered(pa) && pa.bad == 0, label);
+}
+
+// The two path verdicts, over the plans. Both demand plans were audited at all
+// and that every plan engaged (each monster is aware with a huge aggroRange), so
+// neither can pass on an empty run. With CheckBatches they say it of every
+// monster.
+static void CheckReached(const PathAudit& pa, const std::string& label) {
+	Check(pa.plans > 0 && pa.engaged == pa.plans && pa.reached == pa.plans, label);
+}
+static void CheckNoPath(const PathAudit& pa, const std::string& label) {
+	Check(pa.plans > 0 && pa.engaged == pa.plans && pa.empty == pa.plans, label);
 }
 
 // ---------------------------------------------------------------------------
@@ -155,17 +447,20 @@ struct PhaseStats {
 	int samples = 0;
 };
 
-// Publish `snap` every ~5 ms (a ~200 Hz "frame loop"), drain plans, and sample
-// each bucket's live Inspect() to catch transient stalls and peak tick times.
+// Publish `snap` every ~5 ms (a ~200 Hz "frame loop"), drain and audit plans, and
+// sample each bucket's live Inspect() to catch transient stalls and peak tick
+// times. The batch already standing when the phase starts is not audited: it was
+// thought from the previous snapshot (and the next may be too - see AuditBatch).
 static void DrivePhase(threads::Manager& mgr, ai::AsyncDirector& dir,
 					   const threads::WorkerId ids[4],
 					   std::shared_ptr<const ai::Snapshot> snap, double seconds,
-					   PhaseStats& st) {
+					   PhaseStats& st, PathAudit& pa) {
 	for (int b = 0; b < 4; ++b) {
 		const auto info = mgr.Inspect(ids[b]);
 		st.iterStart[b] = static_cast<long long>(info.iterations);
 		st.seqStart[b] = dir.TakePlans(b).seq;
 		st.peakLast[b] = 0.0;
+		pa.Baseline(b, st.seqStart[b]);
 	}
 	const auto t0 = Clock::now();
 	while (SinceMs(t0) < seconds * 1000.0) {
@@ -174,7 +469,7 @@ static void DrivePhase(threads::Manager& mgr, ai::AsyncDirector& dir,
 			const auto info = mgr.Inspect(ids[b]);
 			if (info.state == threads::State::Stalled) st.stallSamples[b]++;
 			st.peakLast[b] = std::max(st.peakLast[b], info.lastMs);
-			dir.TakePlans(b);
+			AuditBatch(*snap, b, dir.TakePlans(b), pa);
 		}
 		st.samples++;
 		std::this_thread::sleep_for(std::chrono::milliseconds(5));
@@ -207,17 +502,30 @@ int main(int argc, char** argv) {
 
 	// --self-test INVERTS THE VERDICT, like AllocTest / Bc7Test / HealthTest: it
 	// plants a worker that CANNOT be stopped cooperatively, so the supervisor's
-	// reboot falls through to TerminateThread — the exact outcome this harness
-	// exists to rule out. The run must come back FAIL. A checker nobody has
-	// watched fail is a checker nobody should trust, and this harness spent a
+	// reboot falls through to TerminateThread - the exact outcome this harness
+	// exists to rule out - and it puts C418's bug back (every chase target at
+	// (0,0), a wall), which the path audits exist to rule out. The run must come
+	// back FAIL, and fail exactly the checks in kSelfTestFails: a checker nobody
+	// has watched fail is a checker nobody should trust, and this harness spent a
 	// long time returning 0 unconditionally while a whole phase measured nothing.
 	bool selfTest = false;
 	for (int i = 1; i < argc; ++i)
 		if (std::string(argv[i]) == "--self-test") selfTest = true;
+	g_oldTargets = selfTest;
 
 	std::printf("=== Thread-system stress harness =================================\n");
 	std::printf("HW concurrency: %u threads\n", std::thread::hardware_concurrency());
-	if (selfTest) std::printf("SELF-TEST: expecting this run to FAIL\n");
+	if (selfTest)
+		std::printf("SELF-TEST: a wedged worker + every chase target at (0,0); expecting "
+					"exactly %d named checks to FAIL\n",
+					static_cast<int>(std::size(kSelfTestFails)));
+	std::printf("\n");
+
+	// The IQ each bucket's monsters carry, from the live mapping.
+	const bool iqsOk = DeriveBucketIqs();
+	std::printf("bucket IQs (from Scheduler::BucketForIq): %.1f/%.1f/%.1f/%.1f\n",
+				g_bucketIq[0], g_bucketIq[1], g_bucketIq[2], g_bucketIq[3]);
+	Check(iqsOk, "every think bucket has an IQ that BucketForIq maps into it");
 	std::printf("\n");
 
 	// The health record is where the durable evidence of a force-terminate
@@ -252,14 +560,17 @@ int main(int argc, char** argv) {
 				1 / ai::Scheduler::BucketInterval(0), 1 / ai::Scheduler::BucketInterval(1),
 				1 / ai::Scheduler::BucketInterval(2), 1 / ai::Scheduler::BucketInterval(3));
 
-	auto phase = [&](const char* title, int W, int H, const int counts[4], bool reach,
-					 double secs) {
-		std::printf("--- %s  (map %dx%d, %s) ---\n", title, W, H,
+	// `tag` is the phase's letter, which prefixes its check labels.
+	auto phase = [&](const char* tag, const char* title, int W, int H, const int counts[4],
+					 bool reach, double secs) {
+		std::printf("--- %s %s  (map %dx%d, %s) ---\n", tag, title, W, H,
 					reach ? "reachable" : "UNREACHABLE/full-BFS");
 		auto snap = BuildSnapshot(W, H, counts, reach);
 		PhaseStats st;
-		DrivePhase(mgr, dir, ids, snap, secs, st);
+		PathAudit pa;
+		DrivePhase(mgr, dir, ids, snap, secs, st, pa);
 		ReportPhase(mgr, dir, ids, counts, secs, st);
+		ReportAudit(pa);
 		// The floor every load phase has to clear: no amount of work may end with
 		// a worker force-terminated. Quarantine means cooperative stop failed,
 		// which is the deadlock hazard this whole design avoids.
@@ -267,21 +578,28 @@ int main(int argc, char** argv) {
 		for (int b = 0; b < 4; ++b)
 			if (mgr.Inspect(ids[b]).state == threads::State::Quarantined)
 				anyQuarantined = true;
-		Check(!anyQuarantined, "no bucket was force-terminated under this load");
+		const std::string t = std::string(tag) + ": ";
+		Check(!anyQuarantined, t + "no bucket was force-terminated under this load");
+		// And the work was the work the phase claims: every monster planned, once,
+		// by its own bucket - with a real path where the party can be reached, and
+		// none where it is walled off.
+		CheckBatches(pa, t + "every bucket's batches planned each of its monsters exactly once");
+		if (reach) CheckReached(pa, t + "every plan engaged, with a real path to the party");
+		else CheckNoPath(pa, t + "every plan engaged and found no path to the walled-off party");
 		std::printf("\n");
 	};
 
 	// Phase A — baseline: a handful of monsters per bucket, small reachable map.
-	{ int c[4] = {2, 2, 2, 2}; phase("A baseline", 24, 24, c, true, 3.0); }
+	{ int c[4] = {2, 2, 2, 2}; phase("A", "baseline", 24, 24, c, true, 3.0); }
 
 	// Phase B — ASYMMETRIC load: each bucket gets a very different monster count,
 	// to prove the per-bucket isolation + coprime cadences (one hot bucket must
 	// not starve the others). Reachable, medium map.
-	{ int c[4] = {120, 8, 40, 4}; phase("B asymmetric per-bucket", 64, 64, c, true, 4.0); }
+	{ int c[4] = {120, 8, 40, 4}; phase("B", "asymmetric per-bucket", 64, 64, c, true, 4.0); }
 
 	// Phase C — heavy but bounded: a big map, full-BFS (unreachable), moderate
 	// counts. Each engaged monster explores the whole reachable region.
-	{ int c[4] = {30, 30, 30, 30}; phase("C heavy full-BFS", 96, 96, c, false, 4.0); }
+	{ int c[4] = {30, 30, 30, 30}; phase("C", "heavy full-BFS", 96, 96, c, false, 4.0); }
 
 	// Phase D — push bucket 0 PAST the knee, INTO the supervisor's force-reboot zone
 	// (a tick over 5x watchdog = 500 ms), to prove the BFS now stops COOPERATIVELY.
@@ -302,12 +620,13 @@ int main(int argc, char** argv) {
 		const double rebootZoneMs = 500.0; // 5x watchdog = the supervisor force-reboot line
 		const u32 reStart = mgr.Inspect(ids[0]).restarts;
 		bool rebooted = false, quarantined = false;
+		PathAudit ramp; // every step's batches, each against its own snapshot
 		int n = 20;
 		for (int stepi = 0; stepi < 16; ++stepi) {
 			int c[4] = {n, 0, 0, 0};
 			auto snap = BuildSnapshot(W, H, c, false);
 			PhaseStats st;
-			DrivePhase(mgr, dir, ids, snap, 2.0, st);
+			DrivePhase(mgr, dir, ids, snap, 2.0, st, ramp);
 			const auto info = mgr.Inspect(ids[0]);
 			const long long ticks = static_cast<long long>(info.iterations) - st.iterStart[0];
 			const double effHz = ticks >= 0 ? ticks / 2.0 : 0.0;
@@ -322,30 +641,47 @@ int main(int argc, char** argv) {
 			if ((st.peakLast[0] > rebootZoneMs && rebooted) || quarantined) break;
 			n = (n < 80) ? n + 20 : static_cast<int>(n * 1.4);
 		}
+		ReportAudit(ramp, "ramp paths");
 		// Recover on a trivial load so the final state isn't caught mid-reboot, and
 		// confirm plans flow again after the overload (a wedged/quarantined worker
-		// would produce none).
+		// would produce none) - and are REAL plans: paths again, on a map where the
+		// party can be reached. The window is at least the old 0.8 s and runs on
+		// until bucket 0 has published a whole batch for THIS snapshot, capped at
+		// 5 s: a tick still finishing the ramp's last snapshot publishes a batch
+		// for monsters that are gone, which the audit skips as stale.
 		uint64_t recoverPlans = 0;
+		double recoverMs = 0.0;
+		PathAudit recovery;
 		{
 			int cc[4] = {2, 0, 0, 0};
 			auto light = BuildSnapshot(24, 24, cc, true);
 			const uint64_t seq0 = dir.TakePlans(0).seq;
+			for (int b = 0; b < 4; ++b) recovery.Baseline(b, dir.TakePlans(b).seq);
 			const auto t0 = Clock::now();
-			while (SinceMs(t0) < 800.0) {
+			while (true) {
+				recoverMs = SinceMs(t0);
+				if (recoverMs >= 5000.0 || (recoverMs >= 800.0 && Covered(recovery))) break;
 				dir.Publish(light);
+				for (int b = 0; b < 4; ++b) AuditBatch(*light, b, dir.TakePlans(b), recovery);
 				std::this_thread::sleep_for(std::chrono::milliseconds(5));
 			}
 			recoverPlans = dir.TakePlans(0).seq - seq0;
 		}
 		const auto info = mgr.Inspect(ids[0]);
-		std::printf("  verdict: bucket0 restarts %u->%u, final state '%s', recovery plans/0.8s=%llu\n",
-					reStart, info.restarts, threads::StateName(info.state),
+		std::printf("  verdict: bucket0 restarts %u->%u, final state '%s', recovery plans/%.1fs=%llu\n",
+					reStart, info.restarts, threads::StateName(info.state), recoverMs / 1000.0,
 					static_cast<unsigned long long>(recoverPlans));
-		// The three facts this phase exists to establish, in order of severity.
+		ReportAudit(recovery, "recovery paths");
+		// The facts this phase exists to establish, in order of severity.
 		Check(!quarantined,
-			  "bucket0 was NOT force-terminated (cooperative stop survived the overload)");
-		Check(rebooted, "the ramp reached the reboot zone and the supervisor rebooted it");
-		Check(recoverPlans > 0, "plans resumed after the reboot (the worker really recovered)");
+			  "D: bucket0 was NOT force-terminated (cooperative stop survived the overload)");
+		Check(rebooted, "D: the ramp reached the reboot zone and the supervisor rebooted it");
+		Check(recoverPlans > 0, "D: plans resumed after the reboot (the worker really recovered)");
+		CheckBatches(ramp, "D: the ramp's batches planned each of bucket0's monsters exactly once");
+		CheckNoPath(ramp, "D: every ramp plan engaged and found no path to the walled-off party");
+		CheckBatches(recovery,
+					 "D: the recovered worker's batches planned each of its monsters exactly once");
+		CheckReached(recovery, "D: every recovery plan engaged, with a real path to the party");
 		std::printf("\n");
 	}
 
@@ -359,15 +695,25 @@ int main(int argc, char** argv) {
 		const float scales[4] = {1.0f, 0.5f, 0.25f, 1.0f};
 		double b3Hz[4] = {}; // bucket 3 is the least loaded, so its rate tracks the
 							 // governor rather than the work — the cleanest signal
+		PathAudit pa;
 		for (int i = 0; i < 4; ++i) {
+			// Count from BEFORE the throttle call. SetGlobalThrottle wakes every
+			// worker, which ticks at once and then sleeps the new interval; counted
+			// from after the call, that wake tick lands in the window or not by a
+			// race with DrivePhase's own baseline. Bucket 3 makes one or two ticks a
+			// window, so the race alone could read 1.0x and 0.25x both as 0.40 Hz
+			// - and did, once its ticks got cheap enough (real paths) to finish
+			// before the baseline was read.
+			long long before[4];
+			for (int b = 0; b < 4; ++b)
+				before[b] = static_cast<long long>(mgr.Inspect(ids[b]).iterations);
 			mgr.SetGlobalThrottle(scales[i]);
 			PhaseStats st;
-			DrivePhase(mgr, dir, ids, snap, 2.5, st);
+			DrivePhase(mgr, dir, ids, snap, 2.5, st, pa);
 			std::printf("  throttle %.2fx -> effHz", scales[i]);
 			for (int b = 0; b < 4; ++b) {
 				const auto info = mgr.Inspect(ids[b]);
-				const long long ticks =
-					static_cast<long long>(info.iterations) - st.iterStart[b];
+				const long long ticks = static_cast<long long>(info.iterations) - before[b];
 				const double hz = ticks / 2.5;
 				if (b == 3) b3Hz[i] = hz;
 				std::printf("  b%d=%.2f", b, hz);
@@ -375,13 +721,16 @@ int main(int argc, char** argv) {
 			std::printf("\n");
 		}
 		mgr.SetGlobalThrottle(1.0f);
+		ReportAudit(pa);
 		// The governor has to actually govern, and has to let go again. Asserted
 		// loosely (0.7x / 0.6x rather than exact ratios) because these are real
 		// threads on a shared machine, and a flaky check gets ignored, which is
 		// worse than no check.
-		Check(b3Hz[2] < b3Hz[0] * 0.7, "clamping to 0.25x measurably slowed the cadence");
+		Check(b3Hz[2] < b3Hz[0] * 0.7, "E: clamping to 0.25x measurably slowed the cadence");
 		Check(b3Hz[3] > b3Hz[2] * 1.5 || b3Hz[3] > b3Hz[0] * 0.6,
-			  "releasing the governor restored it");
+			  "E: releasing the governor restored it");
+		CheckBatches(pa, "E: every bucket's batches planned each of its monsters exactly once");
+		CheckReached(pa, "E: every plan engaged, with a real path to the party");
 		std::printf("\n");
 	}
 
@@ -409,16 +758,27 @@ int main(int argc, char** argv) {
 		// Quarantined here would mean the 250 ms grace expired on an idle thread.
 		Check(mgr.Inspect(ids[2]).state != threads::State::Quarantined &&
 				  mgr.Inspect(ids[3]).state != threads::State::Quarantined,
-			  "an idle worker stopped cooperatively rather than being terminated");
+			  "F: an idle worker stopped cooperatively rather than being terminated");
 		std::printf("  restarting them...\n");
+		// The audit's baseline is read BEFORE the restarts. A rebooted worker
+		// ticks at once, and for bucket 3 (a 2 s cadence) that tick is the only
+		// one inside the 1.5 s window: read after Restart, the baseline could
+		// already include it, by a race, and the bucket would owe a batch it
+		// had published. Nothing else moves meanwhile - the snapshot has been
+		// out since before the kill.
+		PathAudit pa;
+		for (int b = 0; b < 4; ++b) pa.Baseline(b, dir.TakePlans(b).seq);
 		mgr.Restart(ids[2]);
 		mgr.Restart(ids[3]);
-		// Let the rebooted workers tick a few times.
+		// Let the rebooted workers tick a few times, auditing what every bucket
+		// thinks meanwhile.
 		const auto t0 = Clock::now();
 		while (SinceMs(t0) < 1500.0) {
 			dir.Publish(snap);
+			for (int b = 0; b < 4; ++b) AuditBatch(*snap, b, dir.TakePlans(b), pa);
 			std::this_thread::sleep_for(std::chrono::milliseconds(5));
 		}
+		ReportAudit(pa);
 		bool bothAlive = true, bothCounted = true;
 		for (int b = 2; b <= 3; ++b) {
 			const auto info = mgr.Inspect(ids[b]);
@@ -430,8 +790,10 @@ int main(int argc, char** argv) {
 				bothAlive = false;
 			if (info.iterations == 0 || info.restarts <= reBefore[b - 2]) bothCounted = false;
 		}
-		Check(bothAlive, "both rebooted workers came back alive");
-		Check(bothCounted, "both ticked again and their restart counters climbed");
+		Check(bothAlive, "F: both rebooted workers came back alive");
+		Check(bothCounted, "F: both ticked again and their restart counters climbed");
+		CheckBatches(pa, "F: every bucket's batches planned each of its monsters exactly once");
+		CheckReached(pa, "F: every plan engaged, with a real path to the party");
 		std::printf("\n");
 	}
 
@@ -443,6 +805,12 @@ int main(int argc, char** argv) {
 	// victim's timeline before the flag is cleared, so this is the assertion that
 	// survives the very recovery it is meant to notice.
 	std::printf("--- verdict ---\n");
+	// Every plan the audits matched came from the worker whose bucket its
+	// monster's IQ maps to (the IQs are derived from that same mapping above).
+	std::printf("  %d plans audited all run, %d from the wrong bucket\n", g_auditedPlans,
+				g_wrongBucket);
+	Check(g_auditedPlans > 0 && g_wrongBucket == 0,
+		  "every audited plan came from its monster's IQ bucket");
 	const u64 killed = diag::ProcessTotals().Count(diag::Kind::Killed);
 	Check(killed == 0, "nothing was force-terminated all run (from the health record)");
 	if (killed > 0) {
@@ -465,11 +833,29 @@ int main(int argc, char** argv) {
 				g_failures == 0 ? "PASS" : "FAIL", g_checks, g_failures,
 				selfTest ? 1 : 0);
 	if (selfTest) {
-		std::printf(g_failures > 0
-						? "SELF-TEST PASSED — the harness caught the force-terminate\n"
-						: "SELF-TEST FAILED — a wedged worker was killed and nothing "
-						  "reported it\n");
-		return g_failures > 0 ? 0 : 1;
+		// The harness must catch both faults WHERE they land: exactly the checks
+		// in kSelfTestFails fail and every other check passes. "Anything failed"
+		// passed a broken run as readily as a caught fault. Compared as sorted
+		// multisets, so a check that runs twice under one label must be listed
+		// twice.
+		std::vector<std::string> want(std::begin(kSelfTestFails), std::end(kSelfTestFails));
+		std::vector<std::string> got = g_failedLabels;
+		std::sort(want.begin(), want.end());
+		std::sort(got.begin(), got.end());
+		std::vector<std::string> unexpected, missed;
+		std::set_difference(got.begin(), got.end(), want.begin(), want.end(),
+							std::back_inserter(unexpected));
+		std::set_difference(want.begin(), want.end(), got.begin(), got.end(),
+							std::back_inserter(missed));
+		for (const std::string& s : unexpected)
+			std::printf("  self-test: '%s' FAILED but is not an expected failure\n", s.c_str());
+		for (const std::string& s : missed)
+			std::printf("  self-test: '%s' was expected to FAIL and passed\n", s.c_str());
+		const bool caught = unexpected.empty() && missed.empty();
+		std::printf("SELF-TEST %s - %d of %d expected failures, %d unexpected\n",
+					caught ? "PASS" : "FAIL", static_cast<int>(want.size() - missed.size()),
+					static_cast<int>(want.size()), static_cast<int>(unexpected.size()));
+		return caught ? 0 : 1;
 	}
 	return g_failures == 0 ? 0 : 1;
 }

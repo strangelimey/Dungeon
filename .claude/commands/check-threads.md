@@ -11,6 +11,22 @@ Drive the real `ThreadManager` + AI buckets under synthetic load (~36 s).
 
 Six phases: baseline, asymmetric per-bucket load, heavy full-BFS, a ramp into
 the supervisor's reboot zone, the global governor, and cooperative kill/restart.
+The synthetic world is built the way `DungeonWorld::BuildAISnapshot` builds the
+real one: each monster chases the party's cell, monsters crowd through `occ`
+(not `blocked`), and each bucket's IQ is derived from `Scheduler::BucketForIq`.
+Every plan batch is AUDITED against its snapshot, so each phase also checks the
+work it claims to do, with two checks. The batch check: every bucket that has
+monsters publishes a whole batch, and every batch of this snapshot plans each
+monster of its bucket exactly once and nothing else. The path check: in a
+reachable phase every plan is an engage with a real path to the party, and in a
+walled-off phase none finds one. Together they say it of every monster.
+
+The self-test injects two faults: a worker that ignores its stop token, and
+every chase target put back at (0,0). It passes only when exactly the six checks
+listed in `kSelfTestFails` fail and every other check passes. Those six are the
+health-record check and the five reachable-path checks. The batch checks must
+stay green. A self-test that fails something else, or misses one of the six, is
+itself a FAIL, and the run names each mismatch.
 
 ## What it is really guarding
 
@@ -28,13 +44,43 @@ nearly decorative: `Restart` sets that flag via `StopOrTerminate` and then
 moments later. Measured in the self-test: 26 force-terminates, every state scan
 still green. If the record check fires, it names the worker and the reason.
 
-**If the ramp reports `never reached the reboot zone`**, suspect the workload
-rather than the thread system. That is exactly how the earlier drift presented:
-the harness sets `aggroRange = 1e9f` to force engagement, `ai::Agent` later grew
-a perception model (`aware`, `directional`, sight cones), and the monsters
-quietly stopped engaging. Check `avgMs` in the phase D table — if thousands of
-monsters cost fractions of a millisecond, nothing is pathing.
+**If `D: the ramp reached the reboot zone and the supervisor rebooted it`
+fails**, suspect the workload rather than the thread system. That is exactly how
+the earlier drift presented: the harness sets `aggroRange = 1e9f` to force
+engagement, `ai::Agent` later grew a perception model (`aware`, `directional`,
+sight cones), and the monsters quietly stopped engaging. Check `avgMs` in the
+phase D table - if thousands of monsters cost fractions of a millisecond,
+nothing is pathing.
+
+**If a path check fails**, read its `paths:` line. In a reachable phase, `empty`
+means the monsters are chasing something they cannot reach. That is how C418
+presented: the targets were never set, so every monster chased (0,0), a border
+wall, and every "reachable" phase measured a failed full-map search. `malformed`
+counts paths that are not a real walk: they leave the walkable grid, pass
+through the party's cell or another monster's square, or do not end on the
+party.
+
+**If a batch check fails**, read the `batches:` line under it. It counts whole
+batches per bucket, names any bucket that has monsters and published none, and
+quotes the first bad batch: empty while its bucket has monsters, planning a
+monster twice or another bucket's, missing some, or MIXING this snapshot's plans
+with an earlier one's (a pooled batch that kept a bigger tick's tail - drop
+`out->resize(used)` in `AsyncDirector::ComputeBucket` and phases C to F show
+it). `stale skipped` is not a failure: the first batch after a new snapshot may
+come from a tick that was already running on the old one. Only that first one
+may.
 
 **Timing checks are loose on purpose** (the governor ones use 0.7x / 0.6x
 margins) because these are real threads on a shared machine. A flaky check gets
-ignored, which is worse than no check.
+ignored, which is worse than no check. The governor phase counts each window's
+ticks from before its `SetGlobalThrottle` call, because that call wakes every
+worker for one immediate tick. Counted from after the call, that tick fell
+inside the window or outside it depending on a race, and bucket 3 makes only
+one or two ticks a window.
+
+**The self-test is load-sensitive.** Its target fault makes every reachable
+phase a full-map search, so its ticks run several times longer than a normal
+run's. On a machine already at full CPU (another session's build), an AI bucket
+can then miss the supervisor's 250 ms grace and be force-terminated, and the
+self-test also fails F's checks. Rerun it on a quiet machine before suspecting
+the harness.
