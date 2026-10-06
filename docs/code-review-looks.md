@@ -147,6 +147,12 @@ raised that is yours, not a fix. Each line names the batch and its commit.
 - **Skill names in their bar's colour** (batch 54). On the sheet's Skills tab
   the status bar names a weapon skill in steel, a defence skill in bronze and a
   reserve in its pool's colour, matching their bars (all were the accent).
+- **Script-built models re-run** (batch 95, 610df8a7). In the asset picker
+  (neither arch nor the fountain is placed in a level): wall_arch_rustic and
+  wall_arch_rough should look as before minus any crack or notch above the
+  jambs (the rough arch's per-stone tilts and sizes changed - same seed and
+  ranges); fountain_round without the reversed texture column on the spout
+  shaft and basin wall; the potion corks and the rock without their seam column.
 
 ## Decisions
 
@@ -287,6 +293,16 @@ raised that is yours, not a fix. Each line names the batch and its commit.
 - **Translations to check** (batch 39). The dead-lever warning now says "no
   door or niche": check de / es / it / ru ("Nische", "hornacina", "nicchia",
   "ниши").
+- **The statue's hood stitch faces** (seen by batch 95). BuildStatue's hood
+  stitches (the rims beside the face opening, the hem, the peak - 108
+  triangles) are wound INTO the cloth, so with back-face culling they are
+  invisible. Flipping the four add_face orders fixes it but makes those
+  surfaces appear; `tools\MeshTest.ps1 -Files assets\models\statue_sentinel.gltf
+  -Detail` shows it. Flip them?
+- **A terrain's glyph change writes world.map at once** (batch 89, 43de2d2b),
+  with any other unsaved world edits, and a new terrain saves the catalogs at
+  once - so terrain.cat and world.map on disk can never disagree (a mismatch
+  aborted the next launch). A terrain delete clears the undo history. Keep?
 
 ## Changes you will notice
 
@@ -431,6 +447,20 @@ raised that is yours, not a fix. Each line names the batch and its commit.
   at 1,22), out of every suite's way.
 - **Models load as .gltf or .glb** (batch 86), and a type whose model cannot
   load is refused at its creation and its Save, with the reason.
+- **Visiting or reading a level no longer stashes it** (batch 80, 6f289839), so
+  `savemap` rewrites only what was edited (a level still in the old stair form
+  is rewritten once after a visit; the ACTIVE level is always written from live
+  state, its monsters where they stand - batch 81's C326). Unsaved edits now
+  survive a save loaded on another level.
+- **A GPU failure explains itself** (batch 67, 684586ac). A failed D3D12 call
+  logs its HRESULT by name, the device's removal reason and DRED's record (the
+  command lists in flight, the op each stopped at, a page fault's address);
+  DRED is on in release builds too. If you ever hit a real TDR, look under "D3D12
+  call failed at" in dungeon.log. Its GPU cost is unprofiled - worth one
+  /check-profile on a quiet machine.
+- **Terrain glyphs are checked** (batch 89): a "+ New" terrain gets an unused
+  glyph, a bad or duplicate glyph and a delete of a painted terrain are refused,
+  and `worldloc set <id> entry <x> <z>|none` sets both halves of an entry.
 
 ## Follow-ups the batches found (not in the plan)
 
@@ -565,3 +595,18 @@ raised that is yours, not a fix. Each line names the batch and its commit.
   fresh fetch unlike your June imports (older inputs or importer options).
   pillar_2k and the wood_planks_clean / _old3 sets are installed but named by
   nothing, so a fresh fetch leaves them out.
+- **Two batches each green alone, red together** (the r9 round, cb2c953d).
+  Batch 86's EditorTest phase 50 assumed eval_arena had no lever; batch 39 gave
+  it two. The phase's scratch copy now drops them. Worth knowing for the merges
+  still to come: a judge's premise about shared content is where lanes collide.
+- **The other Build*.py usage lines** (batch 95) still lack
+  `--python-exit-code 1` (about 20 untouched scripts), so a failing assert in
+  one exits 0 and the next step imports the last run's .glb.
+- **A stale comment** (batch 95): decorations.cat still credits wall_arch_rough
+  to tools/RoughenArch.py; it is BuildWallArch.py --rough (C403's).
+- **A party ward the default casters cannot afford** (seen by batch 41): with
+  the default party, Brand (8 max mana) and Sera (12) can never cast a party ward
+  (20 mana). Game data, noted for the balance pass.
+- **Re-bake sidecars after batch 95** in your tree at the merge: the potions'
+  and the rock's `.glb.0.dds` (`AssetBaker model-images assets`, release), or
+  the loader reports them stale and decodes instead.
