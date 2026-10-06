@@ -33,6 +33,11 @@ void EntityInspector::PickArchetype(ai::Archetype archetype) {
 	RequestRebuild(); // dependent fields change
 }
 
+void EntityInspector::SetLeash(float range) {
+	m_cfg.leashRange = range;
+	ApplyLive();
+}
+
 void EntityInspector::ClickEditRoute() {
 	if (onEditRoute) onEditRoute(m_cfg.runtimeId);
 	Close(); // hand the grid to the editor for laying
@@ -88,11 +93,8 @@ void EntityInspector::BuildContent(ui::Stack& content) {
 							  m_cfg.asleep = on;
 							  ApplyLive();
 						  });
-	ai->Row<ui::Slider>(FormRow(1.9f), loc::Tr("map.insp.leash"), 0.0f, 12.0f,
-						m_cfg.leashRange, [this](float v) {
-							m_cfg.leashRange = v;
-							ApplyLive();
-						});
+	ai->Row<ui::Slider>(FormRow(1.9f), loc::Tr("map.insp.leash"), 0.0f, kLeashMax,
+						m_cfg.leashRange, [this](float v) { SetLeash(v); });
 
 	// Behaviour override (archetype + dependent params), mirroring the type dialog.
 	std::vector<std::string> archItems;

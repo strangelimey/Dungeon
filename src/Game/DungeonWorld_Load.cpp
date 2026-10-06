@@ -1141,6 +1141,15 @@ DungeonWorld::Monster DungeonWorld::MakeMonster(MonsterKind& kind, int id, int x
 	// groupId is derived each frame from co-location (ReconcileGroups), not at spawn.
 	monster.x = monster.spawnX = x;
 	monster.z = monster.spawnZ = z;
+	// The leash anchor is the spawn square unless a record's leashfrom= says
+	// otherwise (LoadMonsters reads it after this). Set HERE, for every way a
+	// monster is made: the editor's placement and the eval's `spawn`
+	// (AddMonster) and a placed monster recreated from a save or on a level's
+	// re-entry (ApplyActiveSnapshot) used to keep the struct's 0,0 - a leash
+	// measured from the map's corner, which a savemap then wrote into the level
+	// as `leashfrom=0,0`.
+	monster.leashX = x;
+	monster.leashZ = z;
 	monster.yaw = monster.targetYaw = DirYaw(facing);
 	monster.facing = facing;
 	monster.hp = kind.maxHp;
@@ -1192,10 +1201,8 @@ void DungeonWorld::LoadMonsters() {
 		if (spawn.kind != EntityKind::Monster) continue;
 		MonsterKind& kind = MonsterKindFor(spawn.type);
 		Monster monster = MakeMonster(kind, spawn.id, spawn.x, spawn.z, spawn.facing);
-		// Per-instance AI overrides (.ent key=value). The leash anchor defaults to the
-		// spawn cell; leashfrom overrides it. (patrol is parsed in P3b.)
-		monster.leashX = monster.spawnX;
-		monster.leashZ = monster.spawnZ;
+		// Per-instance AI overrides (.ent key=value). The leash anchor is already the
+		// spawn cell (MakeMonster); leashfrom overrides it. (patrol is parsed in P3b.)
 		if (const std::string* v = spawn.Param("asleep")) monster.asleep = (*v != "0");
 		if (const std::string* v = spawn.Param("leash"))
 			monster.leashRange = std::strtof(v->c_str(), nullptr);

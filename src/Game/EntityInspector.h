@@ -45,6 +45,10 @@ public:
 		int threatLock = -1;
 	};
 
+	// The Leash slider's top: the farthest, in squares, a monster may be pulled
+	// from its anchor before it breaks off.
+	static constexpr float kLeashMax = 12.0f;
+
 	EntityInspector(gfx::GraphicsDevice& device, ui::FontLibrary& fonts)
 		: InstanceInspector(device, fonts) {}
 
@@ -55,6 +59,7 @@ public:
 	// Each is what its control's callback does - the control CALLS it - so a
 	// script and a mouse take one path.
 	void PickArchetype(ai::Archetype archetype); // the archetype dropdown
+	void SetLeash(float range);                 // the Leash slider (0..kLeashMax)
 	void ClickEditRoute();                      // Patrol tab: Edit route
 	void ClickClearRoute();                     // Patrol tab: Clear route
 	// The working copy, and the spell the Caster row SHOWS, read off its

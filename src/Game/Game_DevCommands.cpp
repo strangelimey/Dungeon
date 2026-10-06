@@ -253,6 +253,7 @@ void Game::RegisterDevCommands() {
 								  "inspect off\n"
 								  "inspector [status|esc|save|delete|tab <n>]\n"
 								  "inspector editroute|clearroute|archetype <name>\n"
+								  "inspector leash <squares>\n"
 								  "inspector open on|off\n"
 								  "inspector popup [<n>]\n"
 								  "levelsettings [status|open|popup [<n>]]\n"
@@ -1281,6 +1282,17 @@ void Game::RegisterDevCommands() {
 						.summary = "list monsters and their cells"},
 					   [this](const std::vector<std::string>&) {
 						   const std::vector<std::string> list = m_world->MonsterList();
+						   if (list.empty()) {
+							   m_console.Print("no monsters");
+							   return;
+						   }
+						   for (const std::string& l : list) m_console.Print("  " + l);
+					   });
+	m_console.Register({.name = "leash",
+						.group = CmdGroup::Monsters,
+						.summary = "list each monster's spawn, leash anchor and leash range"},
+					   [this](const std::vector<std::string>&) {
+						   const std::vector<std::string> list = m_world->LeashList();
 						   if (list.empty()) {
 							   m_console.Print("no monsters");
 							   return;

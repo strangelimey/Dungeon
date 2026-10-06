@@ -1,0 +1,89 @@
+; leashanchor.eval - a monster made in the editor or by `spawn` is leashed from
+; its OWN square. Judged by tools/EditorTest.py phase 61, on its scratch world;
+; `leashtest` is renamed to this worktree's save.
+;
+; Every monster carries a leash anchor: where a leashed one, pulled too far,
+; breaks off and walks home to, and what its leash is measured from. Only the
+; .ent loader set it (to the spawn square, or a record's leashfrom=); a monster
+; built any other way - the editor's brush and the eval's `spawn` (AddMonster),
+; a placed one put back by a save or a level re-entry (ApplyActiveSnapshot) -
+; kept the struct's 0,0. A level saved then wrote `leashfrom=0,0` for it, and
+; the editor's move tool, reading an anchor that was not the spawn as an
+; authored one, left it on the corner for good. `leash` prints each monster's
+; spawn, anchor and range.
+;
+;   --- checked ---   `validate` over the level files: the judge plants three
+;                     leashed skeletons in crypt2.ent - anchored on the rock at
+;                     0,0, off the map at 99,99, and on open floor at 6,6 (the
+;                     control) - and the first two, only, are flagged.
+;   --- made ---      a skeleton placed with the brush at 16,18 and one made by
+;                     `spawn` at 20,18: each anchored on its own square.
+;   --- moved ---     the placed one moved with the editor's move tool to
+;                     14,18: its anchor goes with it.
+;   --- returned ---  saved, then crypt1 and back: the two are rebuilt from the
+;                     level's held state, each anchored on its own square.
+;   --- loaded ---    the save loaded: the same.
+;   --- leashed ---   the level's own six skeletons and the spawned one erased,
+;                     so nothing else moves; the placed one given a leash of 1
+;                     through its inspector, which saves the level.
+;   --- shoved ---    the party at 15,18 facing it, a gust's shove: three
+;                     squares west, to 11,18 - toward 0,0.
+;   --- home ---      the party gone to the far corner, 12 seconds: the
+;                     skeleton walks back EAST to 14,18 (it walked on toward
+;                     the corner, west and north), never having noticed the
+;                     party; then savemap, and the judge reads eval_arena.ent.
+;   --- authored ---  crypt2, where the judge planted a skeleton at 5,6 with
+;                     leashfrom=6,6: its anchor is the authored 6,6. The
+;                     making now sets the spawn as the default, so the record's
+;                     leashfrom= must still be read after it and win.
+
+logecho on
+reset
+timescale 0
+lockstep on
+echo --- checked ---
+validate
+echo --- made ---
+editor place monsters skeleton 16 18
+spawn skeleton 20 18 s 1 up
+leash
+echo --- moved ---
+editor move 16 18 14 18
+leash
+mappage close
+save leashtest
+goto crypt1
+goto eval_arena
+echo --- returned ---
+leash
+load leashtest
+echo --- loaded ---
+leash
+echo --- leashed ---
+editor erase 12 1
+editor erase 12 6
+editor erase 25 7
+editor erase 23 9
+editor erase 24 10
+editor erase 13 13
+editor erase 20 18
+editor inspect 14 18
+editor inspector leash 1
+editor inspector save
+leash
+mappage close
+tp 15 18
+face w
+castsvc shove 3
+echo --- shoved ---
+leash
+tp 24 2
+step 12
+echo --- home ---
+leash
+monsters
+savemap
+goto crypt2
+echo --- authored ---
+leash
+echo --- end ---

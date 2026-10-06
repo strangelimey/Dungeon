@@ -324,6 +324,19 @@
 #      saved holds open=1 beside the skeleton's record (one that took the close
 #      shut the door on it at the next load); each says why. The control: with
 #      the doorway empty the untick does shut the leaf.
+#  61. A MONSTER MADE IN THE EDITOR IS LEASHED FROM ITS OWN SQUARE (code-review
+#      batch 81's find): one placed with the brush and one made by `spawn` are
+#      each anchored on the square they were made on (`leash`), the placed one
+#      keeps its anchor when the move tool moves it, and both keep theirs
+#      through a level re-entry and a save loaded - each used to read 0,0, the
+#      struct's default, since only the .ent loader set the anchor. Given a
+#      leash of 1 in its inspector and shoved three squares west by a gust, the
+#      placed one walks back EAST to its square (it went on toward the corner);
+#      and the level saved (the inspector's Save, then savemap) writes no
+#      `leashfrom=` on any monster line, where it wrote `leashfrom=0,0` for both.
+#      The checker flags a `leashfrom=` the judge plants on rock (0,0) and off
+#      the map (99,99) in crypt2.ent, and not one on open floor - and on crypt2
+#      that open-floor plant is anchored where its record says, not on its spawn.
 #
 # NOTHING HERE EDITS THE REAL WORLD (code-review C431). Each phase starts on a
 # FRESH SCRATCH COPY of dungeon-demo, et_demo, and every run opens it with
@@ -394,13 +407,14 @@ import harness_game
 harness_game.refuse_if_stale(EXE)
 harness_game.refuse_if_running(EXE)
 
-# flags.eval's, stashload.eval's, stashpark.eval's and nichelooks.eval's save
-# slots, renamed to this worktree's: the saves folder is shared with every other
-# session and with Michael's own play.
+# flags.eval's, stashload.eval's, stashpark.eval's, nichelooks.eval's and
+# leashanchor.eval's save slots, renamed to this worktree's: the saves folder is
+# shared with every other session and with Michael's own play.
 SAVES = {"flagtest": harness_game.save_name(ROOT, "flagtest"),
          "stashtest": harness_game.save_name(ROOT, "stashtest"),
          "stashpark": harness_game.save_name(ROOT, "stashpark"),
-         "nichelooks": harness_game.save_name(ROOT, "nichelooks")}
+         "nichelooks": harness_game.save_name(ROOT, "nichelooks"),
+         "leashtest": harness_game.save_name(ROOT, "leashtest")}
 
 
 def cleanup():
@@ -4638,6 +4652,116 @@ try:
           and rows == [("shut", "shut", False)],
           "THE CONTROL: with the doorway empty, the same untick shuts the leaf",
           f"inspector {st} doors {rows}")
+finally:
+    drop()
+
+
+# --- phase 61: a placed monster's leash anchor is its own square -----------------
+print("61 - a monster made in the editor or by `spawn` is leashed from its own square")
+LEASHROW = re.compile(r"\s+(\S+) @ (\d+),(\d+)  id (-?\d+)  spawn (\d+),(\d+)  anchor (-?\d+),(-?\d+)"
+                      r"  range ([\d.]+)$")
+LEASHWARN = re.compile(r"\s+warn crypt2 @(\d+),(\d+) map\.check\.leashrock (\S+)$")
+# What the judge plants in crypt2.ent: open floor on row 1 and row 6, each
+# monster leashed from a square of its own (the checker reads the files).
+LEASH_PLANTS = {(3, 1): "0,0", (8, 1): "99,99", (5, 6): "6,6"}
+
+
+def leash_rows(lines):
+    """Each `leash` row: {cell, id, spawn, anchor, range}."""
+    out = []
+    for l in lines:
+        m = LEASHROW.match(l)
+        if m:
+            g = [int(v) for v in m.groups()[1:8]]
+            out.append({"cell": (g[0], g[1]), "id": g[2], "spawn": (g[3], g[4]),
+                        "anchor": (g[5], g[6]), "range": float(m.group(9))})
+    return out
+
+
+def placed(lines):
+    """The placed monsters' `leash` rows (id -1: no record), keyed by spawn."""
+    return {r["spawn"]: r for r in leash_rows(lines) if r["id"] < 0}
+
+
+fresh()
+try:
+    # Appended in the file's own line ending, on a line of their own.
+    c2 = os.path.join(PROJ, r"levels\crypt2.ent")
+    text = io.open(c2, encoding="utf-8", newline="").read()
+    eol = "\r\n" if "\r\n" in text else "\n"
+    text += ("" if text.endswith("\n") else eol) + "".join(
+        f"monster skeleton {x} {z} south leash=2 leashfrom={cell}{eol}"
+        for (x, z), cell in LEASH_PLANTS.items())
+    io.open(c2, "w", encoding="utf-8", newline="").write(text)
+    log = run("leashanchor.eval")
+    check(passed(log), "the script ran clean")
+    sec = console_sections(log)
+    check("end" in sec, "the script ran to its end")
+
+    # THE CHECKER: a leash anchored on rock or off the map, and not on floor.
+    warned = {(int(m.group(1)), int(m.group(2))): m.group(3)
+              for m in (LEASHWARN.match(l) for l in sec.get("checked", [])) if m}
+    check(warned == {(3, 1): "0,0", (8, 1): "99,99"},
+          "validate flags the leash anchored on rock (0,0) and off the map (99,99), "
+          "not the one on open floor (6,6)",
+          f"crypt2's map.check.leashrock findings, by monster square: {warned or 'none'}")
+
+    # MADE: each anchored on its own square - and the level's own skeletons (the
+    # loader's path, right before) are the control the readout can show it.
+    made = placed(sec.get("made", []))
+    authored = [r for r in leash_rows(sec.get("made", [])) if r["id"] >= 0]
+    check(len(authored) == 6 and all(r["anchor"] == r["spawn"] for r in authored),
+          "the level's six skeletons are anchored on their spawns (the loader's path)",
+          str(authored))
+    check(set(made) == {(16, 18), (20, 18)}
+          and all(r["anchor"] == r["spawn"] and r["cell"] == r["spawn"] for r in made.values()),
+          "the brush's skeleton (16,18) and `spawn`'s (20,18) are each anchored on its own square "
+          "(they read 0,0)", str(made))
+
+    # MOVED: the move tool takes the anchor with the spawn.
+    moved = placed(sec.get("moved", []))
+    check(set(moved) == {(14, 18), (20, 18)} and moved.get((14, 18), {}).get("anchor") == (14, 18),
+          "the placed skeleton moved to 14,18 takes its anchor along (it stayed on 0,0)", str(moved))
+
+    # RETURNED and LOADED: rebuilt from the held state and from the save.
+    for name, what in (("returned", "after crypt1 and back"), ("loaded", "after the save is loaded")):
+        rows = placed(sec.get(name, []))
+        check(set(rows) == {(14, 18), (20, 18)}
+              and all(r["anchor"] == r["spawn"] for r in rows.values()),
+              f"{what}, both placed skeletons are anchored on their own squares", str(rows))
+
+    # LEASHED, SHOVED, HOME: the leash measured from 14,18, and the walk home to it.
+    leashed = placed(sec.get("leashed", []))
+    check(len(leash_rows(sec.get("leashed", []))) == 1
+          and leashed.get((14, 18), {}).get("range") == 1.0,
+          "the level's skeletons and the spawned one erased; the placed one's inspector set "
+          "its leash to 1", str(leash_rows(sec.get("leashed", []))))
+    shoved = placed(sec.get("shoved", [])).get((14, 18), {})
+    check(shoved.get("cell") == (11, 18),
+          "the gust shoved it three squares west, to 11,18 (toward 0,0)", str(shoved))
+    home = placed(sec.get("home", [])).get((14, 18), {})
+    check(shoved.get("cell") == (11, 18) and home.get("cell") == (14, 18),
+          "...and it walked back EAST to its square, 14,18 (it went on toward the corner)",
+          f"shoved {shoved} home {home}")
+    unaware = [l for l in sec.get("home", []) if re.match(r"\s+skeleton @ \d+,\d+\s+hp ", l)]
+    check(len(unaware) == 1 and unaware[0].endswith("aware=0"),
+          "...never having noticed the party - the leash took it home, not a chase", str(unaware))
+
+    # THE FILE: savemap (and the inspector's Save before it) wrote no leashfrom=.
+    ent = io.open(os.path.join(PROJ, r"levels\eval_arena.ent"), encoding="utf-8").read()
+    mons = [l for l in ent.splitlines() if l.startswith("monster ")]
+    check(any(l.split()[:4] == ["monster", "skeleton", "14", "18"] and "leash=1" in l.split()
+              for l in mons) and not any("leashfrom=" in l for l in mons),
+          "eval_arena.ent holds the placed skeleton at 14,18 with leash=1 and no leashfrom= "
+          "(it wrote leashfrom=0,0)", str(mons))
+
+    # AUTHORED: the making sets the spawn as the default now, so a record's own
+    # leashfrom= must still be read AFTER it - the open-floor plant's 6,6, not its
+    # spawn (every anchor checked above is a default).
+    plant = [r for r in leash_rows(sec.get("authored", [])) if r["spawn"] == (5, 6) and r["id"] >= 0]
+    check(len(plant) == 1 and plant[0]["anchor"] == (6, 6),
+          "on crypt2 the skeleton planted at 5,6 with leashfrom=6,6 is anchored on 6,6, as authored "
+          "(the default must not win over the record)", str(plant))
 finally:
     drop()
 

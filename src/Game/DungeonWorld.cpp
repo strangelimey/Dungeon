@@ -861,6 +861,19 @@ std::vector<std::string> DungeonWorld::MonsterList() const {
 	return out;
 }
 
+std::vector<std::string> DungeonWorld::LeashList() const {
+	// Its own readout rather than more fields on `monsters`: those lines are what
+	// the eval suites' tables print, and a field added there would show in every
+	// measurement diffed against an older run.
+	std::vector<std::string> out;
+	out.reserve(m_monsters.size());
+	for (const Monster& m : m_monsters)
+		out.push_back(std::format("{} @ {},{}  id {}  spawn {},{}  anchor {},{}  range {:g}",
+								  m.kind ? m.kind->name : "?", m.x, m.z, m.id, m.spawnX,
+								  m.spawnZ, m.leashX, m.leashZ, m.leashRange));
+	return out;
+}
+
 bool DungeonWorld::ToggleButtonAt(int x, int z, bool& out, bool asParty) {
 	for (Button& b : m_buttons)
 		if (b.x == x && b.z == z) {

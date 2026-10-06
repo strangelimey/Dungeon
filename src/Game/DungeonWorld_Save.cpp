@@ -355,6 +355,9 @@ SaveData::LevelState DungeonWorld::SnapshotActive() const {
 			e.aware = m.aware;
 			e.hp = m.hp;
 			e.slot = m.slot;
+			// Its spawn is its leash anchor too: with no record there is no
+			// leashfrom= to move it, and the editor's move tool carries the two
+			// together - so MakeMonster puts it back from this alone.
 			e.spawnX = m.spawnX;
 			e.spawnZ = m.spawnZ;
 			e.threat = m.threat;

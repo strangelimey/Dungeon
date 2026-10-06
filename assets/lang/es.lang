@@ -1109,6 +1109,7 @@ map.check.levellost=Nada puede llegar a este nivel
 map.check.doorlocked=Esta puerta nunca puede abrirse — '{}' no es alcanzable antes
 map.check.buttondead=Esta palanca apunta a '{}', y ninguna puerta ni hornacina se llama así
 map.check.leverindoorway=Esta palanca está en el umbral de '{}', la puerta que mueve - accionada desde aquí, nunca podrá cerrarla
+map.check.leashrock=La correa de este monstruo está anclada en {}, fuera del mapa o en la roca - alejado de allí, nunca podrá volver
 map.check.stairnolevel=Lleva a '{}', que no es un nivel de este proyecto
 map.check.stairblocked=Termina en roca maciza en '{}'
 map.check.arrivalblocked=El lugar '{}' da a roca maciza

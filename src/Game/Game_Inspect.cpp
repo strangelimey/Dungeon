@@ -132,6 +132,17 @@ void Game::InspectorCommand(const std::vector<std::string>& args) {
 				return;
 			}
 			m_entityInspector.PickArchetype(static_cast<ai::Archetype>(found));
+		} else if (monster && verb == "leash" && args.size() >= 3) {
+			// The Leash slider, set to a value: squares from the anchor.
+			char* end = nullptr;
+			const float range = std::strtof(args[2].c_str(), &end);
+			if (end == args[2].c_str() || *end != '\0' || !(range >= 0.0f) ||
+				range > EntityInspector::kLeashMax) {
+				m_console.Refuse(std::format("editor inspector: leash '{}' is not 0..{:g}", args[2],
+											 EntityInspector::kLeashMax));
+				return;
+			}
+			m_entityInspector.SetLeash(range);
 		} else {
 			m_console.RefuseUsage();
 			return;

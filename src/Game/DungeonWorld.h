@@ -2604,6 +2604,11 @@ public:
 	// --- dev console hooks ---------------------------------------------------
 	// "kind @ x,z" for each live monster.
 	std::vector<std::string> MonsterList() const;
+	// "kind @ x,z  id n  spawn x,z  anchor x,z  range r" for each live monster
+	// (dev console `leash`): where its leash is measured from beside the square
+	// it was made on - one placed in the editor or by `spawn` (id -1) used to be
+	// anchored on 0,0.
+	std::vector<std::string> LeashList() const;
 	// --- the one-pipeline check (Game/DamageLedger.h) ------------------------
 	// Arming, strictness and the counters live on the ledger itself; the console
 	// reaches them through here. Anything that REPLACES party or world state
@@ -3010,9 +3015,9 @@ private:
 		// .ent is their source; the editor inspector edits them + the .ent writer
 		// round-trips them). asleep: starts dormant, waking only when the party comes
 		// very close or it is hit (a per-placement lurker). leash: cells from the
-		// anchor (leashX/Z, default the spawn cell) it will chase before breaking off
-		// and returning; 0 = unleashed. patrol: a waypoint route walked when idle
-		// (P3b; empty = none).
+		// anchor (leashX/Z: MakeMonster sets the spawn cell, a record's leashfrom=
+		// moves it) it will chase before breaking off and returning; 0 = unleashed.
+		// patrol: a waypoint route walked when idle (P3b; empty = none).
 		bool asleep = false;
 		int leashX = 0, leashZ = 0;
 		float leashRange = 0.0f;

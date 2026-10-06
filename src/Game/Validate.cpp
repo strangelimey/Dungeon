@@ -4,8 +4,10 @@
 #include "Game/Validate.h"
 
 #include <algorithm>
+#include <charconv>
 #include <format>
 #include <queue>
+#include <string_view>
 #include <unordered_map>
 
 namespace dungeon::game::validate {
@@ -34,6 +36,18 @@ struct Level {
 int CellKey(int x, int z) { return (z << 16) | (x & 0xFFFF); }
 int KeyX(int k) { return static_cast<i16>(k & 0xFFFF); }
 int KeyZ(int k) { return k >> 16; }
+
+// An "x,z" square param (a monster's leashfrom=), both numbers whole; false for
+// anything else.
+bool ParseSquare(std::string_view s, int& x, int& z) {
+	const size_t comma = s.find(',');
+	if (comma == std::string_view::npos) return false;
+	const auto whole = [](std::string_view t, int& out) {
+		const auto [end, ec] = std::from_chars(t.data(), t.data() + t.size(), out);
+		return ec == std::errc{} && end == t.data() + t.size() && !t.empty();
+	};
+	return whole(s.substr(0, comma), x) && whole(s.substr(comma + 1), z);
+}
 
 // A door is passable when it is not locked, was authored open, or we carry its
 // key. A wired BUTTON also bypasses the lock, but that is a fact about what the
@@ -396,6 +410,26 @@ std::vector<Issue> Run(const std::vector<LevelView>& levels,
 				issues.push_back({Severity::Warning, stem, KeyX(ck), KeyZ(ck),
 								  "map.check.leverindoorway", target});
 		}
+
+		// A LEASH ANCHORED WHERE NOTHING STANDS: a monster record's leashfrom=
+		// off the map or in rock. A leashed monster pulled past its range breaks
+		// off and walks home to that square, measuring its leash from it, so it
+		// strains toward a wall for good. Editor-placed monsters used to be
+		// anchored on 0,0 - the map's corner, rock in every level shipped - and a
+		// save of the level wrote that out as `leashfrom=0,0`. A warning:
+		// finishing the level does not turn on it. A value that is not two whole
+		// numbers is not judged here.
+		if (L.view->ents)
+			for (const Entity& e : L.view->ents->All()) {
+				if (e.kind != EntityKind::Monster) continue;
+				const std::string* v = e.Param("leashfrom");
+				int ax = 0, az = 0;
+				if (!v || !ParseSquare(*v, ax, az) || L.view->map->IsWalkable(ax, az)) continue;
+				Issue issue{Severity::Warning, stem, e.x, e.z, "map.check.leashrock", *v};
+				if (ax >= 0 && az >= 0 && ax < L.view->map->Width() && az < L.view->map->Height())
+					issue.also.push_back({stem, ax, az});
+				issues.push_back(std::move(issue));
+			}
 
 		// Stair pairing, checked explicitly so DRIFT is named as the cause: the
 		// pair is auto-authored on placement, so a broken one means a hand edit,

@@ -1109,6 +1109,7 @@ map.check.levellost=Nulla può raggiungere questo livello
 map.check.doorlocked=Questa porta non si aprirà mai — '{}' non è raggiungibile prima
 map.check.buttondead=Questa leva punta a '{}', ma nessuna porta o nicchia ha quel nome
 map.check.leverindoorway=Questa leva sta sulla soglia di '{}', la porta che muove - tirata da qui, non potrà mai chiuderla
+map.check.leashrock=Il guinzaglio di questo mostro è ancorato in {}, fuori dalla mappa o nella roccia - allontanato, non potrà mai tornare
 map.check.stairnolevel=Porta a '{}', che non è un livello di questo progetto
 map.check.stairblocked=Finisce nella roccia in '{}'
 map.check.arrivalblocked=Il luogo '{}' si apre sulla roccia

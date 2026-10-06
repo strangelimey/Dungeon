@@ -86,6 +86,12 @@ knows how to execute*.
 1. **Leash** (per instance, `.ent` `leash` / `leashfrom`): a monster more than
    `leash` cells (Chebyshev) from its anchor - `leashfrom`, else its spawn -
    goes Idle, so the host walks it home. It applies even to an aware monster.
+   The spawn default is `MakeMonster`'s, so it holds however the monster was
+   made: one placed in the editor or by the eval's `spawn`, and one rebuilt
+   from a save or on a level's re-entry, used to be anchored on 0,0, and a
+   level save then wrote `leashfrom=0,0` into the file. Dev `leash` prints each
+   monster's spawn, anchor and range; the checker warns of a `leashfrom` off the
+   map or in rock (`map.check.leashrock`). Checked by EditorTest phase 61.
 2. **Range**: the party must be within `aggro` cells (Chebyshev). A DORMANT
    monster - the `lurker` archetype, or a placement with `asleep=1`, until it is
    aware - is triggered only within 2 cells (`kAmbushTrigger`), and once sprung
@@ -185,7 +191,10 @@ walk > idle`, cross-faded; degrades gracefully when a rig lacks a clip.
 - **Per placement**, the `.ent` record: `asleep`, `leash`, `leashfrom`,
   `patrol` (`x,z;x,z;...`), and overrides of `archetype` / `keeprange` /
   `fleebelow` / `spell` that fall back to the type's (`Monster::Archetype()` and
-  its siblings), so a type edit still reaches an un-overridden placement.
+  its siblings), so a type edit still reaches an un-overridden placement. The
+  monster inspector edits the LIVE monster and its Save writes the level; a
+  game save carries none of these (a placed monster's row is its type, squares
+  and state - its anchor is its spawn, which the row holds).
 
 ### Not built
 

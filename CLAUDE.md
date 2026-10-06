@@ -1987,7 +1987,10 @@ Lurker / Sentry, monsters.cat `archetype`), its per-instance leash and its
 `fleebelow` - plus, for Engage only, a full chase PATH (Brain::FindPath,
 4-connected BFS); the host EXECUTES those orders EVERY frame at the monster's own
 move/attack cadence (Kite / Flee, a patrol route and a leash's walk home are
-host executors stepping greedily from live positions - docs/ai.md), so a
+host executors stepping greedily from live positions - docs/ai.md; a leash's
+anchor is the spawn square unless a record's leashfrom= moves it, set in
+MakeMonster for every monster however made - editor-placed ones used to sit on
+0,0; dev `leash`, EditorTest phase 61), so a
 dim monster still moves and swings at full speed, only its CHANGE OF MIND lags.
 ai::AsyncDirector spawns one worker per IQ bucket (4) on the Manager. Each frame
 the main thread publishes an immutable ai::Snapshot (party cell, a revision-
