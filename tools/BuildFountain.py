@@ -1,8 +1,12 @@
 # ============================================================================
 # tools/BuildFountain.py — authors the two fountains and writes UNIT-SPACE .glb.
 #
-#   blender --background --factory-startup --python tools\BuildFountain.py -- <out.glb>
-#   blender --background --factory-startup --python tools\BuildFountain.py -- <out.glb> --wall
+#   blender --background --factory-startup --python-exit-code 1 --python tools\BuildFountain.py -- <out.glb>
+#   blender --background --factory-startup --python-exit-code 1 --python tools\BuildFountain.py -- <out.glb> --wall
+#
+# --python-exit-code 1 is what makes the closed-shell check fail the RUN:
+# without it a failed assert still exits 0, the export is skipped, and the next
+# step imports whatever out.glb an earlier run left.
 #
 # Then:
 #   AssetBaker import-model <out.glb> <assets> fountain_round --raw --texture-set marble_pillar
@@ -27,10 +31,15 @@
 # emit a triangle fan instead of quads.
 # ============================================================================
 import math
+import os
 import sys
 
 import bmesh
 import bpy
+
+if "__file__" in globals():  # headless; under the bridge, tools/ is already on the path
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import blendlib  # noqa: E402 - the shared closed-shell check (code-review C435)
 
 SEGMENTS = 40      # facets around a full revolve
 TILE = 0.24        # texture repeat, matching the engine's TileUvs (0.6 m)
@@ -87,6 +96,14 @@ bpy.ops.object.select_all(action="SELECT")
 bpy.ops.object.delete()
 bm = bmesh.new()
 
+# Every face a revolve makes remembers the COLUMN it belongs to - the middle
+# angle of its segment, on atan2's branch - and SWEPT marks the faces that have
+# one (a box or a cap does not). Face layers, because the bevel rebuilds faces
+# and a new face copies its layers from the face it was cut from; a Python list
+# of faces would be dead by the UV pass. See the UV section for why.
+COLUMN = bm.faces.layers.float.new("column")
+SWEPT = bm.faces.layers.int.new("swept")
+
 
 def revolve(profile, segments=SEGMENTS, theta0=0.0, theta1=2.0 * math.pi,
             closed=True):
@@ -119,11 +136,14 @@ def revolve(profile, segments=SEGMENTS, theta0=0.0, theta1=2.0 * math.pi,
             d = upper[s if len(upper) > 1 else 0]
             # A station on the axis degenerates the quad into a triangle.
             if a is b:
-                bm.faces.new((a, c, d))
+                face = bm.faces.new((a, c, d))
             elif c is d:
-                bm.faces.new((a, b, c))
+                face = bm.faces.new((a, b, c))
             else:
-                bm.faces.new((a, b, c, d))
+                face = bm.faces.new((a, b, c, d))
+            mid = theta0 + (theta1 - theta0) * ((s + 0.5) / segments)
+            face[COLUMN] = math.atan2(math.sin(mid), math.cos(mid))  # into (-pi, pi]
+            face[SWEPT] = 1
     return rings
 
 
@@ -160,7 +180,15 @@ else:
     box(-0.045, 0.045, -0.090, -BACK_T, SPOUT_Z, SPOUT_Z + 0.055)  # spout
     box(-0.075, 0.075, -0.055, -BACK_T, SPOUT_Z + 0.055, SPOUT_Z + 0.080)  # hood
 
-bmesh.ops.remove_doubles(bm, verts=bm.verts[:], dist=1e-5)
+# NO WELD. revolve() shares every ring's vertices between its bands and wraps
+# the last segment onto the first, so each revolve is already one connected
+# shell, and a box shares its own corners. A remove_doubles here welded only
+# what it should not: the basin's bowl floor and the spout's base both end ON
+# THE AXIS at z = 0.070, so it fused them at one vertex - two fans through a
+# single point - and the bevel over that point tore the round fountain's shell
+# open (160 open edges and one island, measured by tools/MeshTest.py). The spout
+# now stands in the basin as its own closed solid, the way the arch's stones
+# stand in its slab.
 bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
 bmesh.ops.bevel(bm, geom=bm.verts[:] + bm.edges[:] + bm.faces[:],
                 offset=BEVEL, offset_type="OFFSET", segments=2,
@@ -173,18 +201,44 @@ bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
 # round and seams. Anything whose normal is mostly horizontal is therefore
 # unrolled — u = arc length about the axis, v = height — and only the near
 # top/bottom faces keep the flat projection.
+#
+# U COMES FROM THE FACE'S SEGMENT, never from each corner's angle alone
+# (code-review C436; BuildPillar.py's rule). atan2 jumps from +pi to -pi at the
+# back of a full revolve, so the column straddling that line had one edge at
+# u = +pi r and the other at -pi r: it ran u BACKWARDS round the whole
+# circumference, ~8.9 texture repeats crushed into one face column. Each swept
+# face carries its segment's middle angle (COLUMN, set by revolve() and copied
+# by the bevel onto every face it cuts from it), and every corner's angle is
+# unwrapped onto that segment's branch; a corner on the axis takes it outright.
+# The seam stays where it was - at the back - but as a jump BETWEEN two columns,
+# which a wrapping texture cannot show, not as a column spanning it. A face no
+# revolve made (the wall fountain's caps and boxes) keeps atan2 as it was: none
+# of them reaches round to the back, where the branch would matter.
+def unwrap(angle, ref):
+    """`angle` moved by whole turns to within half a turn of `ref`."""
+    return angle + 2.0 * math.pi * round((ref - angle) / (2.0 * math.pi))
+
+
 uv = bm.loops.layers.uv.verify()
 for face in bm.faces:
     if abs(face.normal.z) < 0.7:
+        column = face[COLUMN] if face[SWEPT] else None
         for loop in face.loops:
             co = loop.vert.co
             r = math.hypot(co.x, co.y)
-            u = math.atan2(co.x, -co.y) * max(r, 1e-4)
+            a = math.atan2(co.x, -co.y)
+            if column is not None:
+                a = unwrap(a, column) if r > 1e-6 else column
+            u = a * max(r, 1e-4)
             loop[uv].uv = (u / TILE, co.z / TILE)
     else:
         for loop in face.loops:
             co = loop.vert.co
             loop[uv].uv = (co.x / TILE, co.y / TILE)
+
+# The column bookkeeping has done its job; it is not part of the asset.
+bm.faces.layers.float.remove(COLUMN)
+bm.faces.layers.int.remove(SWEPT)
 
 mesh = bpy.data.meshes.new("fountain")
 bm.to_mesh(mesh)
@@ -196,6 +250,9 @@ print(f"BuildFountain: {'wall' if WALL else 'round'}, {len(co)} verts, "
       f"x {min(c.x for c in co):.3f}..{max(c.x for c in co):.3f}  "
       f"y {min(c.y for c in co):.3f}..{max(c.y for c in co):.3f}  "
       f"z {min(c.z for c in co):.3f}..{max(c.z for c in co):.3f}")
+
+# CLOSED: every revolve and box a shell of its own (see NO WELD above).
+blendlib.assert_closed_shell(mesh, "BuildFountain")
 
 bpy.ops.export_scene.gltf(filepath=OUT, export_format="GLB")
 print(f"BuildFountain: wrote {OUT}")

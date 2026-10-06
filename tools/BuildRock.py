@@ -2,7 +2,7 @@
 # tools/BuildRock.py - authors the throwable ROCK item (ui-updates Phase 10)
 # and writes it as a .glb with its texture embedded.
 #
-#   blender --background --factory-startup --python tools\BuildRock.py -- assets\models\rock.glb
+#   blender --background --factory-startup --python-exit-code 1 --python tools\BuildRock.py -- assets\models\rock.glb
 #
 # An item's model is read as <model>.glb with its images inside (DungeonWorld::
 # ItemKindFor -> ModelMulti), so this writes one straight into assets/models;
@@ -85,13 +85,30 @@ bpy.context.view_layer.objects.active = obj
 obj.select_set(True)
 
 # UVs: spherical about the centre - a rock has no seams worth hiding.
+#
+# BUT NO FACE MAY SPAN ONE (code-review C436). atan2 jumps from +pi to -pi on
+# the rock's -X side, and a face straddling that line used to take u from each
+# corner's own angle - one edge near u = 2, the other near 0 - so it ran the
+# texture backwards round the whole rock. The icosphere has no segment index to
+# take u from (BuildPillar.py's rule), so the face's CENTRE names the branch:
+# every corner's angle is unwrapped to within half a turn of it, and a corner on
+# the axis (a pole, which has no angle) takes the face's. The seam stays where
+# it was, as a jump BETWEEN faces that the tileable texture cannot show.
 uv = mesh.uv_layers.new(name="UVMap")
 centre = Vector((0.0, 0.0, ROCK_SIZE * 0.3))
-for loop in mesh.loops:
-    p = mesh.vertices[loop.vertex_index].co - centre
-    u = 0.5 + math.atan2(p.y, p.x) / (2.0 * math.pi)
-    w = 0.5 + math.asin(max(-1.0, min(1.0, p.z / max(p.length, 1e-6)))) / math.pi
-    uv.data[loop.index].uv = (u * 2.0, w)
+turn = 2.0 * math.pi
+for poly in mesh.polygons:
+    c = poly.center - centre
+    branch = math.atan2(c.y, c.x)
+    for li in poly.loop_indices:
+        p = mesh.vertices[mesh.loops[li].vertex_index].co - centre
+        a = branch
+        if math.hypot(p.x, p.y) > 1e-9:
+            a = math.atan2(p.y, p.x)
+            a += turn * round((branch - a) / turn)
+        u = 0.5 + a / turn
+        w = 0.5 + math.asin(max(-1.0, min(1.0, p.z / max(p.length, 1e-6)))) / math.pi
+        uv.data[li].uv = (u * 2.0, w)
 
 # --- the surface ---------------------------------------------------------------
 def value(x, y, scale, off):

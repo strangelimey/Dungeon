@@ -422,6 +422,24 @@ $checks = @(
 		}
 	},
 	@{
+		name = 'meshes'; tier = 'full'
+		what = 'the script-built arches, fountains, potions, rock and door frames are closed, face out and run their u one way'
+		# tools\MeshTest.ps1 (code-review C435 / C436 / C404) needs Blender
+		# (discovered, never pinned; exit 2 without one) and no build: seconds,
+		# reading the shipped files in assets\models (its ray caster is Blender's).
+		# A FAIL after a Build*.py change means the re-run asset is open, wound
+		# in or spans u backwards. Its self-test plants a flipped triangle, a
+		# hole and a reversed span in every file and demands exactly their checks fail.
+		run      = {
+			$l = @(& (Join-Path $root 'tools\MeshTest.ps1') 6>&1 | ForEach-Object { Write-Host $_; "$_" })
+			Confirm-Verdict $l 'meshtest' $LASTEXITCODE
+		}
+		selfTest = {
+			$l = @(& (Join-Path $root 'tools\MeshTest.ps1') -SelfTest 6>&1 | ForEach-Object { Write-Host $_; "$_" })
+			Confirm-Verdict $l 'meshtest' $LASTEXITCODE -SelfTest
+		}
+	},
+	@{
 		name = 'bc7'; tier = 'full'; needs = 'build-release'
 		what = 'the BC7 encoder error estimate against an independent decoder'
 		# Release on purpose: the debug encoder is too slow to be worth the wait,

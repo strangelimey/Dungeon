@@ -1,7 +1,7 @@
 # ============================================================================
 # tools/BuildStatue.py — authors the standing figure statues, UNIT-SPACE .glb.
 #
-#   blender --background --factory-startup --python tools\BuildStatue.py -- <out.glb> [figure]
+#   blender --background --factory-startup --python-exit-code 1 --python tools\BuildStatue.py -- <out.glb> [figure]
 #   AssetBaker import-model <out.glb> <assets> statue_<figure> --raw --texture-set <stone>
 #
 # Replaces ModelBaker's BuildStatue(), which was six axis-aligned boxes and a
@@ -293,8 +293,17 @@ def stack_open(rings, flip=False):
 
 
 def box(x0, x1, y0, y1, z0, z1):
-    """An axis-aligned box. Always HARD — a box has no curved surface on it, so
-    every one of its faces is flat by construction."""
+    """An axis-aligned box. Always HARD - a box has no curved surface on it, so
+    every one of its faces is flat by construction.
+
+    BOUNDS ARE SORTED (code-review C404: BuildLever and BuildDoorPad carry this
+    fix, and this copy had drifted without it). The face list below is written
+    for x0 < x1, so a caller passing them the other way round - the natural way
+    to mirror a piece, box(side * a, side * b, ...) - gets the box wound INSIDE
+    OUT. Every call here happens to be ordered today, so nothing moves."""
+    x0, x1 = min(x0, x1), max(x0, x1)
+    y0, y1 = min(y0, y1), max(y0, y1)
+    z0, z1 = min(z0, z1), max(z0, z1)
     v = [bm.verts.new(p) for p in (
         (x0, y0, z0), (x1, y0, z0), (x1, y1, z0), (x0, y1, z0),
         (x0, y0, z1), (x1, y0, z1), (x1, y1, z1), (x0, y1, z1))]

@@ -39,6 +39,7 @@ import json
 import os
 import queue
 import socketserver
+import sys
 import threading
 import traceback
 from contextlib import redirect_stderr, redirect_stdout
@@ -50,6 +51,11 @@ import bpy
 
 HOST = "127.0.0.1"
 PORT = int(os.environ.get("DUNGEON_BRIDGE_PORT", "4242"))
+
+# A snippet has no __file__, so a Build*.py sent with `bsend.py -f` cannot find
+# tools/ for itself; put it on the path once, here, so `import blendlib` (the
+# build scripts' shared checks) works under the bridge as it does headless.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 # The running transcript. Gitignored — it is working material, not the asset;
 # the committed tools/Build*.py distilled out of it is.

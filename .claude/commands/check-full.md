@@ -38,6 +38,7 @@ Adds the rows marked `full` to the quick tier:
   worn           full   self-testable  the worn-block bake has one authority: models = wornblock = the committed files; wear 0 is flat
   bakerwrites    full   self-testable  the asset baker fails loudly: a read-only target is an error saying why, names are escaped, a bad map is said
   convertmesh    full   self-testable  ConvertMesh --keep-rig keeps the skeletal one of a take's two actions, and FetchModels hears a traceback
+  meshes         full   self-testable  the script-built arches, fountains, potions, rock and door frames are closed, face out and run their u one way
   bc7            full   self-testable  the BC7 encoder error estimate against an independent decoder
 ```
 <!-- END generated -->

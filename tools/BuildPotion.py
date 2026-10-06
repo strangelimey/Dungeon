@@ -2,7 +2,7 @@
 # tools/BuildPotion.py - authors the three POTION CONTAINERS (transparency
 # Phase 2) and writes each as a .glb with its texture embedded.
 #
-#   blender --background --factory-startup --python tools\BuildPotion.py -- assets\models
+#   blender --background --factory-startup --python-exit-code 1 --python tools\BuildPotion.py -- assets\models
 #
 # writes potion_vial.glb, potion_bottle.glb and potion_flask.glb into that
 # folder. An item's model is read as <model>.glb with its images inside
@@ -234,13 +234,27 @@ def build_part(name, section, material):
 				e.smooth = False
 	# UVs: unrolled - u round the axis, v up it - in units of the part's height,
 	# so the cork's speckle is not stretched.
+	#
+	# U COMES FROM THE FACE'S OWN SEGMENT (BuildPillar.py's rule, code-review
+	# C436). Wrapping each corner's angle into [0, 1) put the last segment's two
+	# edges at u = 31/32 and u = 0, so that column ran BACKWARDS across the whole
+	# texture. A face's centre names its segment, every corner's angle is
+	# unwrapped onto that segment's branch, and a corner on the axis (no angle
+	# of its own) takes the segment's. The last column now runs on to u = 1,
+	# which the cork's texture - tileable round the cork - meets seamlessly.
 	uv = bm.loops.layers.uv.verify()
 	height = max(z for _, z in section) * CM
+	turn = 2.0 * math.pi
 	for f in bm.faces:
+		centre = f.calc_center_median()
+		segment = math.atan2(centre.x, -centre.y) % turn
 		for loop in f.loops:
 			co = loop.vert.co
-			u = (math.atan2(co.x, -co.y) / (2.0 * math.pi)) % 1.0
-			loop[uv].uv = (u, co.z / max(height, 1e-6))
+			a = segment
+			if math.hypot(co.x, co.y) > 1e-9:
+				a = math.atan2(co.x, -co.y)
+				a += turn * round((segment - a) / turn)
+			loop[uv].uv = (a / turn, co.z / max(height, 1e-6))
 	mesh = bpy.data.meshes.new(name)
 	bm.to_mesh(mesh)
 	bm.free()

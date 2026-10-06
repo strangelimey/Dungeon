@@ -1004,17 +1004,42 @@ sixteen kinds in another kind's pose; each kind now owns its icon pose).
   bounds' (dev `decokind <type>`).
 - `tools\Build*.py` — SCRIPT-AUTHORED props, the default way to make new
   architecture (docs/authoring-scale.md; Michael does not hand-model). Each is
-  run headless — `blender --background --factory-startup --python
-  tools\BuildX.py -- <out.glb>` — then `import-model --raw`, a catalog entry,
-  and place. The asset is DEFINED BY THE SCRIPT, so it is diffable and a
-  revision is a constant change plus a re-run; the .glb is a build artifact,
-  not a source. Two patterns, both emitting UNIT space:
-  * CONSTRUCTED — BuildWallArch.py assembles a slab (opening built from panels
-    + a fan, NOT booleaned, so the topology stays predictable) plus individually
-    placed stones. Stones carry real MORTAR GAPS and are inset inside the
-    opening, so islands never fuse, a whole-mesh bevel is safe, and the slab's
-    cut edge is hidden — all by construction rather than later correction.
-    `--rough` weathers each stone (tilt/scale jitter + two noise octaves).
+  run headless - `blender --background --factory-startup --python-exit-code 1
+  --python tools\BuildX.py -- <out.glb>` - then `import-model --raw`, a catalog
+  entry, and place. `--python-exit-code 1` (before `--python`) is what lets a
+  script's own asserts fail the run: without it a failed assert exits 0, the
+  export is skipped and the import takes the last run's out.glb (the rule the
+  Fetch scripts follow, below). The asset is DEFINED BY THE SCRIPT, so it is
+  diffable and a revision is a constant change plus a re-run; the .glb is a
+  build artifact, not a source. Two patterns, both emitting UNIT space:
+  * CONSTRUCTED - BuildWallArch.py assembles a slab (NOT booleaned, so the
+    topology stays predictable) plus individually placed stones. The slab is a
+    SOLIDITY GRID, BuildDoorFrame.py's construction on a lattice whose middle
+    row follows the arc: which cells hold stone, with every face between solid
+    and hollow emitted mechanically. That is what makes it CLOSED - the
+    hand-listed panels-and-fan it replaced had T-junctions (a corner landing
+    mid-edge, which remove_doubles never closes) and shipped 298 open edges in
+    each arch (code-review C435). Stones carry real MORTAR GAPS and are inset
+    inside the opening, so islands never fuse, no bevel can weld two stones, and
+    the slab's cut edge is hidden - all by construction rather than later
+    correction. `--rough` weathers each stone (tilt/scale jitter + two noise
+    octaves). TWO TRAPS keep the stones independent of the slab, both of which
+    let a slab rebuild move every stone: bevel the stones and the slab in
+    SEPARATE calls (`clamp_overlap` clamps a whole call to its tightest corner,
+    and the slab's springline slivers, 0.00056 wide, clamped the stones' 0.004
+    arris 7-14x), and hand out each stone's random draws in BUILD order (a
+    per-vertex `stone` layer), never the order islands are found in, which
+    follows the vertex pool. The stones' call takes only their ARRISES (a fold
+    past 45 degrees - the `--rough` grid lines are edges too, and bevelled they
+    pillow the faces), and the faces are SORTED by position before export: the
+    stones' bevel writes its faces in an order that varies run to run, so an
+    unchanged script re-ran to different bytes. BuildDoorFrame.py still bevels
+    in one call and draws in island order (its frames were not re-baked by the
+    arch's fix), so an edit to its slab can move its stones too. The scripts
+    SHARE only CHECKS - `tools/blendlib.py`'s
+    `assert_closed_shell`, called by the arch, the door frame and the fountain
+    - and keep their builders private: a shared builder would reshape every
+    asset that calls it on its next re-run.
   * SHAPE-PER-STATION — BuildPillar.py extends the loft: each station names a
     SHAPE (octagon or circle) as well as a radius, every ring is built at the
     SAME segment count, and only the RADIUS varies with angle
@@ -1033,12 +1058,30 @@ sixteen kinds in another kind's pose; each kind now owns its icon pose).
     (radius, height) stations. The lofter takes any segment count and any
     angular sweep, so 4 = a square plinth, 40 = a basin, a 180-degree sweep =
     a wall fountain. A profile is a CLOSED section (up the outside, over the
-    rim, back down the inside) so a revolve is watertight; radius 0 fans.
+    rim, back down the inside) so a revolve is watertight; radius 0 fans. Each
+    revolve is already one shell, so DO NOT WELD across them: a remove_doubles
+    fused the round fountain's spout to its basin through their shared axis
+    point and the bevel tore it open (160 open edges).
   UV RULE THAT BITES: dominant-axis projection (TileUvs, Cube Projection) is
   only valid on BOX-ISH geometry. On a swept or revolved surface the normal
   rotates 90 degrees and the dominant axis FLIPS mid-surface, which seams —
   arch reveals and basins are UNROLLED instead (u = arc length, v = depth or
   height). tools\FixArchSoffitUv.py retrofits that onto the hand-built arch.
+  AND AN UNROLLED u COMES FROM THE FACE'S SEGMENT, never from each corner's own
+  atan2 (code-review C436): atan2 jumps a whole turn at the back, so the face
+  column straddling that line ran u BACKWARDS round the entire circumference
+  (~8.9 texture repeats in one column of fountain_round). BuildPillar takes u
+  from the unwrapped segment index; BuildFountain keeps each revolve face's
+  segment on a face layer the bevel copies; BuildPotion and BuildRock let the
+  face's centre pick the branch every corner is unwrapped onto.
+  CHECKED: `tools\MeshTest.ps1` (CheckAll `meshes`, full; Blender, no build)
+  reads the shipped arches, fountains, potions, rock and door frames and
+  demands each is CLOSED, every triangle of a closed island faces OUT of it (a
+  ray along its winding normal crosses its own island an even number of times
+  - the general form of the radial test below), every shading normal agrees
+  with its winding, and no face spans u backwards (a UV fold whose two faces'
+  u-spans differ 10x; a fold between like spans is a mirror and allowed).
+  `-Files <glb/gltf>` judges anything else; `-Detail` says where.
   Three Blender traps, each of which cost a run: glTF stores attributes PER
   CORNER so an imported mesh has NO shared verts (weld before anything
   connectivity-based); subdividing invalidates held BMVert refs (re-derive,

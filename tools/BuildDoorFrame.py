@@ -2,19 +2,25 @@
 # tools/BuildDoorFrame.py — authors the stone surround a door leaf hangs in,
 # and writes a UNIT-SPACE .glb.
 #
-#   blender --background --factory-startup --python tools\BuildDoorFrame.py -- <out.glb>
-#   blender --background --factory-startup --python tools\BuildDoorFrame.py -- <out.glb> --rough
+#   blender --background --factory-startup --python-exit-code 1 --python tools\BuildDoorFrame.py -- <out.glb>
+#   blender --background --factory-startup --python-exit-code 1 --python tools\BuildDoorFrame.py -- <out.glb> --rough
+#
+# --python-exit-code 1 is what makes the asserts at the bottom fail the RUN:
+# without it a failed one still exits 0, the export is skipped, and the next
+# step imports whatever out.glb an earlier run left.
 #
 #   AssetBaker import-model <out.glb> <assets> door_frame --raw --texture-set wall_stone
 #
 #   live preview (frame + a stand-in leaf): python tools\bsend.py -f tools\BuildDoorFrame.py
 #
 # Replaces ModelBaker's BuildDoorFrame(), which was three boxes: two posts and a
-# lintel. It is BuildWallArch.py's construction with a square head — the passage
-# arch already solved this exact problem, and the reasons hold here unchanged:
-# the opening is CONSTRUCTED from panels rather than booleaned (predictable
-# topology, a reveal that is a clean strip), and every stone is its own island
-# with a real mortar gap (so a whole-mesh bevel cannot weld two stones together,
+# lintel. It shares BuildWallArch.py's idea - a slab plus individually placed
+# stones - and this file is where the slab's construction was settled: the
+# opening is CONSTRUCTED as a SOLIDITY GRID rather than booleaned or listed by
+# hand (predictable topology, a reveal that is a clean strip, and a CLOSED
+# shell - see the slab section; the arch's hand-listed panels shipped ~300 open
+# edges until it took this grid, code-review C435). Every stone is its own
+# island with a real mortar gap (so a bevel cannot weld two stones together,
 # and weathering is a per-island transform).
 #
 # EVERYTHING IS IN UNITS: 1.0 = one dungeon square (game::kUnit, 2.5 m), Z up.
@@ -38,12 +44,17 @@
 # and the leaf is thin and centred, so it passes cleanly behind them.
 # ============================================================================
 import math
+import os
 import random
 import sys
 
 import bmesh
 import bpy
 from mathutils import Matrix, Vector, noise
+
+if "__file__" in globals():  # headless; under the bridge, tools/ is already on the path
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import blendlib  # noqa: E402 - the shared closed-shell check (code-review C435)
 
 # --- the square -------------------------------------------------------------
 HALF = 0.5          # cell half-width; the slab spans the whole square
@@ -330,7 +341,12 @@ if ROUGH:
 bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
 
 # Break the arrises so torchlight catches them. Safe on the whole mesh: the
-# mortar gaps mean no bevel can weld two stones together.
+# mortar gaps mean no bevel can weld two stones together. KNOW THIS before
+# editing the slab: one call is ONE clamp (clamp_overlap limits the whole call
+# to its tightest corner), so a narrow slab cell would cut every stone's arris
+# too, and the draws above go to the islands in vertex-pool order, which a slab
+# change reshuffles. BuildWallArch.py met both and splits them (code-review
+# batch 95); this file's frames were left as shipped.
 bmesh.ops.bevel(bm, geom=bm.verts[:] + bm.edges[:] + bm.faces[:],
                 offset=BEVEL, offset_type="OFFSET", segments=2,
                 profile=0.5, affect="EDGES", clamp_overlap=True)
@@ -398,13 +414,10 @@ assert max(c.z for c in co) <= TOP + BEVEL + 1e-3, "the frame pokes through the 
 # CLOSED. Every edge wants exactly two faces. This is the real check on the
 # construction: an unclosed shell means a panel is missing or a stone did not
 # weld, and it is also the precondition for recalc_face_normals meaning
-# anything at all (it needs connectivity — see the arch, and the normals trap).
-check = bmesh.new()
-check.from_mesh(mesh)
-boundary = [e for e in check.edges if len(e.link_faces) != 2]
-n_boundary = len(boundary)
-check.free()
-assert n_boundary == 0, f"{n_boundary} boundary edges — the shell is not closed"
+# anything at all (it needs connectivity - see the arch, and the normals trap).
+# ONE copy of the check, shared with BuildWallArch (tools/blendlib.py), which
+# kept a hand-listed slab and shipped ~300 open edges for want of it (C435).
+blendlib.assert_closed_shell(mesh, "BuildDoorFrame")
 
 if EXPORT:
     bpy.ops.export_scene.gltf(filepath=OUT, export_format="GLB")
