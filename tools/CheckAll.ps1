@@ -130,6 +130,15 @@ $checks = @(
 		selfTest = { Invoke-NativeJudge 'RollTest.exe' 'rolltest' -Self }
 	},
 	@{
+		name = 'anim'; tier = 'quick'; needs = "build-$Config"
+		what = "the Animator keeps Play's promises: a held clip, mid-fade too, never restarts"
+		# On a rig AnimTest builds itself (no assets), against a reference animator
+		# that is never re-Played (code-review C395). --self-test feeds every no-op
+		# case a Play that restarts by contract and must name exactly those.
+		run      = { & cmd /c "`"$(Join-Path $bin 'AnimTest.exe')`" --contract 2>&1" | Out-Host; $LASTEXITCODE }
+		selfTest = { & cmd /c "`"$(Join-Path $bin 'AnimTest.exe')`" --contract --self-test 2>&1" | Out-Host; $LASTEXITCODE }
+	},
+	@{
 		name = 'docs'; tier = 'quick'
 		what = 'the /check-* commands list what CheckAll -List and Eval -List print'
 		# Generated blocks in .claude\commands\check*.md (tools\CheckDocs.ps1;

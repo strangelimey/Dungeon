@@ -464,6 +464,7 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	RegisterPartyCreationCommands();
 	RegisterEvalCommands();
 	RegisterStyleCommands();
+	RegisterMapIconCommands();
 	// THE TITLE SCREEN HAS NO WORLD (docs/world-on-demand.md), and most
 	// commands reach into one. Rather than a guard in each of a hundred and
 	// twenty handlers, ONE gate: with no world loaded, only the commands listed
@@ -1735,9 +1736,11 @@ void Game::UpdateGovernor(float dt) {
 bool Game::SteadyStateFrame() {
 	constexpr u32 kWarmupFrames = 120;
 	// An open portrait picker streams thumbnails in as it scrolls: loading, not a
-	// steady state (its opening frame is excused by Game::OpenPortraitPicker).
+	// steady state (its opening frame is excused by Game::OpenPortraitPicker). The
+	// `mapicons survey` overlay is a dev readout drawn over everything, labels
+	// built per frame - a console session's terms, not gameplay.
 	const bool quiet = GuardedState() && !m_console.IsOpen() && !EvalRunning() &&
-					   !m_ui.PortraitPickerOpen() &&
+					   !m_ui.PortraitPickerOpen() && !m_mapIconSurvey &&
 					   !m_mapView.IsOpen() && !m_baking && m_pendingLanguage.empty() &&
 					   !m_pendingQuality;
 	m_steadyFrames = quiet ? m_steadyFrames + 1 : 0;
@@ -2357,8 +2360,7 @@ void Game::UpdateStates(float dt) {
 			m_previewMonScale = d.scale;
 			m_previewMonYaw = d.modelYaw;
 			m_previewMonPivot = d.pivot;
-			m_previewAnim = anim::Animator(d.skeleton, d.clips);
-			m_previewAnim.LockRootTravel(DungeonWorld::kMonsterRootReach); // as in the world
+			m_previewAnim = DungeonWorld::MonsterAnimator(d.skeleton, d.clips); // as in the world
 			m_previewAnim.Play(clip, /*loop*/ true);
 			m_previewType = type;
 			m_previewClip = clip;
@@ -2964,6 +2966,7 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 								 {1, 1, 1, 1});
 	if (m_inspectPicker.IsOpen()) // multi-object chooser, modal over the editor
 		m_inspectPicker.Render(m_spriteBatch, m_settings.theme, dw, dh);
+	if (m_mapIconSurvey && m_world) DrawMapIconSurvey(dw, dh); // dev `mapicons survey`
 	if (m_console.IsOpen())
 		m_console.Render(m_spriteBatch, m_device, static_cast<float>(m_device.Width()),
 						 static_cast<float>(m_device.Height()));

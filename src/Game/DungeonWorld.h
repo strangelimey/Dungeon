@@ -421,6 +421,48 @@ public:
 	// first use (BuildFires / placement), so the active level's are always in.
 	const gfx::Texture* FixtureIcon(const std::string& type) const;
 
+	// --- the monster map icons, checked (dev `mapicons`) -----------------------
+	// What the last monster-icon bake did. Every loaded kind bakes in ONE pass
+	// (one frame), each skinned kind posed by its own Animator, so a pass uploads
+	// exactly one skinning palette per skinned kind and reuses it only for that
+	// kind's other parts: an upload reused ACROSS kinds would be one kind drawn
+	// in another's pose (code-review C189).
+	struct MonsterIconBake {
+		u32 passes = 0;  // bakes run so far
+		u32 kinds = 0;   // kinds the last pass baked
+		u32 skinned = 0; // ...of them drawn with a skinning palette
+		u64 uploads = 0; // palettes that pass uploaded (gfx::PaletteStats)
+		u64 reuses = 0;  // draws that took an upload already made
+	};
+	const MonsterIconBake& LastMonsterIconBake() const { return m_monsterIconBake; }
+	// Bakes every loaded kind's map icon again on the next rendered frame.
+	void RebakeMonsterIcons() { m_monsterIconsBaked = false; }
+	// Loads a monster kind, whose icon then bakes with the others; false when
+	// its model is not installed (MonsterModelAvailable - never the abort).
+	bool LoadMonsterKind(const std::string& type);
+	// Each loaded kind's icon AS ITS LAST BAKE DREW IT (MonsterKind::iconDrawn,
+	// written by the bake): the clip of the palette it drew with ("" = the rest
+	// pose) and the box its head shot was framed on. Beside them, measured here
+	// afresh: the rig's joint count, the bind pose's box (a T-posed rig's arms
+	// make it wider), and the kind's idle at its first frame - that pose's box,
+	// and whether the drawn palette IS that pose (one the bake took from any
+	// other animator, or from none, differs). A dev readout: it builds an
+	// Animator and skins every vertex twice per kind, so never call it per frame.
+	struct MonsterIconInfo {
+		std::string type;
+		size_t joints = 0;
+		std::string pose;
+		Vec3 bindLo{}, bindHi{};
+		Vec3 frameLo{}, frameHi{};
+		Vec3 posedLo{}, posedHi{};
+		bool paletteIsPose = false;
+		bool baked = false;
+	};
+	std::vector<MonsterIconInfo> MonsterIconReport() const;
+	// The clip a kind's map icon was last baked in ("" = the rest pose, or not
+	// baked) - the survey overlay's label, read every frame without a report.
+	std::string_view MonsterIconPose(const std::string& type) const;
+
 	Party& GetParty() { return m_party; }
 
 	// --- combat -------------------------------------------------------------
@@ -1329,6 +1371,23 @@ public:
 	// ~0.42 above the toes, so a body whose hips end within 0.08 of where the
 	// fall began lies inside its own square's 0.5 half-width either way round.
 	static constexpr float kMonsterRootReach = 0.08f;
+	// THE monster Animator: every one made for a creature's model - a spawn, a
+	// kind's map-icon pose, the editor's two previews, the asset picker's tile
+	// and preview - comes from here, already holding its root travel to
+	// kMonsterRootReach. The rule above used to be each call site's to remember,
+	// and the asset picker's looping preview forgot (code-review C395).
+	static anim::Animator MonsterAnimator(const assets::SkeletonData* skeleton,
+										  const std::vector<assets::AnimationClipData>* clips);
+	static anim::Animator MonsterAnimator(const assets::ModelData& model) {
+		return MonsterAnimator(&model.skeleton, &model.clips);
+	}
+	// The box `model`'s vertices fill when the scene shader poses them with
+	// `palette` (CPU skinning, the shader's weighted sum; an empty palette = as
+	// modelled). `nodeBaked`: each mesh's node transform first, as
+	// BuildMultiMaterialModel bakes it into the uploaded vertices - pass whether
+	// the geometry drawn came from there. False for an empty model.
+	static bool PosedBounds(const assets::ModelData& model, std::span<const Mat4> palette,
+							bool nodeBaked, Vec3& lo, Vec3& hi);
 	// Whether a monster type's <model>.gltf exists (so the editor can guard the
 	// right-click force-load and warn instead of aborting on a missing asset).
 	bool MonsterModelAvailable(const std::string& type) const;
@@ -2467,10 +2526,33 @@ private:
 		std::array<bool, anim::kCreatureStateCount> stateSupported{};
 		// Baked head-shot icon for the map overlay (a skull for the skeleton, the
 		// slime's dome, ...): the kind's mesh rendered once into a small RT,
-		// framed on the model's upper portion (UpdateMonsterIcons). Data-driven —
+		// framed on the model's upper portion (UpdateMapIcons). Data-driven -
 		// every kind gets one from its own model, no authored 2D art. Starts
 		// transparent until the bake runs.
 		std::unique_ptr<gfx::Texture> iconTarget;
+		// The pose that icon shows: the kind's idle at its first frame - what the
+		// asset picker's tile of the model and a resting monster in the world
+		// show; the bind pose, a T-pose for the bought kit, is none of them - and
+		// the box that pose fills (PosedBounds), which the head shot is framed
+		// on (PoseMonsterIcon). A PERSISTENT Animator, one per kind: the
+		// renderer knows a palette by its buffer's address for the whole frame,
+		// and a throwaway one per bake could hand the next kind of the same size
+		// its address and so its pose (code-review C189 / C183).
+		anim::Animator iconPose;
+		Vec3 iconLo{}, iconHi{};
+		// What the last bake of that icon actually DREW, written by the bake
+		// itself at the moment it drew (BakeMonsterIcon): the box it framed the
+		// head shot on, and the clip and fingerprint (PaletteFingerprint) of the
+		// palette it handed the renderer. The readout reports THESE, never the
+		// inputs above, so a bake that drifts from its pose or its frame shows
+		// (MonsterIconReport measures a fresh pose of the idle beside them).
+		struct IconDrawn {
+			bool baked = false;
+			Vec3 lo{}, hi{};
+			std::string_view clip; // a clip name in `model`, which the kind keeps
+			size_t joints = 0;     // the palette's size (0 = drawn unskinned)
+			double fingerprint = 0.0;
+		} iconDrawn;
 	};
 	// A burning body's plume burns a little bigger than a brazier. Shared by the
 	// plume itself (reserved at spawn) and the particle buffer that allows for one.
@@ -4386,12 +4468,18 @@ private:
 	// kind loads so it bakes next frame; the two fixture icons gate on their
 	// texture existing instead (their meshes load once at boot).
 	bool m_monsterIconsBaked = false;
+	MonsterIconBake m_monsterIconBake; // the last monster pass (LastMonsterIconBake)
 	bool m_decorationIconsBaked = false;
 	// Creates the shared icon depth target + halo on first use (all bakers).
 	void EnsureIconBakeTargets();
-	// One kind's head-shot bake: rest-pose mesh, framed on the model's top.
+	// One kind's head-shot bake: the model in its icon pose, framed on its top.
+	// Records what it drew in kind.iconDrawn.
 	void BakeMonsterIcon(ID3D12GraphicsCommandList* list, gfx::SpriteBatch& sprites,
-						 const MonsterKind& kind);
+						 MonsterKind& kind);
+	// (Re)poses a kind's icon on its idle's first frame and measures that pose
+	// (MonsterKind::iconPose / iconLo / iconHi). At load, and again when the
+	// monster-config dialog changes which clips are its idle.
+	static void PoseMonsterIcon(MonsterKind& kind);
 	// A static model baked whole (fit by its bounds): decorations, fixtures, the
 	// asset picker's tiles. One part for a plain mesh, one per primitive else.
 	void BakeMeshIcon(ID3D12GraphicsCommandList* list, gfx::SpriteBatch& sprites,

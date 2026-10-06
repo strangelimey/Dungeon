@@ -440,13 +440,21 @@ std::unique_ptr<DungeonWorld::PoolModelLook> DungeonWorld::LoadPoolModelLook(
 	return look;
 }
 
-void DungeonWorld::PoolModelLook::FitToPose(std::span<const Mat4> palette) {
-	if (!data || palette.empty()) return;
+anim::Animator DungeonWorld::MonsterAnimator(
+	const assets::SkeletonData* skeleton, const std::vector<assets::AnimationClipData>* clips) {
+	anim::Animator a(skeleton, clips);
+	a.LockRootTravel(kMonsterRootReach); // the world moves the body; a clip only animates it
+	return a;
+}
+
+bool DungeonWorld::PosedBounds(const assets::ModelData& model, std::span<const Mat4> palette,
+							   bool nodeBaked, Vec3& lo, Vec3& hi) {
 	Vec3 l{1e9f, 1e9f, 1e9f}, h{-1e9f, -1e9f, -1e9f};
-	for (const assets::MeshData& mesh : data->meshes) {
-		// The node transform first, as BuildMultiMaterialModel baked it into the
-		// uploaded vertices, then the skinning sum the scene shader does.
-		const XMMATRIX node = XMLoadFloat4x4(&mesh.worldTransform);
+	for (const assets::MeshData& mesh : model.meshes) {
+		// The node transform first, where it was baked into the uploaded
+		// vertices, then the skinning sum the scene shader does.
+		const XMMATRIX node =
+			nodeBaked ? XMLoadFloat4x4(&mesh.worldTransform) : XMMatrixIdentity();
 		for (const assets::Vertex& v : mesh.vertices) {
 			const XMVECTOR p = XMVector3Transform(
 				XMVectorSet(v.position.x, v.position.y, v.position.z, 1.0f), node);
@@ -466,11 +474,16 @@ void DungeonWorld::PoolModelLook::FitToPose(std::span<const Mat4> palette) {
 			h = {std::max(h.x, f.x), std::max(h.y, f.y), std::max(h.z, f.z)};
 		}
 	}
-	if (h.x >= l.x) {
-		lo = l;
-		hi = h;
-		FrameAboveFloor();
-	}
+	if (h.x < l.x) return false;
+	lo = l;
+	hi = h;
+	return true;
+}
+
+void DungeonWorld::PoolModelLook::FitToPose(std::span<const Mat4> palette) {
+	// The look is BuildMultiMaterialModel's, so its node transforms are baked.
+	if (!data || palette.empty()) return;
+	if (PosedBounds(*data, palette, /*nodeBaked*/ true, lo, hi)) FrameAboveFloor();
 }
 
 void DungeonWorld::PoolModelLook::AddContext(PoolModelLook&& context) {

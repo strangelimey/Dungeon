@@ -96,6 +96,7 @@ void AssetPicker::Open(Mode mode, const std::string& current,
 	m_search.clear();
 	m_onlyUsed = false;
 	m_onlySurface = false;
+	m_onlyNames.clear();
 	m_lastClickTile = -1;
 	m_theme = theme;
 	m_items = mode == Mode::Textures ? InstalledTextureSetInfo() : InstalledModelInfo();
@@ -135,6 +136,8 @@ void AssetPicker::ApplyFilter() {
 			continue;
 		if (m_onlySurface && m_mode == Mode::Textures && !a.worn) continue;
 		if (m_onlyUsed && std::ranges::find(m_used, a.name) == m_used.end()) continue;
+		if (!m_onlyNames.empty() && std::ranges::find(m_onlyNames, a.name) == m_onlyNames.end())
+			continue;
 		m_shown.push_back(i);
 	}
 	// The tiles ARE the filter's result. Only they are refilled, and deferred at
@@ -317,7 +320,7 @@ void AssetPicker::PrepareModelIcons(size_t max) {
 		}
 		// A rigged model's tile is its idle's first frame, fitted to that pose.
 		if (slot.look->data && !slot.look->idleClip.empty()) {
-			anim::Animator pose(&slot.look->data->skeleton, &slot.look->data->clips);
+			anim::Animator pose = DungeonWorld::MonsterAnimator(*slot.look->data);
 			if (pose.Play(slot.look->idleClip, /*loop*/ false)) {
 				pose.Update(0.0f);
 				slot.palette = pose.Palette();
@@ -350,6 +353,17 @@ void AssetPicker::MarkBaked(const std::string& name) {
 		entry->data.needsBake = false;
 		entry->data.bakedAt = m_thumbs.Frame(); // its source goes once the GPU is done
 	}
+}
+
+void AssetPicker::ShowOnly(std::vector<std::string> names) {
+	m_onlyNames = std::move(names);
+	ApplyFilter(); // the tiles refill next Update, as a typed search does
+}
+
+const gfx::Texture* AssetPicker::TileImage(const std::string& name) const {
+	const auto* entry = m_thumbs.Find(name);
+	if (!entry || entry->data.needsBake) return nullptr;
+	return entry->data.texture.get();
 }
 
 // --- selection, preview, facts ----------------------------------------------
@@ -426,10 +440,10 @@ void AssetPicker::RefreshPreview() {
 	}
 	m_previewParts = m_previewLook->parts;
 	// A rigged model stands in its idle and breathes, as it will in the world,
-	// fitted to that pose (the T-pose's arms would leave it small in the pane).
+	// fitted to that pose (the T-pose's arms would leave it small in the pane) -
+	// and, as in the world, its idle may not walk it off (MonsterAnimator).
 	if (m_previewLook->data && !m_previewLook->idleClip.empty()) {
-		m_previewAnim =
-			anim::Animator(&m_previewLook->data->skeleton, &m_previewLook->data->clips);
+		m_previewAnim = DungeonWorld::MonsterAnimator(*m_previewLook->data);
 		m_previewPosed = m_previewAnim.Play(m_previewLook->idleClip, /*loop*/ true);
 		m_previewAnim.Update(0.0f);
 		if (m_previewPosed) m_previewLook->FitToPose(m_previewAnim.Palette());

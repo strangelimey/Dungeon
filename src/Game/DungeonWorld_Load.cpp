@@ -769,6 +769,8 @@ DungeonWorld::MonsterKind& DungeonWorld::MonsterKindFor(const std::string& type)
 				log::Info("monsters.cat [{}]: state '{}' supported but has no clip",
 						  type, anim::StateName(s));
 		}
+		// The map icon's pose, now its idle is known (the bake reads it).
+		PoseMonsterIcon(*assets);
 		it = m_monsterKinds.emplace(type, std::move(assets)).first;
 	}
 	return *it->second;
@@ -805,6 +807,9 @@ void DungeonWorld::ApplyMonsterAnimConfig(const std::string& type,
 			if (ModelHasClip(*kind.model,name)) filtered.push_back(name);
 		kind.animClips[i] = std::move(filtered);
 	}
+	// A new idle is a new map icon: posed on it, and baked again.
+	PoseMonsterIcon(kind);
+	m_monsterIconsBaked = false;
 }
 
 void DungeonWorld::MonsterBehaviorConfig(const std::string& type, ai::Archetype& archetype,
@@ -1074,9 +1079,9 @@ DungeonWorld::Monster DungeonWorld::MakeMonster(MonsterKind& kind, int id, int x
 	// (the new monster isn't in m_monsters yet, so self=-1). -1 (full) → slot 0.
 	monster.slot = std::max(0, FreeSlotInCell(x, z, kind.size, -1));
 	monster.visualPos = SlotCenter(x, z, kind.size, monster.slot);
-	monster.animator = anim::Animator(&kind.model->skeleton, &kind.model->clips);
-	// The world moves the monster; its clips only animate it in place.
-	monster.animator.LockRootTravel(kMonsterRootReach);
+	// The world moves the monster; its clips only animate it in place
+	// (MonsterAnimator holds the root travel to kMonsterRootReach).
+	monster.animator = MonsterAnimator(*kind.model);
 	// Initial resting pose; DriveMonsterAnim takes over next frame (and plays the
 	// spawn clip first if the kind has one, via the default spawnReq).
 	const std::string idle = PickClip(kind, anim::CreatureState::Idle);

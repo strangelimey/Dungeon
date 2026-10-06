@@ -776,7 +776,12 @@ standing still, must re-render walking, and must lag its cube by at most a
 tenth of a square; `-ShadowSelfTest` mutates the cache and needs both to fail).
 DrawMesh skips redundant PSO swaps and, in the shadow pass, the texture-table
 binds; skinning palettes upload once per frame (cached by the animator's
-buffer, reused across all ~25 submissions).
+buffer, reused across all ~25 submissions). The cache key is that buffer's
+ADDRESS for the whole frame, so a palette handed to DrawMesh must OUTLIVE the
+frame - an Animator that lives on, never a temporary: a freed one hands its
+address to the next of the same size, which then draws in the first one's
+pose (code-review C189 - the map-icon bake's throwaway animators drew eight of
+sixteen kinds in another kind's pose; each kind now owns its icon pose).
 
 ## Asset pipeline (everything loads from assets/, nothing generated at runtime)
 
@@ -944,9 +949,16 @@ buffer, reused across all ~25 submissions).
   editor previews) subtracts a LOOP's straight-line drift so the cycle closes
   with its sway intact, and scales a ONE-SHOT's travel so the root ends within
   `DungeonWorld::kMonsterRootReach` (0.08) of where it began - a body still
-  falls the way it falls, inside its own square. Height is never touched. A new
-  Animator for a monster must call it. Measured by the `rootmotion` eval suite
-  (`monsters` prints each one's clip and `root` stray).
+  falls the way it falls, inside its own square. Height is never touched. Every
+  monster Animator - a spawn, a kind's map-icon pose, both editor previews, the
+  asset picker's tile and preview - comes from `DungeonWorld::MonsterAnimator`,
+  which calls it (code-review C395: the rule was each site's to remember, and
+  the picker's looping preview had not). Measured by the `rootmotion` eval suite
+  (`monsters` prints each one's clip and `root` stray). PLAY'S CONTRACT:
+  re-Playing the active clip is a no-op while it loops OR is still fading in (a
+  mid-fade re-Play used to restart the fade, so a per-frame Play never finished
+  one); an empty name plays nothing - there is no "first clip" default. Checked
+  by `AnimTest --contract` (CheckAll `anim`).
   Paste the emitted rows into the creature's monsters.cat [id] — or just check
   the boxes in the editor's monster config dialog (it auto-discovers the model's
   clips). Humanoid Mixamo defaults (mesh +90 yaw to co-face the armature, finger
@@ -1787,7 +1799,13 @@ drives MapEditor for the palette body (RenderBody/OnClick/OnWheel) and the brush
 Cells render as filled blocks (walls = bright stone ink, floors recede),
 fixtures/entities/monsters/items as BAKED MODEL ICONS — each kind renders its
 own 3D model once into a small RT (UpdateMapIcons: monster kinds get a
-head-shot framing the model's top quarter, decorations/fixtures bake whole,
+head-shot framing the model's top quarter, posed on the kind's idle's first
+frame and framed on that pose - what the asset picker's tile shows, not the
+kit's T-pose (MonsterKind::iconPose, code-review C183; dev `mapicons [status|
+all|rebake|survey on|off]`, the survey drawing each icon beside the picker's
+tile of its model, checked by EditorTest phase 22 on what the bake RECORDS it
+drew - MonsterKind::iconDrawn: the framed box, the palette's clip and
+fingerprint - against a fresh pose of the idle), decorations/fixtures bake whole,
 floor items reuse their HUD item icons at the cell corner; colored square +
 type initial is the not-yet-baked fallback), semantic glyphs stay glyphs (the
 start cell's accent outline, door bars, stair/pit triangles, the party as

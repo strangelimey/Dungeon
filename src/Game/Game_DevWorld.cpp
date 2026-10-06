@@ -1244,11 +1244,19 @@ void Game::RegisterWorldCommands() {
 	m_console.Register(
 		{.name = "assetpicker",
 		 .group = CmdGroup::Types,
-		 .params = "textures|models [name]\noff|status",
+		 .params = "textures|models [name]\nonly [name...]\noff|status",
 		 .summary = "open the asset pool browser (in the editor), or report it"},
 		[this](const std::vector<std::string>& args) {
 			const std::string sub = args.empty() ? "status" : args[0];
-			if (sub == "textures" || sub == "models") {
+			// `only`: the open picker lists just these (none = all again) - several
+			// at once, which the search box cannot (the map-icon survey's models).
+			if (sub == "only") {
+				if (!m_assetPicker.IsOpen()) {
+					m_console.Refuse("assetpicker only: the picker is not open");
+					return;
+				}
+				m_assetPicker.ShowOnly({args.begin() + 1, args.end()});
+			} else if (sub == "textures" || sub == "models") {
 				m_pickApply = nullptr; // a pick goes nowhere
 				// A name opens on that asset, selected and previewed, as a field
 				// naming it would.

@@ -30,17 +30,20 @@ public:
 
 	bool HasSkeleton() const { return m_skeleton && !m_skeleton->joints.empty(); }
 
-	// Starts the named clip (or the first clip if name is empty). Returns
-	// false if no such clip exists.
+	// Starts the named clip. Returns false if no such clip exists - an empty
+	// name names none (there is no "the first clip": for the bought kit that is
+	// a spawn lying on the floor, never a sensible default).
 	//
 	// fade > 0 CROSS-FADES into the new clip: the current evaluated pose is
 	// frozen and blended toward the new clip over `fade` seconds (snapshot
 	// cross-fade — robust to mid-fade interruption, no second clock). fade == 0
-	// is a hard cut. Re-Playing the clip that is already the active LOOPING
-	// clip (not mid-fade) is a no-op, so a host may call Play every frame for a
-	// held state without restarting it; one-shot (loop == false) clips always
-	// restart.
-	bool Play(const std::string& name = {}, bool loop = true, float fade = 0.0f);
+	// is a hard cut. Re-Playing the ACTIVE clip with the same `loop` is a no-op
+	// while it is looping or still fading in, so a host may call Play every
+	// frame for a held state without restarting it - mid-fade included, where
+	// a restart re-froze the half-blended pose and began the fade again, so a
+	// per-frame Play never finished one (code-review C395). A one-shot (loop ==
+	// false) clip whose fade is over restarts.
+	bool Play(const std::string& name, bool loop = true, float fade = 0.0f);
 
 	// ROOT TRAVEL. Bought Mixamo clips carry ROOT MOTION: a walk moves the
 	// root joint ~0.77 units forward per cycle (a run up to ~1.3), a death
@@ -58,7 +61,9 @@ public:
 	//     farther than `oneShotReach` from where it began - a body still lurches
 	//     the way it falls, but stays in its own square.
 	// A clip that does not travel is untouched either way. Measured per clip at
-	// Play, applied per Update; allocates nothing.
+	// Play, applied per Update; allocates nothing. The game never calls this
+	// itself: every monster Animator comes from DungeonWorld::MonsterAnimator,
+	// which does.
 	void LockRootTravel(float oneShotReach);
 
 	void Update(float dt);

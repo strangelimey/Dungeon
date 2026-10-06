@@ -89,9 +89,13 @@ skinning-ready but only ever play `"idle"`. This thread brings them to life.
 supports a snapshot cross-fade:
 - `Play(name, loop, fade)` — `fade > 0` freezes the current evaluated local pose
   (`m_snap*`) and blends it toward the new clip over `fade` seconds; `fade == 0`
-  is the old hard cut. Re-`Play`ing the already-active *looping* clip (not
-  mid-fade) is a no-op, so a host can call `Play` every frame for a held state;
-  one-shot (`loop == false`) clips always restart. `Fading()` query added.
+  is the old hard cut. Re-`Play`ing the already-active clip with the same `loop`
+  flag is a no-op while it LOOPS OR IS STILL FADING IN, so a host can call `Play`
+  every frame for a held state and the fade still finishes (code-review C395: a
+  restart mid-fade re-froze the half-blended pose and began the fade again, so a
+  per-frame `Play` never completed one). A one-shot (`loop == false`) whose fade
+  is over restarts. An empty name plays nothing and returns false - there is no
+  "first clip" default. `Fading()` query added. Checked by `AnimTest --contract`.
 - Blend is in **local TRS space** before globals/palette (lerp T/S, slerp R),
   smoothstep-eased — never blend matrices/palettes.
 - Refactor: old `SamplePose` split into `SampleClip(clip→local TRS arrays)` +

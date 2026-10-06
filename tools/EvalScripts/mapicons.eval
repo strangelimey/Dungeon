@@ -1,0 +1,19 @@
+; mapicons.eval - the monster map icons stand in their idles, each rig drawn with
+; its own skinning palette (code-review C183 / C189), read by tools\EditorTest.py
+; phase 22. Run WITH the window: the icons bake in the render half of a frame,
+; which -headless skips. One line runs per frame, so the echoes are the wait.
+;
+;   --- icons ---   every catalog kind loaded, then baked in ONE pass (one frame):
+;                   per kind what its bake RECORDED drawing - the palette's clip,
+;                   the box its head shot was framed on, whether that palette is
+;                   the idle's first frame - beside the bind pose's box and the
+;                   idle's; then that pass's skinning-palette uploads and reuses
+logecho on
+reset
+editor
+mapicons all
+echo frame
+echo frame
+echo frame
+echo --- icons ---
+mapicons status

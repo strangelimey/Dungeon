@@ -68,6 +68,11 @@ public:
 		const auto it = m_entries.find(key);
 		return it == m_entries.end() ? nullptr : &it->second;
 	}
+	// A look that does not count as seen (a reader outside the grid).
+	const Entry* Find(const std::string& key) const {
+		const auto it = m_entries.find(key);
+		return it == m_entries.end() ? nullptr : &it->second;
+	}
 
 	// Least-recently-seen first, down to the low-water mark, once over the cap.
 	void Evict() {

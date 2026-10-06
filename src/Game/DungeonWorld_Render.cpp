@@ -825,6 +825,20 @@ float IconSpinAngle() {
 						.count();
 	return t * 0.9f; // ~0.14 rev/s
 }
+
+// A skinning palette's fingerprint: every element weighted by its place in its
+// matrix and its joint's place in the palette, summed in double. Two palettes of
+// one rig agree to rounding only when their matrices do - the monster-icon
+// readout's test that the bake drew the pose it was meant to (iconDrawn).
+double PaletteFingerprint(std::span<const Mat4> palette) {
+	double sum = 0.0;
+	for (size_t j = 0; j < palette.size(); ++j)
+		for (int r = 0; r < 4; ++r)
+			for (int c = 0; c < 4; ++c)
+				sum += static_cast<double>(palette[j].m[r][c]) *
+					   (1.0 + 0.37 * (r * 4 + c) + 0.011 * static_cast<double>(j));
+	return sum;
+}
 } // namespace
 
 void DungeonWorld::EnsureIconBakeTargets() {
@@ -1178,11 +1192,21 @@ void DungeonWorld::UpdateMapIcons(ID3D12GraphicsCommandList* list,
 	};
 
 	if (!m_monsterIconsBaked) {
+		// The pass is counted (LastMonsterIconBake): the palettes it uploads are
+		// the renderer's count across it, since every draw in it is a bake's.
+		const gfx::PaletteStats before = m_renderer.Palettes();
+		MonsterIconBake bake;
+		bake.passes = m_monsterIconBake.passes + 1;
 		for (auto&& [id, kind] : m_monsterKinds) {
 			if (!kind->mesh || !kind->iconTarget) continue;
 			BakeMonsterIcon(list, sprites, *kind);
+			++bake.kinds;
+			if (kind->iconDrawn.joints > 0) ++bake.skinned; // as the bake drew it
 			any = true;
 		}
+		bake.uploads = m_renderer.Palettes().uploads - before.uploads;
+		bake.reuses = m_renderer.Palettes().reuses - before.reuses;
+		m_monsterIconBake = bake;
 		m_monsterIconsBaked = true;
 	}
 
@@ -1296,7 +1320,7 @@ void DungeonWorld::BakeMeshIcon(ID3D12GraphicsCommandList* list,
 
 void DungeonWorld::BakeMonsterIcon(ID3D12GraphicsCommandList* list,
 								   gfx::SpriteBatch& sprites,
-								   const MonsterKind& kind) {
+								   MonsterKind& kind) {
 	D3D12_RESOURCE_BARRIER toRT = gfx::Transition(
 		kind.iconTarget->Resource(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
 		D3D12_RESOURCE_STATE_RENDER_TARGET);
@@ -1318,18 +1342,13 @@ void DungeonWorld::BakeMonsterIcon(ID3D12GraphicsCommandList* list,
 
 	// HEAD SHOT: frame the model's upper portion (a skull for the skeleton, the
 	// slime's dome), not the whole figure — a full body at map-marker size is
-	// an unreadable stick. Bind-pose bounds from ALL primitives' vertices (a
-	// multi-material rig's helmet may top the bones); the focus box is the top
-	// quarter of the height (the head, tight), centred on x/z.
-	Vec3 lo{1e9f, 1e9f, 1e9f}, hi{-1e9f, -1e9f, -1e9f};
-	for (const auto& meshData : kind.model->meshes) {
-		for (const auto& v : meshData.vertices) {
-			lo = {std::min(lo.x, v.position.x), std::min(lo.y, v.position.y),
-				  std::min(lo.z, v.position.z)};
-			hi = {std::max(hi.x, v.position.x), std::max(hi.y, v.position.y),
-				  std::max(hi.z, v.position.z)};
-		}
-	}
+	// an unreadable stick. The box is the ICON POSE's (MonsterKind::iconLo/Hi:
+	// every primitive - a multi-material rig's helmet may top the bones - posed
+	// on the idle's first frame), so a T-posed rig's outstretched arms do not
+	// widen it; the focus box is the top quarter of the height (the head,
+	// tight), centred on x/z.
+	const Vec3& lo = kind.iconLo;
+	const Vec3& hi = kind.iconHi;
 	const float height = std::max(hi.y - lo.y, 1e-3f);
 	const float focusH = height * 0.25f;
 	const Vec3 c{(lo.x + hi.x) * 0.5f, hi.y - focusH * 0.5f, (lo.z + hi.z) * 0.5f};
@@ -1350,10 +1369,22 @@ void DungeonWorld::BakeMonsterIcon(ID3D12GraphicsCommandList* list,
 	cam.SetPosition({0.0f, 0.0f, -2.2f});
 	cam.SetYawPitch(0.0f, 0.0f);
 
-	// Rest-pose palette from a throwaway animator (the mesh is skinned; DrawMesh
-	// copies the palette into the frame's upload arena, so a temp is safe).
-	anim::Animator rest(&kind.model->skeleton, &kind.model->clips);
-	rest.Update(0.0f);
+	// The kind's OWN icon pose, which lives as long as the kind: the renderer
+	// knows a palette by its buffer's address for the rest of the frame, so the
+	// throwaway animator this used to build per kind could hand the next kind of
+	// the same size its upload - one rig drawn in another's pose (C189).
+	const anim::Animator& pose = kind.iconPose;
+	const std::span<const Mat4> palette = pose.Palette();
+
+	// What this bake draws, recorded HERE from the very box and palette it uses,
+	// so the readout (MonsterIconReport, judged by EditorTest phase 20) reports
+	// the bake and not the inputs it was meant to read. Allocates nothing.
+	kind.iconDrawn = {.baked = true,
+					  .lo = lo,
+					  .hi = hi,
+					  .clip = pose.CurrentClip(),
+					  .joints = palette.size(),
+					  .fingerprint = PaletteFingerprint(palette)};
 
 	gfx::MaterialParams mat;
 	mat.doubleSided = true;
@@ -1363,10 +1394,9 @@ void DungeonWorld::BakeMonsterIcon(ID3D12GraphicsCommandList* list,
 	m_renderer.BeginScene(list, cam, IconStudioLights()); // the shared studio rig
 	if (kind.multi) {
 		for (const MultiMaterialModel::Sub& sub : kind.multi->subs)
-			m_renderer.DrawMesh(list, *sub.mesh, world, sub.material,
-								rest.Palette());
+			m_renderer.DrawMesh(list, *sub.mesh, world, sub.material, palette);
 	} else {
-		m_renderer.DrawMesh(list, *kind.mesh, world, mat, rest.Palette());
+		m_renderer.DrawMesh(list, *kind.mesh, world, mat, palette);
 	}
 	m_renderer.FlushTransparent(list);
 
@@ -1374,6 +1404,66 @@ void DungeonWorld::BakeMonsterIcon(ID3D12GraphicsCommandList* list,
 		kind.iconTarget->Resource(), D3D12_RESOURCE_STATE_RENDER_TARGET,
 		D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
 	list->ResourceBarrier(1, &toSRV);
+}
+
+// The idle's FIRST frame - the moment the asset picker's tile of the model shows
+// (AssetPicker::PrepareModelIcons), and where a resting monster starts. The idle
+// is the kind's own (monsters.cat `anim_idle`, else a clip named `idle`: the
+// first of MonsterKind::animClips[Idle]); with none, the rest pose. Fitted to
+// that pose, through the same skinning sum the picker's FitToPose runs.
+void DungeonWorld::PoseMonsterIcon(MonsterKind& kind) {
+	kind.iconPose = MonsterAnimator(*kind.model);
+	const auto& idle = kind.animClips[static_cast<int>(anim::CreatureState::Idle)];
+	if (!idle.empty()) kind.iconPose.Play(idle.front());
+	kind.iconPose.Update(0.0f);
+	// Whether the drawn geometry carries the node transforms: a multi-material
+	// rig is BuildMultiMaterialModel's (baked), a single mesh is meshes[0] raw.
+	if (!PosedBounds(*kind.model, kind.iconPose.Palette(), kind.multi != nullptr, kind.iconLo,
+					 kind.iconHi))
+		kind.iconLo = kind.iconHi = {};
+}
+
+bool DungeonWorld::LoadMonsterKind(const std::string& type) {
+	if (!MonsterModelAvailable(type)) return false;
+	MonsterKindFor(type);
+	return true;
+}
+
+std::vector<DungeonWorld::MonsterIconInfo> DungeonWorld::MonsterIconReport() const {
+	std::vector<MonsterIconInfo> out;
+	for (auto&& [id, kind] : m_monsterKinds) {
+		const MonsterKind::IconDrawn& drawn = kind->iconDrawn;
+		MonsterIconInfo info;
+		info.type = id;
+		info.joints = kind->model->skeleton.joints.size();
+		// What the bake drew, as it recorded it.
+		info.pose = std::string(drawn.clip);
+		info.frameLo = drawn.lo;
+		info.frameHi = drawn.hi;
+		info.baked = m_monsterIconsBaked && kind->iconTarget && drawn.baked;
+		// Beside it, measured here afresh: the bind pose, and the kind's idle at
+		// its first frame on a NEW animator built as the world builds a monster's
+		// - not the kind's icon pose, whose own drift is part of what is checked.
+		PosedBounds(*kind->model, {}, kind->multi != nullptr, info.bindLo, info.bindHi);
+		anim::Animator idle = MonsterAnimator(*kind->model);
+		const auto& clips = kind->animClips[static_cast<int>(anim::CreatureState::Idle)];
+		if (!clips.empty()) idle.Play(clips.front());
+		idle.Update(0.0f);
+		if (!PosedBounds(*kind->model, idle.Palette(), kind->multi != nullptr, info.posedLo,
+						 info.posedHi))
+			info.posedLo = info.posedHi = {};
+		const double want = PaletteFingerprint(idle.Palette());
+		info.paletteIsPose = drawn.baked && drawn.joints == idle.Palette().size() &&
+							 std::abs(drawn.fingerprint - want) <=
+								 1e-9 * std::max(1.0, std::abs(want));
+		out.push_back(std::move(info));
+	}
+	return out;
+}
+
+std::string_view DungeonWorld::MonsterIconPose(const std::string& type) const {
+	const auto it = m_monsterKinds.find(type);
+	return it != m_monsterKinds.end() ? it->second->iconDrawn.clip : std::string_view{};
 }
 
 } // namespace dungeon::game

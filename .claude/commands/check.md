@@ -25,6 +25,7 @@ harness refuses a stale exe on its own (exit 4).
   build-release  full   no self-test   the release build compiles clean (the config that rots unwatched)
   diag           quick  no self-test   the health record: ring, wrap, cross-thread writes, torn reads
   rolls          quick  self-testable  the pure rules: dice, strike, armour, blasts, resources, ledger, carve, party
+  anim           quick  self-testable  the Animator keeps Play's promises: a held clip, mid-fade too, never restarts
   docs           quick  self-testable  the /check-* commands list what CheckAll -List and Eval -List print
   verdict        quick  self-testable  the native judges' last-line reader refuses every bad or contradictory line
   threads        full   self-testable  ThreadManager + AI buckets under load: no force-terminate, clean reboots

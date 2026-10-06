@@ -28,22 +28,19 @@ Animator::Animator(const assets::SkeletonData* skeleton,
 }
 
 bool Animator::Play(const std::string& name, bool loop, float fade) {
-	if (!m_clips || m_clips->empty()) return false;
+	if (!m_clips || m_clips->empty() || name.empty()) return false;
 	const assets::AnimationClipData* next = nullptr;
-	if (name.empty()) {
-		next = &m_clips->front();
-	} else {
-		for (const auto& clip : *m_clips)
-			if (clip.name == name) { next = &clip; break; }
-	}
+	for (const auto& clip : *m_clips)
+		if (clip.name == name) { next = &clip; break; }
 	if (!next) {
 		log::Warn("Animation clip not found: {}", name);
 		return false;
 	}
 
-	// Holding a looping state: re-Playing the already-active clip (not mid-fade)
-	// is a no-op so the host can call Play every frame without restarting it.
-	if (next == m_current && loop && m_loop && m_fadeDuration <= 0.0f) return true;
+	// Holding a state: re-Playing the active clip is a no-op while it loops or
+	// is still fading in, so the host can call Play every frame without
+	// restarting it (a mid-fade restart never let the fade finish).
+	if (next == m_current && loop == m_loop && (loop || Fading())) return true;
 
 	// Cross-fade: freeze the pose evaluated last Update as the blend source.
 	if (fade > 0.0f && HasSkeleton()) {

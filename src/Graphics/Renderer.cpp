@@ -710,13 +710,18 @@ void Renderer::FlushTransparent(ID3D12GraphicsCommandList* list) {
 D3D12_GPU_VIRTUAL_ADDRESS Renderer::UploadPalette(std::span<const Mat4> palette) {
 	// A skinned mesh holds the same pose across all of a frame's submissions
 	// (shadow faces + scene), so upload its palette once and reuse the address.
+	// Keyed by the buffer's address: see DrawMesh for what that asks of a caller.
 	for (const auto& [key, va] : m_paletteCache)
-		if (key == palette.data()) return va;
+		if (key == palette.data()) {
+			++m_paletteStats.reuses;
+			return va;
+		}
 	const size_t count = std::min<size_t>(palette.size(), kMaxSkinJoints);
 	UploadAllocation skinAlloc =
 		m_frameAllocators[m_frameIndex]->Allocate(kMaxSkinJoints * sizeof(Mat4));
 	std::memcpy(skinAlloc.cpu, palette.data(), count * sizeof(Mat4));
 	m_paletteCache.emplace_back(palette.data(), skinAlloc.gpu);
+	++m_paletteStats.uploads;
 	return skinAlloc.gpu;
 }
 

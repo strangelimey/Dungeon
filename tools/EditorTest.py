@@ -128,7 +128,7 @@
 #      entry read back; and, in a WINDOWED run (the fault was in the drawing),
 #      a theme open on its Floors tab through two quality changes leaves no
 #      error in the log - its swatches used to be freed textures.
-#  20. CATALOG SWEEPS AND WRITES (code-review C305, C306, C323): a floor and a
+#  21. CATALOG SWEEPS AND WRITES (code-review C305, C306, C323): a floor and a
 #      ceiling feature type renamed take every record with them - on the level
 #      in hand and on one not loaded, in memory and on disk - with the geometry
 #      unchanged, and a delete of either is refused while they are placed; a
@@ -137,6 +137,17 @@
 #      effect answers Delete with why; and catround's three cases - a catalog
 #      with no entry yet, the first entry deleted, the monster dialog's Save -
 #      keep every comment.
+#  22. THE MAP'S MONSTER ICONS STAND IN THEIR IDLES (code-review C183 / C189):
+#      every catalog kind loaded and baked in one pass. Read from what the BAKE
+#      RECORDED drawing (MonsterKind::iconDrawn), never the inputs it was handed:
+#      each icon is drawn in its kind's idle (monsters.cat `anim_idle`, read
+#      here) with that pose's own palette (fingerprinted against the idle's first
+#      frame on a fresh animator), and its head shot is framed on that pose's
+#      box - the bought kit's four rigs come out narrower than their T-pose. And
+#      each rig is drawn with its OWN skinning palette:
+#      the pass uploads one per skinned kind, among them several the same size
+#      (the renderer knows a palette by its address, and a throwaway animator
+#      per bake handed eight of sixteen kinds another kind's upload).
 #
 # NOTHING HERE EDITS THE REAL WORLD (code-review C431). Each phase starts on a
 # FRESH SCRATCH COPY of dungeon-demo, et_demo, and every run opens it with
@@ -1894,6 +1905,85 @@ try:
         check(line == f"catround case {name}: ok", f"catround case {name} keeps every comment", line)
     check("catround cases 3 of 3 pass" in cat, "...and there are exactly three",
           " | ".join(l for l in cat if l.startswith("catround cases")))
+finally:
+    drop()
+
+# --- phase 22: the map's monster icons stand in their idles -----------------------
+print("22 - each monster's map icon is posed on its idle, framed on that pose, with its own palette")
+# pose / frame / palette are what the bake RECORDED drawing (MonsterKind::
+# iconDrawn), never the inputs it was handed; bind and posed (the kind's idle at
+# its first frame, on a fresh animator) are measured beside them by the readout.
+ICON = re.compile(r"^mapicon (\S+) joints=(\d+) pose=(\S+) bind=([\d.]+)x([\d.]+) "
+                  r"frame=([\d.]+)x([\d.]+) posed=([\d.]+)x([\d.]+) palette=(\S+) baked=(\d)")
+BAKE = re.compile(r"^mapicons bake passes=(\d+) kinds=(\d+) skinned=(\d+) uploads=(\d+) "
+                  r"reuses=(\d+)")
+# The bought kit: Mixamo rigs bound in a T-pose, so their idle is far narrower.
+KIT = ("skel_warrior", "skel_bare", "skel_berserker", "skel_spearman")
+
+
+def catalog_idles():
+    """monsters.cat, read here: id -> its first `anim_idle` clip ("" = none named)."""
+    out, cur = {}, None
+    for line in read(r"catalog\monsters.cat").splitlines():
+        line = line.strip()
+        m = re.match(r"^\[(\S+)\]$", line)
+        if m:
+            cur = m.group(1)
+            out[cur] = ""
+        elif cur and line.startswith("anim_idle") and "=" in line:
+            words = line.split("=", 1)[1].replace(",", " ").split()
+            out[cur] = words[0] if words else ""
+    return out
+
+
+fresh()
+try:
+    log = run("mapicons.eval", headless=False, timeout=300)
+    check(passed(log), "the script ran clean, to its verdict")
+    lines = console_sections(log).get("icons", [])
+    icons = {m.group(1): m.groups()[1:] for m in (ICON.match(l) for l in lines) if m}
+    bake = next((tuple(int(g) for g in BAKE.match(l).groups()) for l in lines
+                 if BAKE.match(l)), None)
+    idles = catalog_idles()
+    check(len(idles) > 0 and set(icons) == set(idles)
+          and all(v[9] == "1" for v in icons.values()),
+          f"every catalog kind ({len(idles)}) was loaded and its icon baked",
+          f"catalog {sorted(idles)}, reported {sorted(icons)}")
+    # The kind's idle: its catalog's first anim_idle clip, else the rig's `idle`.
+    wrong = {k: (v[1], idles.get(k) or "idle") for k, v in icons.items()
+             if v[1] != (idles.get(k) or "idle")}
+    named = [k for k in icons if idles.get(k)]
+    check(not wrong and len(named) >= 4,
+          f"each icon is drawn in its kind's idle ({len(named)} named by anim_idle)",
+          f"drawn / expected: {wrong}")
+    # The palette the bake handed the renderer IS the idle's first frame: a bake
+    # drawing from any other animator - an un-Played one, a throwaway rest pose -
+    # or from none fingerprints differently.
+    other = sorted(k for k, v in icons.items() if v[8] != "same")
+    check(not other, "...with that pose's own palette, every kind",
+          f"drawn with another pose: {other}")
+    # The box the bake framed on is that pose's, to the readout's 3 decimals...
+    off = {k: (f"{v[4]}x{v[5]}", f"{v[6]}x{v[7]}") for k, v in icons.items()
+           if abs(float(v[4]) - float(v[6])) > 0.0015 or abs(float(v[5]) - float(v[7])) > 0.0015}
+    check(not off, "the head shots are framed on the pose drawn, every kind",
+          f"framed / posed boxes: {off}")
+    # ...which for the kit is far narrower than the T-pose it is bound in.
+    narrower = {k: (icons[k][4], icons[k][2]) for k in KIT if k in icons
+                and float(icons[k][4]) < 0.8 * float(icons[k][2])}
+    check(len(narrower) == len(KIT),
+          "...the kit's narrower than its T-pose",
+          f"frame / bind widths: {[(k, icons[k][4], icons[k][2]) for k in KIT if k in icons]}")
+    skinned = [k for k, v in icons.items() if int(v[0]) > 0]
+    sizes = {}
+    for k in skinned:
+        sizes.setdefault(icons[k][0], []).append(k)
+    same = max((len(v) for v in sizes.values()), default=0)
+    check(bake is not None and bake[1] == len(icons) and bake[2] == len(skinned),
+          "the last pass baked them all at once", f"bake {bake}, {len(icons)} kinds")
+    check(bake is not None and bake[3] == len(skinned) and same >= 2,
+          f"...each rig with its own palette: one upload per skinned kind "
+          f"({len(skinned)}), up to {same} rigs the same size",
+          f"bake {bake} (passes, kinds, skinned, uploads, reuses); joint counts {sizes}")
 finally:
     drop()
 

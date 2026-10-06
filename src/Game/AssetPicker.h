@@ -157,6 +157,15 @@ public:
 	std::vector<PendingBake> PendingBakes(size_t max) const;
 	void MarkBaked(const std::string& name);
 
+	// --- the dev survey's hooks (`assetpicker only`, `mapicons survey`) -------
+	// Lists only these names, in the pool's order (empty lifts it; Open always
+	// does): a harness's filter, where the search box matches one substring.
+	void ShowOnly(std::vector<std::string> names);
+	// A model tile's baked image, or null until it has baked. Never loads and is
+	// not a sighting, so reading it keeps nothing alive - the map-icon survey
+	// draws the picker's own tiles beside the icons with it.
+	const gfx::Texture* TileImage(const std::string& name) const;
+
 private:
 	// One tile: the asset's image over its name and badge, owning its own hover
 	// and clicks. A nested class so it can read the picker's model directly —
@@ -255,6 +264,7 @@ private:
 	std::string m_search;
 	bool m_onlyUsed = false;    // chip: only assets some catalog already binds
 	bool m_onlySurface = false; // chip: only sets with worn block meshes
+	std::vector<std::string> m_onlyNames; // ShowOnly (empty = everything)
 	double m_lastClickTime = 0.0; // double-click detection on a tile
 	int m_lastClickTile = -1;
 	double m_time = 0.0;

@@ -262,6 +262,11 @@ private:
 	void RegisterPartyCommands(); // members, gear, pools (Game_DevParty.cpp)
 	void RegisterEvalCommands(); // the eval harness's (Game_DevEval.cpp)
 	void RegisterStyleCommands(); // styles and the library (Game_Styles.cpp)
+	void RegisterMapIconCommands(); // `mapicons` and its survey (Game_MapIcons.cpp)
+	// `mapicons survey on`: every monster kind's map icon beside its model's
+	// asset-picker tile, drawn over everything but the console (Game_MapIcons.cpp).
+	bool m_mapIconSurvey = false;
+	void DrawMapIconSurvey(float dw, float dh);
 	// The encounter tally as the `tally` command prints it: one key=value
 	// line starting "TALLY ". Shared with `alloctest`'s verdict.
 	std::string TallyLine() const;

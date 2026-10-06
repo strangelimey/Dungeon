@@ -11,6 +11,7 @@
 //
 //   AnimTest --dump    <file>   record the current build's palettes
 //   AnimTest --compare <file>   recompute and compare; exit 0 = PASS
+//   AnimTest --contract [--self-test]   Play's promises (below); exit 0 = PASS
 //
 // The workflow is before/after: dump on the commit you trust, change the code,
 // compare. It is NOT a golden file in git - a recording is only meaningful
@@ -31,6 +32,19 @@
 //
 // Also reports what loading cost (allocations, channels kept) so the effect of a
 // storage change can be read off the same run.
+//
+// THE CONTRACT (--contract, code-review C395) needs no assets: a two-joint rig
+// built here, whose clips move it in ways a palette shows. Animator.h promises
+// that re-Playing the active clip is a no-op while it loops OR is still fading
+// in, so a host may Play a held state every frame; a mid-fade re-Play used to
+// re-freeze the half-blended pose and begin again, so a per-frame Play never
+// finished a fade. Each case runs an Animator beside a REFERENCE one that is
+// never re-Played and demands the two palettes agree, frame by frame; the
+// restarts the contract keeps (a one-shot whose fade is over) and an empty
+// name (which plays nothing) are checked the other way round. --self-test
+// swaps every no-op re-Play for one that restarts by contract (the other
+// `loop`), and passes only if exactly those cases then fail - the comparison
+// is not blind.
 //
 // One machine-readable verdict line:  animtest RESULT=PASS
 // ============================================================================
@@ -175,13 +189,209 @@ bool Read(const std::string& file, Recording& rec) {
 	return true;
 }
 
+// ----------------------------------------------------------------------------
+// The contract (--contract): Play's promises on a rig built here
+// ----------------------------------------------------------------------------
+
+// A root and one child a unit above it. `walk` carries the root forward and
+// swings the child; `wave` holds the root and turns the child a quarter; `fall`
+// (played one-shot) drops the root and pitches it. Every clip is a second long.
+struct Rig {
+	assets::SkeletonData skeleton;
+	std::vector<assets::AnimationClipData> clips;
+};
+
+Vec4 TurnZ(float radians) {
+	return {0.0f, 0.0f, std::sin(radians * 0.5f), std::cos(radians * 0.5f)};
+}
+
+assets::AnimationClipData MakeClip(const char* name, const std::vector<assets::ChannelKeys>& keys) {
+	assets::AnimationClipData clip;
+	clip.name = name;
+	clip.duration = 1.0f;
+	for (const assets::ChannelKeys& k : keys) clip.Add(k);
+	return clip;
+}
+
+Rig MakeRig() {
+	using assets::ChannelPath;
+	Rig rig;
+	assets::JointData root, child;
+	root.name = "root";
+	child.name = "child";
+	child.parent = 0;
+	child.restTranslation = {0.0f, 1.0f, 0.0f};
+	rig.skeleton.joints = {root, child};
+	rig.clips.push_back(MakeClip(
+		"walk", {{0, ChannelPath::Translation, {0.0f, 1.0f}, {{0, 0, 0, 0}, {0, 0, 2, 0}}},
+				 {1, ChannelPath::Rotation, {0.0f, 0.5f, 1.0f}, {TurnZ(0), TurnZ(0.6f), TurnZ(0)}}}));
+	rig.clips.push_back(
+		MakeClip("wave", {{1, ChannelPath::Rotation, {0.0f, 1.0f}, {TurnZ(0), TurnZ(1.5708f)}}}));
+	rig.clips.push_back(MakeClip(
+		"fall", {{0, ChannelPath::Translation, {0.0f, 1.0f}, {{0, 0, 0, 0}, {1, -0.5f, 0, 0}}},
+				 {0, ChannelPath::Rotation, {0.0f, 1.0f}, {TurnZ(0), TurnZ(1.2f)}}}));
+	return rig;
+}
+
+float PaletteDiff(const anim::Animator& a, const anim::Animator& b) {
+	float worst = 0.0f;
+	for (size_t j = 0; j < a.JointCount() && j < b.JointCount(); ++j) {
+		const float* fa = &a.Palette()[j]._11;
+		const float* fb = &b.Palette()[j]._11;
+		for (int k = 0; k < 16; ++k) worst = std::max(worst, std::fabs(fa[k] - fb[k]));
+	}
+	return worst;
+}
+
+struct CaseResult {
+	const char* name;
+	bool injected; // --self-test feeds this case a restart in place of its no-op
+	bool pass;
+	std::string detail;
+};
+
+// After the re-Play under test, `a` and `ref` (never re-Played) must agree on
+// the palette and on whether a fade is running, frame by frame. `held` is the
+// case's own precondition (what Play returned, and the fade it found), `what`
+// says it in words.
+CaseResult Agree(const char* name, anim::Animator& a, anim::Animator& ref, bool held,
+				 const std::string& what, bool injected) {
+	float worst = PaletteDiff(a, ref);
+	bool fadeAgrees = a.Fading() == ref.Fading();
+	for (int f = 0; f < 12; ++f) {
+		a.Update(0.05f);
+		ref.Update(0.05f);
+		worst = std::max(worst, PaletteDiff(a, ref));
+		fadeAgrees = fadeAgrees && a.Fading() == ref.Fading();
+	}
+	const bool pass = held && worst <= kTolerance && fadeAgrees;
+	return {name, injected, pass,
+			std::format("{}; palettes differ by up to {:g}; fades {}", what, worst,
+						fadeAgrees ? "agree" : "DISAGREE")};
+}
+
+std::vector<CaseResult> RunContract(bool selfTest) {
+	const Rig rig = MakeRig();
+	auto fresh = [&] { return anim::Animator(&rig.skeleton, &rig.clips); };
+	std::vector<CaseResult> out;
+
+	{ // A looping clip re-Played while it fades in: nothing restarts.
+		anim::Animator a = fresh(), ref = fresh();
+		for (anim::Animator* x : {&a, &ref}) {
+			x->Play("walk", true);
+			x->Update(0.4f);
+			x->Play("wave", true, 0.5f);
+			x->Update(0.1f);
+		}
+		const bool fading = a.Fading();
+		const bool ok = a.Play("wave", /*loop*/ !selfTest, 0.5f);
+		out.push_back(Agree("a looping clip re-Played mid-fade is a no-op", a, ref, ok && fading,
+							std::format("re-Played {} the fade, Play returned {}",
+										fading ? "inside" : "OUTSIDE", ok),
+							true));
+	}
+	{ // The held state Played EVERY frame, as DriveMonsterAnim may: the fade ends.
+		anim::Animator a = fresh();
+		a.Play("walk", true);
+		a.Update(0.4f);
+		float t = 0.0f;
+		bool finished = false;
+		for (int f = 0; f < 40 && !finished; ++f) {
+			a.Play("wave", selfTest ? (f % 2 == 1) : true, 0.5f);
+			a.Update(0.05f);
+			t += 0.05f;
+			finished = !a.Fading();
+		}
+		out.push_back({"a held state Played every frame finishes its 0.5 s fade", true,
+					   finished && t <= 0.56f,
+					   finished ? std::format("finished after {:.2f} s", t)
+								: "still fading after 2 s"});
+	}
+	{ // A one-shot re-Played while it fades in: nothing restarts.
+		anim::Animator a = fresh(), ref = fresh();
+		for (anim::Animator* x : {&a, &ref}) {
+			x->Play("walk", true);
+			x->Update(0.3f);
+			x->Play("fall", false, 0.4f);
+			x->Update(0.1f);
+		}
+		const bool fading = a.Fading();
+		const bool ok = a.Play("fall", /*loop*/ selfTest, 0.4f);
+		out.push_back(Agree("a one-shot re-Played mid-fade is a no-op", a, ref, ok && fading,
+							std::format("re-Played {} the fade, Play returned {}",
+										fading ? "inside" : "OUTSIDE", ok),
+							true));
+	}
+	{ // A held loop, not fading: the plain no-op Animator.h always promised.
+		anim::Animator a = fresh(), ref = fresh();
+		for (anim::Animator* x : {&a, &ref}) {
+			x->Play("wave", true);
+			x->Update(0.3f);
+		}
+		const bool ok = a.Play("wave", /*loop*/ !selfTest);
+		out.push_back(Agree("a held loop re-Played is a no-op", a, ref, ok && !a.Fading(),
+							std::format("Play returned {}", ok), true));
+	}
+	{ // A one-shot whose fade is over DOES restart: back to its first frame.
+		anim::Animator a = fresh(), start = fresh();
+		a.Play("fall", false);
+		a.Update(0.6f);
+		start.Play("fall", false);
+		start.Update(0.0f);
+		const float moved = PaletteDiff(a, start); // non-vacuous: 0.6 s in is elsewhere
+		const bool ok = a.Play("fall", false);
+		a.Update(0.0f);
+		const float back = PaletteDiff(a, start);
+		out.push_back({"a one-shot re-Played after its fade restarts", false,
+					   ok && moved > 0.1f && back <= kTolerance,
+					   std::format("{:g} from its first frame before, {:g} after", moved, back)});
+	}
+	{ // An empty name names no clip: false, and the pose carries on as it was.
+		anim::Animator a = fresh(), ref = fresh();
+		for (anim::Animator* x : {&a, &ref}) {
+			x->Play("walk", true);
+			x->Update(0.3f);
+		}
+		const bool played = a.Play("", true);
+		out.push_back(Agree("an empty name plays nothing", a, ref, !played,
+							std::format("Play(\"\") returned {}", played), false));
+	}
+	return out;
+}
+
+int Contract(bool selfTest) {
+	const std::vector<CaseResult> cases = RunContract(selfTest);
+	int failures = 0, injected = 0, injectedFailed = 0, otherFailed = 0;
+	for (const CaseResult& c : cases) {
+		std::printf("  %s %s%s\n", c.pass ? "[ok  ]" : "[FAIL]", c.name,
+					c.injected && selfTest ? " (fed a restart)" : "");
+		std::printf("         %s\n", c.detail.c_str());
+		failures += !c.pass;
+		injected += c.injected;
+		injectedFailed += c.injected && !c.pass;
+		otherFailed += !c.injected && !c.pass;
+	}
+	if (!selfTest) {
+		std::printf("animtest RESULT=%s contract=%zu failures=%d\n", failures ? "FAIL" : "PASS",
+					cases.size(), failures);
+		return failures ? 1 : 0;
+	}
+	// Exactly the cases fed a restart must fail, and only those.
+	const bool ok = injectedFailed == injected && otherFailed == 0;
+	std::printf("animtest RESULT=%s self_test=1 fed=%d failed=%d other_failures=%d\n",
+				ok ? "PASS" : "FAIL", injected, injectedFailed, otherFailed);
+	return ok ? 0 : 1;
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
 	alloc::Init();
+	if (argc >= 2 && std::string(argv[1]) == "--contract")
+		return Contract(argc >= 3 && std::string(argv[2]) == "--self-test");
 	const std::string mode = argc >= 3 ? argv[1] : "";
 	if (argc < 3 || (mode != "--dump" && mode != "--compare")) {
-		std::printf("usage: AnimTest --dump <file> | --compare <file>\n");
+		std::printf("usage: AnimTest --dump <file> | --compare <file> | --contract [--self-test]\n");
 		return 2;
 	}
 	const std::string file = argv[2];

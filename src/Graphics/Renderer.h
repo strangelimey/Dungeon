@@ -109,6 +109,14 @@ struct TransparentStats {
 	u32 dropped = 0;   // draws a pass queued and never flushed (a missing flush)
 };
 
+// What the skinning-palette cache did, ever (the `mapicons` dev command reads
+// the difference across one bake): a palette is uploaded once a frame and every
+// later draw with the same buffer reuses the upload.
+struct PaletteStats {
+	u64 uploads = 0; // palettes copied into a frame's upload arena
+	u64 reuses = 0;  // draws that took an upload already made this frame
+};
+
 // Forward 3D pass: one pipeline, per-frame light constants, optional texture
 // and optional GPU skinning per draw.
 class Renderer {
@@ -147,6 +155,11 @@ public:
 	// Draws a mesh; `palette` is empty for static meshes or the skinning
 	// palette for skinned ones. A `transparent` material is queued instead (and
 	// skipped outright in the shadow pass) - see FlushTransparent.
+	// THE PALETTE IS KNOWN BY ITS ADDRESS for the rest of the frame (the upload
+	// cache below), so it must be a buffer that LIVES, and holds one pose, until
+	// the frame ends - an Animator that outlives the frame, never a temporary: a
+	// freed one can hand its address to the next of the same size, which then
+	// draws the first one's pose (code-review C189).
 	void DrawMesh(ID3D12GraphicsCommandList* list, const Mesh& mesh, const Mat4& world,
 				  const MaterialParams& material, std::span<const Mat4> palette = {});
 
@@ -157,6 +170,7 @@ public:
 	// BeginScene drops the leftovers and counts them in Stats().dropped.
 	void FlushTransparent(ID3D12GraphicsCommandList* list);
 	const TransparentStats& Stats() const { return m_transparentStats; }
+	const PaletteStats& Palettes() const { return m_paletteStats; }
 
 	// Call when the device frame index advances (resets that frame's allocator).
 	void NewFrame(u32 frameIndex);
@@ -202,16 +216,19 @@ private:
 	ID3D12PipelineState* m_currentPso = nullptr; // bound PSO, to skip redundant swaps
 	// Skinning palettes uploaded once per frame: a skinned mesh is re-submitted
 	// up to 25x (shadow faces + scene) with the same pose, so cache the upload
-	// keyed by the animator's palette buffer and reuse the GPU address.
+	// keyed by the animator's palette buffer and reuse the GPU address. The key
+	// is that buffer's ADDRESS, which is why DrawMesh's palette must outlive the
+	// frame (every monster's Animator, a kind's icon pose, a preview's own).
 	// Distinct skinned meshes one frame is expected to show. A FLOOR for the
 	// reserve in NewFrame, not a limit — every monster on screen at once, with room.
 	static constexpr size_t kPaletteCacheReserve = 64;
 	std::vector<std::pair<const void*, D3D12_GPU_VIRTUAL_ADDRESS>> m_paletteCache;
+	PaletteStats m_paletteStats;
 
 	// The transparent queue: FIXED capacity, reserved in the constructor, so
 	// queueing and sorting allocate nothing (std::sort on it does not either).
-	// The palette rides as its uploaded GPU address, not a span - an icon bake's
-	// rest-pose animator is a temporary that is gone by the flush.
+	// The palette rides as its uploaded GPU address, not a span: the address is
+	// what the frame's draws share, and the upload is good until the frame ends.
 	struct QueuedDraw {
 		const Mesh* mesh = nullptr;
 		Mat4 world;
