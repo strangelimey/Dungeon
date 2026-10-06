@@ -10,7 +10,7 @@
 // ============================================================================
 #pragma once
 
-#include "Game/CharacterSheet.h" // kBodyH / kStatusH
+#include "Game/CharacterSheet.h" // the panel's em measures (kWEm, kBodyHEm, ...)
 #include "Game/Inventory.h"      // EquipSlot
 #include "Graphics/SpriteBatch.h"
 
@@ -35,9 +35,16 @@ inline float Ay(const gfx::Rect& px, float y) { return px.y + y * px.h; }
 // and a SIZE expressed as an x-fraction against an h-fraction stops being
 // square the moment the panel's aspect changes. That is the same axis-mixing
 // that made the HUD's hand boxes rectangular. So the width fractions of
-// anything SQUARE (doll cells, pack cells, the portrait, the mode buttons) are
-// divided by the growth factor below, which keeps them the pixel size they
-// already were; only the POSITIONS were re-laid.
+// anything square-ish (the portrait, the mode buttons) are divided by the
+// growth factor below, which keeps them the pixel size they already were; only
+// the POSITIONS were re-laid. The SQUARES proper - doll cells, pack cells -
+// are measured in em instead (CharacterSheet::kSlotEm, below), and so are
+// exactly square.
+//
+// The panel's ASPECT is fixed now (code-review C96): GameUI sizes it in the
+// sheet's em (CharacterSheet::kWEm x kBodyHEm + kStatusHEm), not in fractions
+// of the window, so these fractions hold at any window aspect - 16:9, 21:9 and
+// 16:10 lay out the same panel, only its size follows the window's height.
 inline constexpr float kWiden = 0.50f / 0.65f; // old panel width / new
 
 // --- the status bar -----------------------------------------------------------
@@ -46,23 +53,32 @@ inline constexpr float kWiden = 0.50f / 0.65f; // old panel width / new
 // the tabs: every fraction in this file is of the BODY - the panel minus the
 // band - so the tabs keep the exact pixel geometry they had before it existed
 // (CharacterSheet::Body, and its ContentRect, which lays the children out
-// against the same rect). The two heights are WINDOW fractions that GameUI
-// sizes the panel from, so they live on the class (CharacterSheet::kBodyH /
-// kStatusH) and this only derives the split.
+// against the same rect). The two heights are the em measures GameUI sizes the
+// panel from, so they live on the class (CharacterSheet::kBodyHEm /
+// kStatusHEm) and this only derives the split.
 inline constexpr float kBodyFrac =
-	CharacterSheet::kBodyH / (CharacterSheet::kBodyH + CharacterSheet::kStatusH);
+	CharacterSheet::kBodyHEm / (CharacterSheet::kBodyHEm + CharacterSheet::kStatusHEm);
 inline constexpr float kStatusTextRem = 1.1f;  // the bar's text, in rem
 inline constexpr float kStatusGapRem = 0.8f;   // between the name and its line
 
+// --- the squares ---------------------------------------------------------------
+// One square (CharacterSheet::kSlotEm) and one gap (kSlotGapEm) as fractions of
+// the body along each axis: the same em over the panel's width and over its
+// body's height, so a doll cell or a pack cell is square by construction.
+inline constexpr float kSlotW = CharacterSheet::kSlotEm / CharacterSheet::kWEm;
+inline constexpr float kSlotH = CharacterSheet::kSlotEm / CharacterSheet::kBodyHEm;
+inline constexpr float kSlotGapW = CharacterSheet::kSlotGapEm / CharacterSheet::kWEm;
+inline constexpr float kSlotGapH = CharacterSheet::kSlotGapEm / CharacterSheet::kBodyHEm;
+
 // --- shared tab body columns ------------------------------------------------
 inline constexpr float kLeft = 0.055f;
-inline constexpr float kHeaderY = 0.325f;
+inline constexpr float kHeaderY = CharacterSheet::kTabTop;
 inline constexpr float kBodyTop = 0.375f;
 inline constexpr float kEmptyListY = 0.411f;
 
 // --- equipment paper doll ---------------------------------------------------
-inline constexpr float kEquipW = 0.092f * kWiden;
-inline constexpr float kEquipH = 0.129f;
+inline constexpr float kEquipW = kSlotW;
+inline constexpr float kEquipH = kSlotH;
 inline constexpr float kDollStepX = 0.105f * kWiden;
 inline constexpr float kDollStepY = 0.146f;
 struct DollCell {
@@ -85,18 +101,18 @@ inline constexpr int kDollCellCount =
 	static_cast<int>(sizeof(kDollCells) / sizeof(kDollCells[0]));
 
 // --- pack row + backpack grid -----------------------------------------------
-inline constexpr float kPackW = 0.092f * kWiden;
-inline constexpr float kPackH = 0.129f;
-inline constexpr float kPackGapX = 0.013f * kWiden;
-inline constexpr float kPackGapY = 0.018f;
-// COLUMN 2 (of two). Right-aligned to the panel margin, so the grid's own edge
-// is the edge of the content however many columns it grows to.
-inline constexpr float kPackGridW =
-	6.0f * (0.092f * kWiden) + 5.0f * (0.013f * kWiden);
-inline constexpr float kPackX = 1.0f - 0.045f - kPackGridW;
+inline constexpr float kPackW = kSlotW;
+inline constexpr float kPackH = kSlotH;
+inline constexpr float kPackGapX = kSlotGapW;
+inline constexpr float kPackGapY = kSlotGapH;
 // Six across rather than four: the width freed by moving the defense readout
 // out goes to the pack, which is the half of this tab that grows.
 inline constexpr int kPackCols = 6;
+// COLUMN 2 (of two). Right-aligned to the panel margin, so the grid's own edge
+// is the edge of the content however many columns it grows to.
+inline constexpr float kPackGridW =
+	static_cast<float>(kPackCols) * kPackW + static_cast<float>(kPackCols - 1) * kPackGapX;
+inline constexpr float kPackX = 1.0f - 0.045f - kPackGridW;
 inline constexpr float kPackRowY = kBodyTop;
 inline constexpr float kPackSepY = 0.520f;
 inline constexpr float kPackY = 0.536f;
@@ -121,7 +137,7 @@ inline constexpr float kTipIconRem = 2.2f;   // the column-heading item icons
 inline constexpr int kModeCount = 5;
 inline constexpr float kModeBtnW = 0.054f * kWiden;
 inline constexpr float kModeBtnH = 0.076f;
-inline constexpr float kModeBtnGap = 0.006f * kWiden;
+inline constexpr float kModeBtnGap = kModeBtnW * ModeSelector::kGapRatio;
 inline constexpr float kModeBtnX = 0.031f * kWiden;
 inline constexpr float kModeBtnY = 0.236f;
 

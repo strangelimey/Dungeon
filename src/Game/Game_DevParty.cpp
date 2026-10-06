@@ -1314,6 +1314,20 @@ void Game::RegisterPartyCommands() {
 								   m_state == AppState::CharacterSheet ? "open" : "closed",
 								   m, m < m_characters.size() ? m_characters[m].name : "?",
 								   kModes[static_cast<int>(m_ui.SheetMode())]));
+							   // Its SIZE as of the last layout: the window, the
+							   // sheet's floating panel and a backpack cell (slot 0 of
+							   // the selected bag) - square at any window aspect, the
+							   // panel being sized in em (code-review C96).
+							   {
+								   const ui::FloatingPanel* panel = m_ui.HudPanel(kHudSheet);
+								   const gfx::Rect p = panel ? panel->Pixel() : gfx::Rect{};
+								   const gfx::Rect cell =
+									   m_ui.Sheet() ? m_ui.Sheet()->PackSlotRect(0) : gfx::Rect{};
+								   m_console.Print(std::format(
+									   "sheet size: window {}x{} panel {}x{} cell {}x{}", m_window.Width(),
+									   m_window.Height(), std::lround(p.w), std::lround(p.h),
+									   std::lround(cell.w), std::lround(cell.h)));
+							   }
 							   // The status bar, so a script that parks the pointer
 							   // on something can read what it says.
 							   const std::string_view name = m_ui.SheetStatusName();
@@ -1404,6 +1418,7 @@ void Game::RegisterPartyCommands() {
 	// The floating HUD panels (ui-panels P3a, UI/FloatingPanel.h). A harness
 	// moves and scales them through here rather than scripting drags at a
 	// layout that moves under it; bare (or `list`) prints where each one is.
+	// An x below 0 puts a panel back on its default spot.
 	m_console.Register(
 		{.name = "hudpanel",
 		 .group = CmdGroup::Settings,
@@ -1490,7 +1505,7 @@ void Game::RegisterPartyCommands() {
 				const HudPanelField& field = kHudPanelFields[i];
 				if (args[0] != field.id) continue;
 				if (args.size() < 3) {
-					m_console.Refuse("usage: hudpanel <id> <x> <y> [scale] (window fractions)");
+					m_console.Refuse("usage: hudpanel <id> <x> <y> [scale] (window fractions; x < 0 = its default spot)");
 					return;
 				}
 				// Through GameUI, as a corner drag's end (C448): the Settings
@@ -1544,6 +1559,21 @@ void Game::RegisterPartyCommands() {
 												   ? std::string("inventory bar: (empty)")
 												   : std::format("inventory bar: {} | {}", name,
 																 m_ui.InventoryStatusText()));
+							   // On the Inventory tab, member 0's first square beside
+							   // the sheet's at this window's scale - the same size
+							   // (Michael, Phase 6; code-review C96: the card measured
+							   // its squares in the drawn face's em, a tenth larger).
+							   gfx::Rect card;
+							   if (m_ui.InventoryOpen() &&
+								   m_ui.InventoryMode() == CharacterSheet::Mode::Inventory &&
+								   m_ui.InventorySlotRect(0, 0, card) && card.w > 0.0f) {
+								   const ui::FloatingPanel* panel = m_ui.HudPanel(kHudInventory);
+								   const long sheet = std::lround(m_ui.SheetSquarePx() *
+																  (panel ? panel->Scale() : 1.0f));
+								   m_console.Print(std::format("inventory squares: card {}x{} sheet {}x{}",
+															   std::lround(card.w), std::lround(card.h),
+															   sheet, sheet));
+							   }
 							   return;
 						   }
 						   if (!args.empty() && args[0] == "slot") {

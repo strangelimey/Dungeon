@@ -65,6 +65,11 @@ private:
 // The strip of mode buttons; splits itself into even columns.
 class ModeSelector : public ui::Widget {
 public:
+	// The gap between two stones as a share of one stone's width: the strip's
+	// one proportion, so the sheet's strip and the party window's (whose stones
+	// are sized in em) square their stones alike.
+	static constexpr float kGapRatio = 0.006f / 0.054f;
+
 	ModeSelector(const gfx::Rect& rect, int count, const int* activeIndex,
 				 std::function<void(int)> onSelect);
 	// Each mode's etched symbol and its lit twin, in Mode order (null = none).
@@ -194,12 +199,37 @@ private:
 
 class CharacterSheet : public ui::Widget {
 public:
-	// The panel's height as two WINDOW fractions: the tabs, at the height every
-	// layout fraction was authored against, and the status bar under them.
-	// GameUI sizes the panel as their sum; CharacterSheetLayout.h derives the
-	// split from the same two numbers.
-	static constexpr float kBodyH = 0.62f;
-	static constexpr float kStatusH = 0.055f;
+	// THE PANEL'S SIZE, in the sheet's EM (code-review C96). It was WINDOW
+	// fractions - 0.65 of the width, 0.62 + 0.055 of the height - so the panel
+	// took the window's aspect while every fraction in CharacterSheetLayout.h
+	// was tuned at 16:9: a pack cell came out 118x86 px on a 2560x1080 screen
+	// and 88x96 on 1920x1200, and the portrait and tab stones stretched with it.
+	// In em it keeps ONE shape at any aspect and grows with its text (the
+	// window's height and the panel's scale). These are the 16:9 numbers, so a
+	// 16:9 window lays out exactly as before. The em is the DESIGN size the
+	// sheet's context asks the font library for (UIContext::DesignHeight),
+	// before the face's optical scale and the rounding to a whole pixel: it is
+	// continuous in the scale, so a resize can still solve a snap, and a face
+	// swapped live does not resize the panel.
+	// GameUI sizes the panel from these; CharacterSheetLayout.h derives its
+	// split and its squares from them; a CARD derives its measures from them
+	// below - one set of numbers, so the sheet and the cards cannot drift. A
+	// card measures them in the SAME unit, its design em (CardEm, not Em(): the
+	// drawn face is about a tenth taller than the size it is asked at, and
+	// measured in it a card's squares came out 79 px to the sheet's 73).
+	static constexpr float kWEm = 47.27f;      // the panel's width
+	static constexpr float kBodyHEm = 25.36f;  // the tabs
+	static constexpr float kStatusHEm = 2.25f; // the status band under them
+	// Where a tab's body starts, as a fraction of the BODY: the band above holds
+	// the portrait, the name and the tab stones (CharacterSheetLayout.h's
+	// kHeaderY - here, so a card can derive its tab area from it).
+	static constexpr float kTabTop = 0.325f;
+	// The SQUARES - a backpack slot, a pack-row bag, a doll cell - and the gap
+	// between two of them. CharacterSheetLayout.h turns them into fractions of
+	// the panel along each axis, so a square comes out square; a card's
+	// Inventory tab lays its squares out in them directly.
+	static constexpr float kSlotEm = 3.3f;
+	static constexpr float kSlotGapEm = 0.47f;
 
 	// A CARD (more-ui-updates Phase 5, the party window): the same sheet, one
 	// per member, showing only the TAB - no portrait, no tab stones, no status
@@ -208,27 +238,26 @@ public:
 	// at card size, and every fraction in CharacterSheetLayout.h still holds:
 	// Body() is that area stretched back to a whole sheet body, its top above
 	// the card. These are its measures in the card's own em; the window sets
-	// the card's fontScale, which is what makes them small.
-	static constexpr float kCardWEm = 47.0f;    // the sheet's width at 16:9
-	static constexpr float kCardNameEm = 2.2f;  // the name band
-	static constexpr float kCardTabEm = 17.1f;  // (1 - kHeaderY) of the sheet's body
+	// the card's fontScale, which is what makes them small. "The card's em"
+	// here is CardEm(), the design size that fontScale asks for.
+	static constexpr float kCardWEm = kWEm;                          // the sheet's width
+	static constexpr float kCardNameEm = 2.2f;                       // the name band
+	static constexpr float kCardTabEm = (1.0f - kTabTop) * kBodyHEm; // the tab under it
 	// A card's INVENTORY tab is its own layout (Phase 6, Michael: "keep the
 	// backpack squares the same size as they are in the regular backpack"): no
 	// paper doll, the carry load beside the name, then the pack row over the
-	// selected bag's contents, six across - at the SHEET'S em (the window sets
-	// the card's fontScale to it on this tab), so a square is the sheet's size.
+	// selected bag's contents, six across - in the sheet's own squares (kSlotEm),
+	// at the SHEET'S em (the window sets the card's fontScale to it on this tab).
 	static constexpr float kCardInvPadEm = 0.8f;
-	static constexpr float kCardSlotEm = 3.3f;     // the sheet's kPackW / kPackH
-	static constexpr float kCardSlotGapEm = 0.47f; // its kPackGapX / kPackGapY
 	static constexpr float kCardInvSepEm = 0.8f;   // pack row to contents
 	static constexpr int kCardInvCols = 6;
 	static constexpr float kCardInvWEm =
-		2.0f * kCardInvPadEm + kCardInvCols * kCardSlotEm + (kCardInvCols - 1) * kCardSlotGapEm;
+		2.0f * kCardInvPadEm + kCardInvCols * kSlotEm + (kCardInvCols - 1) * kSlotGapEm;
 	// A card's height on the Inventory tab with `rows` rows of contents.
 	static constexpr float CardInventoryHEm(int rows) {
-		return kCardNameEm + kCardSlotGapEm + kCardSlotEm + kCardInvSepEm +
-			   static_cast<float>(rows) * kCardSlotEm +
-			   static_cast<float>(rows > 0 ? rows - 1 : 0) * kCardSlotGapEm + kCardInvPadEm;
+		return kCardNameEm + kSlotGapEm + kSlotEm + kCardInvSepEm +
+			   static_cast<float>(rows) * kSlotEm +
+			   static_cast<float>(rows > 0 ? rows - 1 : 0) * kSlotGapEm + kCardInvPadEm;
 	}
 	CharacterSheet(const gfx::Rect& rect, std::vector<Character>* roster,
 				   const ResourceBarStyle* barStyle, const ItemIconBank* icons,
@@ -236,6 +265,13 @@ public:
 				   const ItemCategoryBank* categories,
 				   HeldItem* held, bool card = false);
 	bool IsCard() const { return m_card; }
+	// A CARD'S EM, the unit its frame is measured in: the DESIGN size its text
+	// is asked at (its context's DesignHeight x its fontScale), before the
+	// face's optical scale and the rounding to a whole pixel - the unit the
+	// sheet's own panel is sized in (GameUI::SheetWindowSize), so a card's
+	// bands and squares come out the sheet's. Em() is the drawn face's height.
+	// As of the last layout.
+	float CardEm(float n = 1.0f) const { return m_cardEm * n; }
 	size_t Member() const { return m_member; }
 
 	// Re-points the sheet at roster member `member` (mutable, for inventory
@@ -263,7 +299,8 @@ public:
 	std::string_view StatusText() const { return m_statusText.View(); }
 	const Vec4& StatusColor() const { return m_statusColor; }
 	// Where pack slot `i` of the shown member's selected bag is, in pixels, as
-	// of the last layout (Inventory tab). For the dev readout a harness aims by.
+	// of the last layout (Inventory tab). For the dev readout a harness aims by
+	// (and `sheet status` prints slot 0's size: a square, at any window aspect).
 	gfx::Rect PackSlotRect(int i) const { return PackRect(Body(), i); }
 	// The Skills tab's skill rows (headings skipped) as of the last layout:
 	// each one's skill id and on-screen rect, in list order. For the same
@@ -471,6 +508,7 @@ private:
 	std::vector<Character>* m_roster;
 	size_t m_member = 0;
 	bool m_card = false; // a party-window card (see kCardWEm)
+	float m_cardEm = 16.0f; // CardEm(), refreshed every layout
 	// Re-resolved from (m_roster, m_member) at the top of every Update/Draw
 	// (see CharacterPanel); the body helpers null-check it.
 	Character* m_character = nullptr;

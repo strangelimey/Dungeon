@@ -40,8 +40,8 @@ gfx::Rect CharacterSheet::EquipRect(const gfx::Rect& px, int i) const {
 // card's proportion of it.
 namespace {
 gfx::Rect CardSquare(const gfx::Rect& card, float em, int col, int row, float top) {
-	const float s = CharacterSheet::kCardSlotEm * em;
-	const float step = s + CharacterSheet::kCardSlotGapEm * em;
+	const float s = CharacterSheet::kSlotEm * em;
+	const float step = s + CharacterSheet::kSlotGapEm * em;
 	return {card.x + CharacterSheet::kCardInvPadEm * em + static_cast<float>(col) * step,
 			top + static_cast<float>(row) * step, s, s};
 }
@@ -50,8 +50,8 @@ gfx::Rect CardSquare(const gfx::Rect& card, float em, int col, int row, float to
 gfx::Rect CharacterSheet::PackRect(const gfx::Rect& px, int i) const {
 	if (m_card) {
 		const gfx::Rect& card = Pixel();
-		const float top = card.y + Em(kCardNameEm + kCardSlotGapEm + kCardSlotEm + kCardInvSepEm);
-		return CardSquare(card, Em(), i % kCardInvCols, i / kCardInvCols, top);
+		const float top = card.y + CardEm(kCardNameEm + kSlotGapEm + kSlotEm + kCardInvSepEm);
+		return CardSquare(card, CardEm(), i % kCardInvCols, i / kCardInvCols, top);
 	}
 	const float x =
 		kPackX + static_cast<float>(i % kPackCols) * (kPackW + kPackGapX);
@@ -62,7 +62,7 @@ gfx::Rect CharacterSheet::PackRect(const gfx::Rect& px, int i) const {
 gfx::Rect CharacterSheet::PackRowRect(const gfx::Rect& px, int i) const {
 	if (m_card) {
 		const gfx::Rect& card = Pixel();
-		return CardSquare(card, Em(), i, 0, card.y + Em(kCardNameEm + kCardSlotGapEm));
+		return CardSquare(card, CardEm(), i, 0, card.y + CardEm(kCardNameEm + kSlotGapEm));
 	}
 	const float x = kPackX + static_cast<float>(i) * (kPackW + kPackGapX);
 	return At(px, x, kPackRowY, kPackW, kPackH);
@@ -275,7 +275,7 @@ void CharacterSheet::DrawInventory(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 		const gfx::Rect& card = Pixel();
 		const float right = PackRect(px, kCardInvCols - 1).x + PackRect(px, kCardInvCols - 1).w;
 		font.Draw(batch, loadText, right - font.MeasureWidth(loadText),
-				  card.y + (Em(kCardNameEm) - font.Height()) * 0.5f, loadColor);
+				  card.y + (CardEm(kCardNameEm) - font.Height()) * 0.5f, loadColor);
 	} else {
 		font.Draw(batch, loadText, Ax(px, kPackX), Ay(px, kHeaderY), loadColor);
 	}

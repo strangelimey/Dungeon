@@ -359,6 +359,10 @@ public:
 	std::string_view InventoryStatusName() const;
 	std::string_view InventoryStatusText() const;
 	bool InventorySlotRect(size_t member, int slot, gfx::Rect& out) const;
+	// A backpack square of the SHEET at its current size (the sheet's design em
+	// x kSlotEm, what its PackSlotRect comes out at) - so `inventory status`
+	// can set a card's square beside it (code-review C96).
+	float SheetSquarePx() const { return CharacterSheet::kSlotEm * m_sheetUi.DesignHeight(); }
 	// And for AllocTest -All: how often it has opened, where its tab stone `i`
 	// is, and where the sheet's "All" button is (empty rects when not laid out).
 	unsigned InventoryOpens() const;
@@ -710,6 +714,11 @@ private:
 	// strip, in pixels.
 	float TrayTop(ui::UIContext& ctx) const;
 	float DockColumnTop(ui::UIContext& ctx) const;
+	// The character sheet's window, sized in its em (code-review C96): the scale
+	// it really takes at panel scale `s` in a `w` x `h` window (no more than
+	// fits), and its size in pixels there.
+	float SheetFitScale(float s, float w, float h) const;
+	Vec2 SheetWindowSize(ui::UIContext& ctx, float s) const;
 	void SyncHudPanelSliders();
 	void SyncHudPanelSlidersIfStale();
 	void DrawLoadProgress(const LoadQueue& queue, float barY); // shared bar

@@ -1472,7 +1472,10 @@ function Get-SheetPacks {
 # -Sheet run's calibration (backpack slots 3 and 4 at 0.6675 / 0.72 of the
 # width, 0.5033 of the height): a slot step of 0.0525 of the width, and the
 # pack row 0.161 of the sheet BODY above the grid (CharacterSheetLayout.h:
-# kPackY - kPackRowY), the body being 0.62 of the window's height (kBodyH).
+# kPackY - kPackRowY), the body being 0.62 of the window's height. The sheet is
+# sized in em now (CharacterSheet::kWEm x kBodyHEm, code-review C96), which is
+# those fractions in a 16:9 window - the harness's - and only there. Each point
+# lands within a few pixels of its cell's centre (a cell is ~73 px at 900p).
 function Get-SheetGridPoint([int]$i) {
 	return [pscustomobject]@{
 		X = [int]($script:clientW * (0.51 + ($i % 6) * 0.0525))
@@ -2470,8 +2473,9 @@ try {
 		if (-not (Wait-LogMatch 'console: sheet open: ')) {
 			throw 'the sheet did not open'
 		}
-		# Where the two cells are, from the window's own size (the sheet lays out
-		# in fractions of it): backpack slots 3 and 4 of the default layout.
+		# Where the two cells are, from the window's own size (the sheet is sized
+		# in em - its height - which in this 16:9 window is these fractions of
+		# it): backpack slots 3 and 4 of the default layout.
 		$rc = New-Object HarnessWin+RECT
 		[HarnessWin]::GetClientRect($hwnd, [ref]$rc) | Out-Null
 		$script:runeX = [int]($rc.Right * 0.6675); $script:bladeX = [int]($rc.Right * 0.72)

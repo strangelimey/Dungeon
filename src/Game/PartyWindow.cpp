@@ -3,6 +3,7 @@
 //
 // Laid out in the cards' em (CardEm): the chrome around the cards, and the
 // panel's own size (SizeForEm), so the window keeps its shape at any scale.
+// A DESIGN em, the sheet's unit (CharacterSheet::kWEm), never a face height.
 // ============================================================================
 #include "Game/PartyWindow.h"
 
@@ -40,9 +41,12 @@ int PartyWindow::InventoryRows() const {
 Vec2 PartyWindow::PanelSize(ui::UIContext& ctx, float s, float em,
 							CharacterSheet::Mode mode) const {
 	if (mode != CharacterSheet::Mode::Inventory || !squareDesign) return SizeForEm(em);
-	// The chrome stays in the window's card em; the cards are the squares'.
+	// The chrome stays in the window's card em; the cards are the squares',
+	// which are the SHEET'S design em at this panel's scale - the unit the
+	// sheet's own squares are measured in (not the drawn face's height, a
+	// tenth larger).
 	const float k = em * kCardScale;
-	const float sq = ctx.FontAt(ctx.RootRole(), squareDesign() * s).Height();
+	const float sq = squareDesign() * s;
 	const float w = (2.0f * kPadEm + kGapEm) * k + 2.0f * CharacterSheet::kCardInvWEm * sq;
 	const float h = (2.0f * kPadEm + kTabEm + 2.0f * kGapEm + kStatusEm) * k +
 					2.0f * CharacterSheet::CardInventoryHEm(InventoryRows()) * sq;
@@ -86,10 +90,14 @@ void PartyWindow::SetModeEtches(std::span<const gfx::Texture* const> etch,
 	if (m_strip) m_strip->SetEtches(etch, lit);
 }
 
+float PartyWindow::CardEm(const ui::UIContext& ctx) const {
+	return ctx.DesignHeight() * (m_panel ? m_panel->Scale() : 1.0f) * kCardScale;
+}
+
 void PartyWindow::LayoutSelf(ui::UIContext& ctx) {
 	const gfx::Rect& px = Pixel();
 	if (px.w <= 0.0f || px.h <= 0.0f) return;
-	const float k = CardEm();
+	const float k = CardEm(ctx);
 	const float pad = kPadEm * k, gap = kGapEm * k;
 	const auto frac = [&](float x, float y, float w, float h) {
 		return gfx::Rect{x / px.w, y / px.h, w / px.w, h / px.h};
@@ -151,7 +159,7 @@ void PartyWindow::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 
 	// The status line, as the sheet draws its own: a rule, the name in its
 	// colour, then the line about it.
-	const float k = CardEm();
+	const float k = CardEm(ctx);
 	const float pad = kPadEm * k;
 	const gfx::Rect band{px.x + pad, px.y + px.h - pad - kStatusEm * k, px.w - 2.0f * pad,
 						 kStatusEm * k};

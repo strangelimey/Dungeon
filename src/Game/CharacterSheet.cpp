@@ -178,7 +178,9 @@ void CharacterSheet::StepMode(int delta) {
 }
 
 // Only the active tab's list takes part in the walk.
-void CharacterSheet::LayoutSelf(ui::UIContext&) {
+void CharacterSheet::LayoutSelf(ui::UIContext& ctx) {
+	// A card's fontScale is set by its window, absolute (PartyWindow::LayoutSelf).
+	m_cardEm = ctx.DesignHeight() * fontScale.value_or(1.0f);
 	m_modeIndex = static_cast<int>(m_mode);
 	const Mode listModes[] = {Mode::Skills, Mode::Spells, Mode::Effects};
 	for (size_t n = 0; n < m_lists.size(); ++n)
@@ -237,13 +239,13 @@ void CharacterSheet::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 		batch.DrawRect(card, {0.0f, 0.0f, 0.0f, 0.22f});
 		ui::DrawBorder(batch, card, theme.panelBorder);
 		if (!m_character) return;
-		const ui::Font& nameFont = ctx.FontAt(ui::FontRole::Display, Em(1.5f));
-		const float band = Em(kCardNameEm);
+		const ui::Font& nameFont = ctx.FontAt(ui::FontRole::Display, CardEm(1.5f));
+		const float band = CardEm(kCardNameEm);
 		// On the Inventory tab the name lines up with the squares (em from the
 		// card's corner); elsewhere with the tab's own left margin.
 		const bool squares = m_mode == Mode::Inventory;
-		const float left = squares ? card.x + Em(kCardInvPadEm) : Ax(px, kLeft);
-		const float right = squares ? card.x + card.w - Em(kCardInvPadEm) : Ax(px, 1.0f - kLeft);
+		const float left = squares ? card.x + CardEm(kCardInvPadEm) : Ax(px, kLeft);
+		const float right = squares ? card.x + card.w - CardEm(kCardInvPadEm) : Ax(px, 1.0f - kLeft);
 		nameFont.Draw(batch, m_character->name, left,
 					  card.y + (band - nameFont.Height()) * 0.5f, theme.accent);
 		const Vec4& c = m_character->portraitColor;
@@ -368,10 +370,10 @@ ModeSelector::ModeSelector(const gfx::Rect& rect, int count,
 						   std::function<void(int)> onSelect) {
 	bounds = rect;
 	debugName = "ModeSelector";
-	// Even columns with the authored gap, as fractions of the strip.
+	// Even columns with the strip's gap ratio, as fractions of the strip: with
+	// a stone 1 and a gap kGapRatio wide, the strip is span + (span - 1) gaps.
 	const float span = static_cast<float>(count);
-	const float gap = sheet::kModeBtnGap / (span * sheet::kModeBtnW +
-										   (span - 1.0f) * sheet::kModeBtnGap);
+	const float gap = kGapRatio / (span + (span - 1.0f) * kGapRatio);
 	const float w = (1.0f - gap * (span - 1.0f)) / span;
 	for (int i = 0; i < count; ++i)
 		m_buttons.push_back(

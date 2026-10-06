@@ -78,6 +78,18 @@ constexpr float kTitleFontH = 64.0f;
 // interactive resize drag doesn't drain the GPU on every size change.
 constexpr float kFontSettleDelay = 0.25f;
 
+// The character sheet's floating window, in the sheet's em (code-review C96 -
+// see CharacterSheet::kWEm): the card, then a row of buttons under it - the
+// member arrows at either end and "All" beside the left one. The 16:9 numbers,
+// so a 16:9 window lays it out as it always did.
+constexpr float kSheetCardHEm = CharacterSheet::kBodyHEm + CharacterSheet::kStatusHEm;
+constexpr float kSheetBtnGapEm = 0.82f; // the card to the button row
+constexpr float kSheetBtnHEm = 1.84f;
+constexpr float kSheetBtnWEm = 3.64f;   // an arrow box
+constexpr float kSheetAllXEm = 4.36f, kSheetAllWEm = 5.82f;
+constexpr float kSheetWindowWEm = CharacterSheet::kWEm;
+constexpr float kSheetWindowHEm = kSheetCardHEm + kSheetBtnGapEm + kSheetBtnHEm;
+
 // The chrome every menu-style page draws above its own widgets: the big title,
 // then the subtitle a line under it. Both the landing page and the pause
 // overlay draw them, so the positions live HERE rather than being repeated at
@@ -1193,27 +1205,20 @@ void GameUI::DisarmOverwrite() {
 // Esc) resumes play. Unlike the pause menu it is NOT a pause: over a level
 // the world keeps running under it (Game::Update's CharacterSheet case).
 void GameUI::BuildCharacterSheet() {
-	// Parent-relative layout (fractions of the window) — no design-pixel Norm.
-	// Centered panel, slightly above geometric center so the footer buttons fit.
-	// 30% wider than it was, so the backpack tab has room for three real
-	// columns: paper doll, defense numbers, backpack (CharacterSheetLayout.h
-	// kWiden, which keeps the square cells square through the change).
-	constexpr float kSheetW = 0.65f;
-	// The tabs plus the status bar beneath them (the sheet owns the split, so it
-	// can keep its tabs at the height they were authored at).
-	constexpr float kSheetH = CharacterSheet::kBodyH + CharacterSheet::kStatusH;
-	constexpr float kSheetX = (1.0f - kSheetW) * 0.5f;
-	constexpr float kSheetY = (1.0f - kSheetH) * 0.5f - 0.03f;
-	// The member arrows and "All" sit in a row under the card, inside the window.
-	constexpr float kBtnGap = 0.02f, kBtnH = 0.045f, kBtnW = 0.05f;
-	constexpr float kWindowH = kSheetH + kBtnGap + kBtnH;
+	// SIZED IN THE SHEET'S EM (code-review C96), not in fractions of the window:
+	// the panel keeps the one shape every layout fraction in
+	// CharacterSheetLayout.h was tuned at, on a 16:9, 21:9 or 16:10 window alike,
+	// and grows with its text (SheetWindowSize). The tabs plus the status bar
+	// beneath them (the sheet owns that split, so it can keep its tabs at the
+	// height they were authored at), then the button row.
 
 	// A FLOATING WINDOW (ui-panels P3b): the card and its button row are one
 	// panel the player moves (by the title band right of the portrait, the gap
 	// above the buttons, or the move grip) and scales (the corner grip). Its
 	// scale is the SHEET CONTEXT'S root font size (UpdateFonts), so rem itself
 	// moves and every tab's rem-sized detail follows - not a fontScale on top.
-	// Capped at 1.3: past it the window would outgrow a 16:9 screen.
+	// Capped at 1.3: past it the window would outgrow a 16:9 screen - and on a
+	// narrower one it takes no more than fits (SheetFitScale).
 	auto* layer = m_sheetUi.Add<ui::FloatingLayer>();
 	layer->bounds = {0, 0, 1, 1};
 	layer->onResetAll = [this] { ResetHudLayout(); };
@@ -1231,17 +1236,19 @@ void GameUI::BuildCharacterSheet() {
 	window->scalesText = false;
 	window->locked = &m_settings.hudLocked;
 	window->onChanged = [this] { OnHudPanelMoved(); };
-	window->size = [](ui::UIContext& ctx, float s) {
-		return Vec2{kSheetW * s * ctx.Width(), kWindowH * s * ctx.Height()};
-	};
-	window->defaultPos = [](ui::UIContext& ctx) {
-		return Vec2{kSheetX * ctx.Width(), kSheetY * ctx.Height()};
+	window->size = [this](ui::UIContext& ctx, float s) { return SheetWindowSize(ctx, s); };
+	// Centred - the card and its button row together, which leaves the card a
+	// little above the window's middle.
+	window->defaultPos = [this, window](ui::UIContext& ctx) {
+		const Vec2 size = SheetWindowSize(ctx, window->Scale());
+		return Vec2{(ctx.Width() - size.x) * 0.5f, (ctx.Height() - size.y) * 0.5f};
 	};
 	m_hudPanels[kHudSheet] = window;
 
 	// Added FIRST so the buttons below it update on top (and consume their clicks
-	// before the sheet's slot hit-testing).
-	m_sheet = window->Add<CharacterSheet>(gfx::Rect{0, 0, 1, kSheetH / kWindowH},
+	// before the sheet's slot hit-testing). The panel's shape is fixed in em, so
+	// fractions of it are too.
+	m_sheet = window->Add<CharacterSheet>(gfx::Rect{0, 0, 1, kSheetCardHEm / kSheetWindowHEm},
 										  &m_characters,
 											&m_barStyle, m_itemIcons,
 											m_itemWeights, m_slotIcons,
@@ -1290,10 +1297,11 @@ void GameUI::BuildCharacterSheet() {
 						 : std::span<const std::unique_ptr<Spell>>{};
 	};
 
-	// The button row, in fractions of the window panel (authored as fractions
-	// of the game window, divided through the panel's own extents).
-	constexpr float btnY = (kSheetH + kBtnGap) / kWindowH, btnH = kBtnH / kWindowH;
-	constexpr float btnW = kBtnW / kSheetW;
+	// The button row, in fractions of the window panel (its em measures divided
+	// through the panel's own).
+	constexpr float btnY = (kSheetCardHEm + kSheetBtnGapEm) / kSheetWindowHEm;
+	constexpr float btnH = kSheetBtnHEm / kSheetWindowHEm;
+	constexpr float btnW = kSheetBtnWEm / kSheetWindowWEm;
 	// Previous / next member: the square arrow boxes (tools/BuildToolIcons.py),
 	// loaded HERE rather than in a load task for the close box's reason above;
 	// the "<" / ">" text shows only if the art is missing.
@@ -1306,7 +1314,8 @@ void GameUI::BuildCharacterSheet() {
 		onOpenSheet((m_sheetIndex + 1) % m_characters.size());
 	})->icon = ToolbarIcon(m_device, "box_right");
 	// "All" → the party window, every member on this tab (Game/PartyWindow.h).
-	m_sheetAll = window->Add<ui::Button>(gfx::Rect{0.06f / kSheetW, btnY, 0.08f / kSheetW, btnH},
+	m_sheetAll = window->Add<ui::Button>(gfx::Rect{kSheetAllXEm / kSheetWindowWEm, btnY,
+												   kSheetAllWEm / kSheetWindowWEm, btnH},
 							loc::Tr("ui.inv_all"), [this] {
 								Click();
 								if (onShowPartyInventory) onShowPartyInventory();
@@ -1316,7 +1325,9 @@ void GameUI::BuildCharacterSheet() {
 	// sheet, the way the editor dialogs reserve one: floated over the panel as a
 	// sibling it sat on top of it, which is a widget claiming an area it does
 	// not own however deliberate the corner looks.
-	constexpr float kCloseW = 0.0525f, kCloseH = 0.0717f; // ~42x40px of the sheet
+	// Fractions of the sheet's BODY (its ContentRect): about 2.5 x 1.8 em, and
+	// the icon squares itself to the smaller side.
+	constexpr float kCloseW = 0.0525f, kCloseH = 0.0717f;
 	auto* closeSlot = m_sheet->Add<ui::Box>(
 		gfx::Rect{1.0f - kCloseW - 0.016f, 0.013f, kCloseW, kCloseH});
 	closeSlot->debugName = "close";
@@ -1328,6 +1339,26 @@ void GameUI::BuildCharacterSheet() {
 	// updates first and its popup draws over everything.
 	m_sheetMenu = m_sheetUi.Add<ui::ContextMenu>();
 	m_sheetMenu->onPick = [this](int id) { OnUseMenuPick(id); };
+}
+
+// The sheet window takes scale `s` - but no more than fits a `w` x `h` window.
+// Sized in em, it would outgrow a narrow window (4:3) below the scale's cap,
+// and squeezed to the window by the floating layer instead it would take the
+// window's aspect again - the stretch code-review C96 removed. UpdateFonts sizes
+// the sheet's text by the same answer, so the text shrinks with the panel.
+float GameUI::SheetFitScale(float s, float w, float h) const {
+	const float em = kSheetFontH * m_fontScale; // the sheet's em at scale 1
+	if (em <= 0.0f || w <= 0.0f || h <= 0.0f) return s;
+	return std::min(s, std::min(w / (kSheetWindowWEm * em), h / (kSheetWindowHEm * em)));
+}
+
+// The sheet window's size at panel scale `s`: its em measures times the em its
+// context's text is asked at (UpdateFonts) - the design size, not the rounded
+// face height, so the size is continuous in the scale and a resize can solve a
+// snap.
+Vec2 GameUI::SheetWindowSize(ui::UIContext& ctx, float s) const {
+	const float em = kSheetFontH * m_fontScale * SheetFitScale(s, ctx.Width(), ctx.Height());
+	return {kSheetWindowWEm * em, kSheetWindowHEm * em};
 }
 
 // Rebuilds every page in the active language (loc:: was just reloaded). The
@@ -1917,15 +1948,17 @@ void GameUI::BuildHud() {
 	ui::FloatingPanel* inventoryPanel = makePanel(kHudInventory, "InventoryPanel");
 	// Its size follows the TAB (Phase 6): the Inventory cards carry the sheet's
 	// own squares, so the window grows on that tab and shrinks back after.
-	inventoryPanel->size = [this, inventoryPanel](ui::UIContext& ctx, float s) {
-		const float em = inventoryPanel->EmAt(ctx, s);
+	// In the DESIGN em (PartyWindow::SizeForEm), the sheet's unit - not EmAt,
+	// the drawn face's height.
+	inventoryPanel->size = [this](ui::UIContext& ctx, float s) {
+		const float em = ctx.DesignHeight() * s;
 		return m_inventory ? m_inventory->PanelSize(ctx, s, em, m_inventory->CurrentMode())
 						   : PartyWindow::SizeForEm(em);
 	};
 	// Centred at its OTHER-tabs size, so its top-left - and with it the row of
 	// tab stones - stays put while the size changes under a tab switch.
 	inventoryPanel->defaultPos = [inventoryPanel](ui::UIContext& ctx) {
-		const Vec2 size = PartyWindow::SizeForEm(inventoryPanel->EmAt(ctx, inventoryPanel->Scale()));
+		const Vec2 size = PartyWindow::SizeForEm(ctx.DesignHeight() * inventoryPanel->Scale());
 		return Vec2{(ctx.Width() - size.x) * 0.5f, (ctx.Height() - size.y) * 0.5f};
 	};
 	inventoryPanel->shownWhen = [this] { return m_inventory && m_inventory->IsOpen(); };
@@ -2128,8 +2161,10 @@ void GameUI::SetHudLayout(int layout) {
 void GameUI::PlaceHudPanel(size_t index, float x, float y, float scale) {
 	if (index >= std::size(kHudPanelFields)) return;
 	HudPanelLook& look = m_settings.*(kHudPanelFields[index].look);
-	look.x = std::clamp(x, 0.0f, 1.0f);
-	look.y = std::clamp(y, 0.0f, 1.0f);
+	// x < 0 hands the panel back to its default spot (a saved spot < 0 is
+	// "default"), so a harness that moved one can put it back as it found it.
+	look.x = x < 0.0f ? -1.0f : std::clamp(x, 0.0f, 1.0f);
+	look.y = x < 0.0f ? -1.0f : std::clamp(y, 0.0f, 1.0f);
 	if (scale >= 0.0f) look.scale = std::clamp(scale, 0.5f, 1.5f); // the slider's range
 	OnHudPanelMoved();
 }
@@ -2227,8 +2262,11 @@ void GameUI::UpdateFonts(float dt) {
 	m_savesUi.UseFont(ui::FontRole::Body, kMenuFontH * m_fontScale);
 	// The sheet is a floating window whose scale IS its context's root font
 	// size (BuildCharacterSheet): the panel's clamped scale, so a slider set
-	// past the sheet's cap scales the text no further than the window.
-	const float sheetScale = m_hudPanels[kHudSheet] ? m_hudPanels[kHudSheet]->Scale() : 1.0f;
+	// past the sheet's cap scales the text no further than the window - and no
+	// further than the window fits (SheetFitScale, the panel's own answer).
+	const float windowW = static_cast<float>(m_window.Width());
+	const ui::FloatingPanel* sheetPanel = m_hudPanels[kHudSheet];
+	const float sheetScale = sheetPanel ? SheetFitScale(sheetPanel->Scale(), windowW, windowH) : 1.0f;
 	m_sheetUi.UseFont(ui::FontRole::Body, kSheetFontH * m_fontScale * sheetScale);
 	m_confirmUi.UseFont(ui::FontRole::Body, kMenuFontH * m_fontScale);
 	m_titleFont = &m_fonts.Get(ui::FontRole::Display, kTitleFontH * m_fontScale);

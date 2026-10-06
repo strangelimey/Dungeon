@@ -79,7 +79,7 @@ gfx::Rect CharacterSheet::Body() const {
 		// The card shows only the TAB part of a body - kHeaderY down - under its
 		// name band, so the body it resolves against is that part stretched back
 		// to a whole one, its top (where the portrait would be) above the card.
-		const float top = px.y + Em(kCardNameEm);
+		const float top = px.y + CardEm(kCardNameEm);
 		const float h = std::max(px.y + px.h - top, 0.0f) / (1.0f - kHeaderY);
 		return {px.x, top - kHeaderY * h, px.w, h};
 	}

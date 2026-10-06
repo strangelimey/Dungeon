@@ -177,9 +177,11 @@ $titleSave = "igt_titlesaved_$worktreeTag"
 
 # The game window's CLIENT area, read and resized from here as dragging its edge
 # would resize it (WM_SIZE: the swapchain and the fonts follow). For the hand
-# menu sweep's sub-900p window. ASYNC, so a game that stopped pumping messages
-# cannot hang the run; the pause lets the fonts settle (0.25 s) before the next
-# command. Its own type, not HarnessWin, which is shared with other harnesses.
+# menu sweep's sub-900p window and the sheet's ultrawide and 16:10 ones (each
+# row puts the window back in its close step). ASYNC, so a game that stopped
+# pumping messages cannot hang the run; the pause lets the fonts settle (0.25 s)
+# before the next command. Its own type, not HarnessWin, which is shared with
+# other harnesses.
 if (-not ([System.Management.Automation.PSTypeName]'IgtWin').Type) {
 	Add-Type @'
 using System;
@@ -206,6 +208,26 @@ function Set-ClientSize([int]$w, [int]$h) {
 	# SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS.
 	[IgtWin]::SetWindowPos($hwnd, [IntPtr]::Zero, 0, 0, $cx, $cy, 0x4016) | Out-Null
 	Start-Sleep -Milliseconds 800
+}
+# The sheet panel's saved spot and scale, from `hudpanel list` - what a row that
+# places it puts back afterwards (settings.ini keeps a placement). Returns the
+# `hudpanel sheet` arguments that restore it: "-1 -1 <scale>" for the default
+# spot, else "<x> <y> <scale>".
+function Get-SheetLook {
+	$pattern = '^\[info \] console:\s+sheet\s+\S+\s+px .* saved (default|[\d.]+,[\d.]+)\s+scale ([\d.]+)'
+	$before = @(Select-String -Path $log -Pattern $pattern).Count
+	Run-Quick 'hudpanel list'
+	$deadline = (Get-Date).AddSeconds(5)
+	while ((Get-Date) -lt $deadline) {
+		$lines = @(Select-String -Path $log -Pattern $pattern)
+		if ($lines.Count -gt $before) {
+			$m = $lines[-1].Matches[0]
+			$spot = if ($m.Groups[1].Value -eq 'default') { '-1 -1' } else { $m.Groups[1].Value -replace ',', ' ' }
+			return "$spot $($m.Groups[2].Value)"
+		}
+		Start-Sleep -Milliseconds 200
+	}
+	throw 'the console never listed the sheet panel (hudpanel list)'
 }
 
 # THE ETCHED GOLD (code-review C204): the material the movement pad is shown and
@@ -396,13 +418,58 @@ $screens = @(
 	   open = { Run-Cmd 'sheet 0'; Run-Cmd 'portrait picker 0' }
 	   close = { Run-Cmd 'portrait picker off'; Run-Cmd 'sheet off' }
 	   status = @((Logged 'portrait picker: open for \w+\s*$'), (Answer 'picker open ')) },
+	# The SHEET IN AN ULTRAWIDE AND A 16:10 WINDOW (code-review C96). It took the
+	# window's aspect while its layout was tuned at 16:9, so a backpack cell came
+	# out 118x86 px at 2560x1080 and 88x96 at 1920x1200; sized in em now, it
+	# keeps one shape. Each row's status is `sheet status` reading a SQUARE cell
+	# (slot 0 of the selected bag, rounded to whole pixels) in a window of
+	# exactly that size - a resize the desktop refused would prove nothing.
+	@{ label = 'sweep_sheetwide'; state = 'sheet'; viaConsole = $true
+	   open = { $script:clientBefore = Get-ClientSize; Set-ClientSize 2560 1080; Run-Cmd 'sheet 0' }
+	   close = { Run-Cmd 'sheet off'; Set-ClientSize $script:clientBefore[0] $script:clientBefore[1] }
+	   probe = @('sheet status')
+	   status = @((Answer 'sheet: open member 0 '),
+				  (Answer 'sheet size: window 2560x1080 panel [1-9]\d*x[1-9]\d* cell ([1-9]\d*)x\1\s*$')) },
+	@{ label = 'sweep_sheet1610'; state = 'sheet'; viaConsole = $true
+	   open = { $script:clientBefore = Get-ClientSize; Set-ClientSize 1920 1200; Run-Cmd 'sheet 0' }
+	   close = { Run-Cmd 'sheet off'; Set-ClientSize $script:clientBefore[0] $script:clientBefore[1] }
+	   probe = @('sheet status')
+	   status = @((Answer 'sheet: open member 0 '),
+				  (Answer 'sheet size: window 1920x1200 panel [1-9]\d*x[1-9]\d* cell ([1-9]\d*)x\1\s*$')) },
+	# ...and a sheet scaled past what its window FITS: at scale 1.3 in 1024x768 it
+	# wants 1154 px across, and the floating layer's clamp, which squeezes each
+	# axis on its own, would put the window's aspect back (a 71x81 cell).
+	# GameUI::SheetFitScale takes the scale that fits instead; the status is a
+	# square cell in a panel no wider than the window. The sheet's saved spot and
+	# scale are put back as found.
+	@{ label = 'sweep_sheetfit'; state = 'sheet'; viaConsole = $true
+	   open = {
+		   $script:clientBefore = Get-ClientSize
+		   $script:sheetLook = Get-SheetLook
+		   Set-ClientSize 1024 768
+		   Run-Cmd 'hudpanel sheet 0 0 1.3'
+		   Run-Cmd 'sheet 0' }
+	   close = {
+		   Run-Cmd 'sheet off'
+		   Run-Cmd "hudpanel sheet $script:sheetLook"
+		   Set-ClientSize $script:clientBefore[0] $script:clientBefore[1] }
+	   probe = @('sheet status')
+	   status = @((Answer 'sheet: open member 0 '),
+				  (Answer ('sheet size: window 1024x768 panel (\d{1,3}|10[01]\d|102[0-4])x[1-9]\d* ' +
+						   'cell ([1-9]\d*)x\2\s*$'))) },
 	# The floating HUD's other shapes (docs/ui-panels-plan.md P3b/P4): the party
 	# inventory WINDOW, and the MINIMAL layout - the party bar and the hands
 	# folded into one card per member, with the Magic dock (a member knows a
-	# symbol first, or it is not shown) moved to the left column.
+	# symbol first, or it is not shown) moved to the left column. The window
+	# opens on its Inventory tab, whose squares are the SHEET'S (Michael, Phase
+	# 6): `inventory status` sets member 0's first square beside the sheet's at
+	# the window's scale, and they must match (code-review C96 - measured in the
+	# drawn face's em, a tenth larger, a card's came out 79 px to the sheet's 73).
 	@{ label = 'sweep_inventory'; state = 'playing'; viaConsole = $true
 	   open = { Run-Cmd 'inventory' }; close = { Run-Cmd 'inventory off' }
-	   probe = @('inventory status'); status = @((Answer 'inventory: open tab ')) },
+	   probe = @('inventory status')
+	   status = @((Answer 'inventory: open tab inventory '),
+				  (Answer 'inventory squares: card ([1-9]\d*)x\1 sheet \1x\1\s*$')) },
 	@{ label = 'sweep_minimal'; state = 'playing'; viaConsole = $true
 	   open = { Run-Cmd 'learn 0 fire'; Run-Cmd 'hudpanel layout minimal' }
 	   close = { Run-Cmd 'hudpanel layout standard' }

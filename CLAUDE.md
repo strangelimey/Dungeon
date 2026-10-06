@@ -3360,13 +3360,30 @@ Michael's notes and answers: docs/ui-updates-notes.md; the plan: -plan.md.
   what the pointer is over, on every tab - an item's name + weight (a bag with
   its contents; the cursor's item over nothing), an attribute / bar / skill with
   its `<key>.hint`, a spell or effect with its description. The panel GREW for
-  it: `CharacterSheet::kBodyH / kStatusH` are the split, and every layout
+  it: `CharacterSheet::kBodyHEm / kStatusHEm` are the split, and every layout
   fraction resolves against `Body()`, which is also the sheet's ContentRect, so
   the tabs kept their exact pixels. A body helper that reaches for `Pixel()` is
-  a bug now. A SKILL is named in its BAR's colour (`SkillBarColor`; it took the
-  accent for every weapon, defence and reserve skill once - code-review C477).
-  `sheet status` prints the bar and its name's colour, and on the Skills tab each
-  skill row's point and bar colour; `sheet tab <name>` shows a tab.
+  a bug now. THE PANEL IS SIZED IN EM (code-review C96: `kWEm` x `kBodyHEm` +
+  `kStatusHEm`, the sheet context's DESIGN em, GameUI::SheetWindowSize), never
+  in fractions of the window - it took the window's aspect once and stretched
+  every 16:9-tuned fraction on 21:9 and 16:10 - so its shape is fixed and only
+  its size follows the window's height; on a window too narrow for its scale it
+  takes the scale that fits (SheetFitScale, the text too). The squares (doll,
+  pack) are `kSlotEm`, square by construction, and a party-window card's
+  measures derive from the same numbers IN THE SAME UNIT - the design em
+  (`CharacterSheet::CardEm`, PartyWindow's `SizeForEm` / `CardEm`), never a
+  face height (`Em()` / `EmAt`), which the Body face's optical scale makes a
+  tenth larger: measured in it, a card's square came out 79 px to the sheet's
+  73. A SKILL is named in its BAR's colour
+  (`SkillBarColor`; it took the accent for every weapon, defence and reserve
+  skill once - code-review C477). `sheet status` prints the bar and its name's
+  colour, the window / panel / backpack-cell size (`sheet size:`), and on the
+  Skills tab each skill row's point and bar colour; `sheet tab <name>` shows a
+  tab. InGameTest's `sweep_sheetwide` / `sweep_sheet1610` read a square cell at
+  2560x1080 and 1920x1200, `sweep_sheetfit` one at scale 1.3 in 1024x768 in a
+  panel no wider than the window, and `sweep_inventory` a card's square equal
+  to the sheet's (`inventory status`'s `inventory squares:` line). `hudpanel
+  <id> -1 -1 [scale]` puts a panel back on its default spot.
 - THE ARMOR TOOLTIP (hovering a worn piece, or one in the pack beside what is
   worn) shows what `CharacterSheet::BuildArmorTipRows` builds - the piece, soak,
   the Roll and its terms (base, DEX, stance, AVOIDANCE where a side is
@@ -3795,11 +3812,12 @@ docs/ui-panels-notes.md / -plan.md. What exists, and the rules it rests on:
   fontScale; a card's is the panel's scale x kCardScale, set by the window in
   LayoutSelf since fontScale is ABSOLUTE, not inherited) - the scroll gutter is
   the one rem left, because ScrollArea reads it in rem. The window is sized in
-  card em (SizeForEm), keeps the `inventory` panel slot, and draws the hovered
+  card em (SizeForEm - a DESIGN em, the HUD's DesignHeight x the panel's scale,
+  the unit the sheet itself is sized in), keeps the `inventory` panel slot, and draws the hovered
   card's status line. Its INVENTORY tab (P6) is the exception to "the sheet's
   tab at card size": a card lays its squares out in em from its own corner (no
   doll, the load beside the name, pack row over contents six across) at the
-  SHEET'S text size (`squareDesign`, times the window's scale), so a square is
+  SHEET'S design em (`squareDesign`, times the window's scale), so a square is
   the sheet's; the window's size follows the tab (PanelSize: the most rows any
   shown bag needs) and its default spot is centred at the other tabs' size, so
   the tab stones do not move. Its four cards are built and warmed with the HUD, so an

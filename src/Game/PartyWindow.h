@@ -41,19 +41,25 @@ public:
 	static constexpr size_t kMaxCards = 4;
 	// A card's em against the window's (the HUD's text size at the panel's
 	// scale): the sheet's tab at about 0.6 of the sheet's size (0.55 made its
-	// body text too small to read).
+	// body text too small to read). A card's measures are the SHEET'S em
+	// measures (CharacterSheet::kCardWEm = kWEm, ...), so its tab keeps the
+	// sheet's proportions whatever either is retuned to.
 	static constexpr float kCardScale = 0.8f;
 	// The chrome, in CARD em.
 	static constexpr float kPadEm = 0.8f;
 	static constexpr float kTabEm = 3.0f;     // one tab stone, square
-	// ModeSelector splits its strip by the SHEET's gap ratio (kModeBtnGap /
-	// kModeBtnW = 0.006 / 0.054), so this keeps the stones square.
-	static constexpr float kTabGapEm = kTabEm * 0.006f / 0.054f;
+	// ModeSelector splits its strip by its own gap ratio (the sheet's strip is
+	// built from the same one), so this keeps the stones square.
+	static constexpr float kTabGapEm = kTabEm * ModeSelector::kGapRatio;
 	static constexpr float kGapEm = 0.6f;     // tab row to cards, card to card
 	static constexpr float kStatusEm = 2.2f;  // the status line's band
 
 	// The window's size for a window em of `em` pixels on any tab but
-	// Inventory - what its floating panel asks for.
+	// Inventory - what its floating panel asks for. The em is a DESIGN size
+	// (the HUD's DesignHeight x the panel's scale), the unit the sheet's panel
+	// is sized in, not the drawn face's height: a card is measured in the
+	// sheet's numbers, so it must be measured in the sheet's unit too, or its
+	// tab is a tenth wider in its own text than the sheet's (code-review C96).
 	static Vec2 SizeForEm(float em);
 	// Its size on tab `mode` at panel scale `s` (window em `em`): the Inventory
 	// tab's cards are sized by their squares, which are the SHEET'S (Phase 6),
@@ -113,7 +119,8 @@ private:
 	// Rows of contents the Inventory tab needs: the most any shown member's
 	// selected bag fills, six across, at least one.
 	int InventoryRows() const;
-	float CardEm() const { return Em(kCardScale); }
+	// The chrome's em: the window's DESIGN em (SizeForEm) x kCardScale.
+	float CardEm(const ui::UIContext& ctx) const;
 
 	const ui::FloatingPanel* m_panel;
 	std::vector<Character>* m_roster;
