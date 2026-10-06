@@ -48,6 +48,12 @@ raised that is yours, not a fix. Each line names the batch and its commit.
   AllocTest -Rest relies on exactly that to keep its rest going. Is a rest that
   runs until the food is gone what you want, or should rest refuse, or break,
   when a downed member cannot stabilize?
+- **balance.cat is closed to rename and delete** (batch 72, dd116ca1), like
+  effects, attacks and spells, because the code reads its `[formula]` id by
+  name. Say if you would rather it stayed open.
+- **Translations to check** (batch 72). `map.type.classbacked` ("The game's
+  code defines this one - its entry only tunes it, so it cannot be renamed or
+  deleted.") has new de / es / it / ru text written by the batch, unchecked.
 - **`readfile <path>`** (batch 47, 049936cd). A new dev command (Diagnostics
   group) that PathsTest uses to read a file through the game's own UTF-8 path
   code. Keep it there, or name a different home for that check.
@@ -81,6 +87,13 @@ raised that is yours, not a fix. Each line names the batch and its commit.
   METRES, about 3.2 squares, so a firebolt cast from 4 squares fizzles before
   it reaches a door. It reads like a number from before the scale change. Left
   alone (a balance-pass question, not a fix).
+- **Test-World lost its catalog headers** (found by batch 72). Before the
+  comment fix, a write had already dropped the template's header text from
+  that world's catalogs; its quests.cat is now just the generated one-line
+  header. Copying the headers from assets/templates/default/catalog brings
+  them back. Also: deleting a catalog's FIRST entry now moves its whole lead
+  comment to the next entry (or the file header would go with it), so a
+  comment only about the deleted entry may need removing by hand.
 - **CheckAll's alloc-lights row** (batch 60) adds about 1.5 minutes to the full
   tier. Say if you would rather keep its checks as a manual `AllocTest
   -Lights` run.
