@@ -76,11 +76,18 @@ $VK_RETURN = 0x0D; $VK_ESCAPE = 0x1B; $VK_CONSOLE = 0xC0
 # ---------------------------------------------------------------------------
 
 # THIS build's exe only: another worktree's game is a different process with
-# its own log. (ProfileTest keeps a global check on purpose - a second game on
-# the GPU would be part of what it measures.)
+# its own log, but this one's writes the SAME dungeon.log - truncated on open -
+# so two runs of one build interleave each other's verdict source (C430).
+# Refuses with exit 3, harness_game.py's code for the same refusal: a refusal
+# is not a verdict, so it must not read as FAIL. (ProfileTest keeps a global
+# check on purpose - a second game on the GPU would be part of what it
+# measures.)
 function Assert-NotRunning([string]$exe) {
-	if (Get-Process Dungeon -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $exe }) {
-		throw 'Dungeon.exe is already running - close it (this test drives its own instance)'
+	$running = @(Get-Process Dungeon -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $exe })
+	if ($running) {
+		$pids = ($running | ForEach-Object { $_.Id }) -join ', '
+		Write-Host "refused: $exe is already running (pid $pids) - it writes the same dungeon.log; close it or wait for it" -ForegroundColor Red
+		exit 3
 	}
 }
 

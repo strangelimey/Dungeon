@@ -74,8 +74,9 @@ import io
 import os
 import re
 import shutil
-import subprocess
 import sys
+
+import harness_game
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 EXE = os.path.join(ROOT, r"build\debug\bin\Dungeon.exe")
@@ -96,18 +97,12 @@ def check(ok, label, detail=""):
 
 
 def run(script, project):
-    args = [EXE, "-headless", "-project", project, "-eval", os.path.join(SCRIPTS, script)]
-    try:
-        code = subprocess.run(args, cwd=ROOT, capture_output=True, timeout=600).returncode
-    except subprocess.TimeoutExpired:
-        # A debug assert parks the game on a CRT dialog until the timeout (the
-        # process is killed on the way out). Report it as a failed run, with
-        # the FATAL line from the log, rather than dying with a traceback.
-        code = -1
-    log = io.open(LOG, encoding="utf-8", errors="replace").read()
-    for line in log.splitlines():
-        if "FATAL" in line:
-            print(f"         game FATAL: {line.split('FATAL', 1)[1][:160]}")
+    # Code -1 = timed out (a debug assert parks the game on a CRT dialog until
+    # then); every phase checks `code == 0` itself (tools/harness_game.py).
+    code, log = harness_game.run_eval(EXE, ROOT, LOG, [os.path.join(SCRIPTS, script)],
+                                      ["-project", project])
+    for f in harness_game.fatal_lines(log):
+        print(f"         game FATAL: {f}")
     return code, [l.split("console: ", 1)[1] for l in log.splitlines()
                   if "console: " in l]
 
@@ -1004,6 +999,7 @@ def main():
 
 if __name__ == "__main__":
     import harness_audio
+    harness_game.refuse_if_running(EXE)
     with harness_audio.muted(os.path.dirname(EXE)):
         code = main()
     sys.exit(code)

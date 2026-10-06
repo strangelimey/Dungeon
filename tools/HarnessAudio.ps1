@@ -6,7 +6,7 @@
 # run and puts it back afterwards:
 #
 #   . (Join-Path $PSScriptRoot 'HarnessAudio.ps1')
-#   if (-not $env:DN_HARNESS_MUTED) { exit (Invoke-Muted $bin $PSCommandPath $PSBoundParameters) }
+#   if (-not (Test-HarnessMuted $bin)) { exit (Invoke-Muted $bin $PSCommandPath $PSBoundParameters) }
 #
 # The volume lives in `volume=` in settings.ini beside the exe - the same key the
 # Audio tab's slider saves - so muting is an edit of that one line, and so is the
@@ -20,6 +20,14 @@
 # and skips straight to the tests. The same variable makes it nest: CheckAll
 # mutes once for the whole suite, and every harness it calls finds the flag set
 # and leaves the volume to it.
+#
+# THE FLAG NAMES BIN DIRECTORIES (code-review C433), because the volume lives
+# beside each exe: CheckAll mutes build\debug\bin, and a harness it calls for
+# ANOTHER config (ProfileTest on release-profile) must still mute its own -
+# a single "muted" flag let that run at full volume. DN_HARNESS_MUTED is a
+# ';'-separated list of normalised bin paths; DN_HARNESS_MUTE_RERUN marks the
+# re-run Invoke-Muted starts, so that run stays quiet about it. Every harness
+# logs its mute state either way.
 #
 # Muting is the MASTERING VOICE only (AudioEngine::SetMasterVolume), so every
 # sound still plays through the same code - nothing a harness measures changes.
@@ -52,6 +60,27 @@ function Set-VolumeLine([string]$text, $line) {
 	return ($out -join "`n") + "`n"
 }
 
+function Get-HarnessBinKey([string]$bin) {
+	return [IO.Path]::GetFullPath($bin).TrimEnd('\', '/').ToLowerInvariant()
+}
+
+# Whether $bin is already muted by a caller - in which case the volume is
+# theirs to restore. Says so, so every harness's output records its mute state.
+function Test-HarnessMuted([string]$bin) {
+	if ($env:DN_HARNESS_MUTE_RERUN) {
+		# This IS the re-run Invoke-Muted started; it already said "muted".
+		Remove-Item Env:\DN_HARNESS_MUTE_RERUN -ErrorAction SilentlyContinue
+		return $true
+	}
+	$key = Get-HarnessBinKey $bin
+	$muted = @(($env:DN_HARNESS_MUTED -split ';') | Where-Object { $_ -ne '' })
+	if ($muted -contains $key) {
+		Write-Host "audio: already muted by the calling harness ($bin)"
+		return $true
+	}
+	return $false
+}
+
 # Mute, run the calling script, restore. Returns the script's exit code.
 function Invoke-Muted([string]$bin, [string]$script, $params) {
 	$ini = Join-Path $bin 'settings.ini'
@@ -60,14 +89,17 @@ function Invoke-Muted([string]$bin, [string]$script, $params) {
 	if ($before) { $original = @($before -split "`r?`n" | Where-Object { $_ -match '^volume=' }) | Select-Object -First 1 }
 
 	$shown = if ($original) { $original -replace '^volume=', '' } else { 'default' }
-	Write-Host "audio: master volume muted for the run (was $shown)"
+	Write-Host "audio: master volume muted for the run (was $shown) ($bin)"
 	if (Test-Path $bin) { Write-HarnessIni $ini (Set-VolumeLine $before 'volume=0') }
-	$env:DN_HARNESS_MUTED = '1'
+	$outer = $env:DN_HARNESS_MUTED
+	$env:DN_HARNESS_MUTED = (@(($outer -split ';') | Where-Object { $_ -ne '' }) + (Get-HarnessBinKey $bin)) -join ';'
+	$env:DN_HARNESS_MUTE_RERUN = '1'
 	try {
 		& $script @params | Out-Default
 		return $LASTEXITCODE
 	} finally {
-		Remove-Item Env:\DN_HARNESS_MUTED -ErrorAction SilentlyContinue
+		Remove-Item Env:\DN_HARNESS_MUTE_RERUN -ErrorAction SilentlyContinue
+		if ($outer) { $env:DN_HARNESS_MUTED = $outer } else { Remove-Item Env:\DN_HARNESS_MUTED -ErrorAction SilentlyContinue }
 		$now = Read-HarnessIni $ini
 		if ($null -ne $now) {
 			$restored = Set-VolumeLine $now $original

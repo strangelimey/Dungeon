@@ -70,11 +70,17 @@ $bin = Join-Path $root "build\$Config\bin"
 
 # Muted for the whole run, restored however it ends (tools\HarnessAudio.ps1).
 . (Join-Path $PSScriptRoot 'HarnessAudio.ps1')
-if (-not $env:DN_HARNESS_MUTED) { exit (Invoke-Muted $bin $PSCommandPath $PSBoundParameters) }
+if (-not (Test-HarnessMuted $bin)) { exit (Invoke-Muted $bin $PSCommandPath $PSBoundParameters) }
 
 $scripts = Join-Path $root 'tools\EvalScripts'
 $exe = Join-Path $bin 'Dungeon.exe'
 $log = Join-Path $bin 'dungeon.log'
+
+# ONE RUN PER WORKTREE: this worktree's game writes one dungeon.log, truncated
+# on open, and a second run would interleave its verdict source with this one's
+# (code-review C430). Another worktree's game has its own log and is fine.
+. (Join-Path $PSScriptRoot 'HarnessGame.ps1')
+Assert-NotRunning $exe
 
 # EVERY REPORT LINE GOES THROUGH HERE so the run can be both coloured on screen
 # and saved to a file. Write-Host alone cannot be redirected (that is F2) and
@@ -101,7 +107,22 @@ function SaveTranscript {
 # and the report could not be pasted anywhere (F10). This fixes the DATA; how a
 # console then draws it is the console's code page and not this script's
 # business - see the utf8-console-codepage note.
-function ReadLog { @(Get-Content $log -Encoding UTF8) }
+function ReadLog {
+	if (-not (Test-Path $log)) { return @() }
+	@(Get-Content $log -Encoding UTF8)
+}
+
+# One game run for the self-test's comparisons, with the log DELETED first: a
+# launch that died before opening its log would otherwise leave the previous
+# run's log in place, and a comparison would read one run against itself and
+# pass. Finished = it wrote its 'eval BATCH RESULT=' line.
+function Invoke-EvalRun([string[]]$argList) {
+	Remove-Item $log -ErrorAction SilentlyContinue
+	$p = Start-Process -FilePath $exe -ArgumentList $argList -PassThru -Wait
+	$done = [bool](ReadLog | Where-Object { $_ -match 'eval BATCH RESULT=' })
+	if (-not $done) { Write-Host ("  the game did not finish '{0}' (exit {1})" -f ($argList -join ' '), $p.ExitCode) -ForegroundColor Red }
+	return $done
+}
 
 # ---------------------------------------------------------------------------
 # THE SUITES. `measure` is the regex whose matching log lines ARE the result -
@@ -254,7 +275,7 @@ if ($SelfTest) {
 	# and a check belongs with the other checks.
 	Write-Host ''
 	Write-Host '=== reset must equal a new game ==='
-	Start-Process -FilePath $exe -ArgumentList '-eval', (Join-Path $scripts 'resettest.eval') -Wait
+	$resetRan = Invoke-EvalRun @('-eval', (Join-Path $scripts 'resettest.eval'))
 	$rt = ReadLog
 	$blocks = @(@(), @())
 	$which = -1
@@ -273,7 +294,7 @@ if ($SelfTest) {
 				$bad = @(0..($blocks[0].Count - 1) | Where-Object { $blocks[0][$_] -cne $blocks[1][$_] })
 				if ($bad.Count) { "$($bad.Count) line(s) differ, first: '$($blocks[0][$bad[0]])' vs '$($blocks[1][$bad[0]])'" } else { '' }
 			}
-	$resetOk = ($diff -eq '')
+	$resetOk = $resetRan -and ($diff -eq '')
 	Write-Host ("  {0} baseline lines compared - {1}" -f $blocks[0].Count,
 		$(if ($resetOk) { 'identical' } else { $diff }))
 
@@ -285,11 +306,11 @@ if ($SelfTest) {
 	Write-Host '=== a batched suite must match a solo one ==='
 	$probe = Join-Path $scripts 'supplies.eval'
 	$grab = { ReadLog | Where-Object { $_ -cmatch '^\[info \] console:   \[0\] Brand' } }
-	Start-Process -FilePath $exe -ArgumentList '-eval', $probe -Wait
+	$soloRan = Invoke-EvalRun @('-eval', $probe)
 	$solo = & $grab
-	Start-Process -FilePath $exe -ArgumentList '-eval', (Join-Path $scripts 'resources.eval'), $probe -Wait
+	$batchRan = Invoke-EvalRun @('-eval', (Join-Path $scripts 'resources.eval'), $probe)
 	$batched = @(& $grab | Select-Object -Last $solo.Count)
-	$batchOk = ($solo.Count -gt 0) -and ($solo.Count -eq $batched.Count) -and
+	$batchOk = $soloRan -and $batchRan -and ($solo.Count -gt 0) -and ($solo.Count -eq $batched.Count) -and
 			   -not @(0..($solo.Count - 1) | Where-Object { $solo[$_] -cne $batched[$_] }).Count
 	Write-Host ("  {0} lines compared - {1}" -f $solo.Count,
 		$(if ($batchOk) { 'identical batched and solo' } else { 'DIFFERENT' }))
@@ -309,13 +330,13 @@ if ($SelfTest) {
 	# line that goes missing on one side still counts as a difference.
 	$grabAll = { ReadLog | Where-Object { $_ -cmatch '^\[info \] console: ' } |
 		ForEach-Object { $_ -creplace '^(\[info \] console: reset: \w+ in )\d+( ms)', '${1}#${2}' } }
-	Start-Process -FilePath $exe -ArgumentList '-eval', $probe -Wait
+	$winRan = Invoke-EvalRun @('-eval', $probe)
 	$windowed = @(& $grabAll)
-	Start-Process -FilePath $exe -ArgumentList '-headless', '-eval', $probe -Wait
+	$hidRan = Invoke-EvalRun @('-headless', '-eval', $probe)
 	$hidden = @(& $grabAll)
 	$headBad = @(0..([Math]::Max($windowed.Count, $hidden.Count) - 1) |
 		Where-Object { $windowed[$_] -cne $hidden[$_] })
-	$headOk = ($windowed.Count -gt 0) -and ($headBad.Count -eq 0)
+	$headOk = $winRan -and $hidRan -and ($windowed.Count -gt 0) -and ($headBad.Count -eq 0)
 	Write-Host ("  {0} lines compared - {1}" -f $windowed.Count,
 		$(if ($headOk) { 'identical headless and windowed' }
 		  elseif ($windowed.Count -eq 0) { 'DIFFERENT: the windowed run printed nothing' }
@@ -336,7 +357,7 @@ if ($SelfTest) {
 	# balance change does not.
 	Write-Host ''
 	Write-Host '=== a knob that must move a number, moves it ==='
-	Start-Process -FilePath $exe -ArgumentList '-eval', (Join-Path $scripts 'respond.eval') -Wait
+	$respondRan = Invoke-EvalRun @('-eval', (Join-Path $scripts 'respond.eval'))
 	$arm = $null
 	$samples = @{}
 	foreach ($line in ReadLog) {
@@ -360,7 +381,7 @@ if ($SelfTest) {
 	# guard that keeps the whole check non-vacuous: if the tally went dead every
 	# aggregate below would be 0, and a ratio of 0/0 must not read as "unchanged".
 	$armNames = @('dex-low', 'dex-high', 'skill-low', 'skill-high', 'threat-low', 'threat-high')
-	$respondOk = $true
+	$respondOk = $respondRan
 	$missing = @($armNames | Where-Object { -not $samples.ContainsKey($_) -or $samples[$_].Count -lt 3 })
 	if ($missing.Count) {
 		Write-Host ("  arms missing or too small: {0}" -f ($missing -join ', ')) -ForegroundColor Red
@@ -414,10 +435,54 @@ if ($SelfTest) {
 		}
 	}
 
-	$ok = ($p.ExitCode -eq 1) -and ($q.ExitCode -eq 2) -and $resetOk -and $batchOk -and $headOk -and $respondOk
+	# --- one run per worktree; a killed run does not count -------------------
+	# Two runs of THIS script, as a person would start them (code-review C430).
+	# The first runs a real suite; while its game is up a second must be REFUSED
+	# (exit 3) - it would share that game's dungeon.log. Then the first's game is
+	# killed, by PID, and the first must say the game did not finish and exit
+	# non-zero rather than read its partial log as a result. Both find this bin
+	# muted already and must say so (C433: every harness logs its mute state).
+	Write-Host ''
+	Write-Host '=== a second run is refused; a killed run does not count ==='
+	$outA = Join-Path $env:TEMP "eval-selftest-first-$PID.txt"
+	$outB = Join-Path $env:TEMP "eval-selftest-second-$PID.txt"
+	$child = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $PSCommandPath,
+		'-Config', $Config, '-Only', 'supplies', '-Headless')
+	$first = Start-Process powershell -ArgumentList $child -PassThru -WindowStyle Hidden -RedirectStandardOutput $outA
+	# Touch the handle NOW: a Process from Start-Process without -Wait that never
+	# had it read reports ExitCode as $null after it ends - and $null -ne 0, so
+	# "exits non-zero" would pass on no exit code at all.
+	$null = $first.Handle
+	$game = $null
+	$deadline = (Get-Date).AddSeconds(60)
+	while (-not $game -and -not $first.HasExited -and (Get-Date) -lt $deadline) {
+		Start-Sleep -Milliseconds 300
+		$game = Get-Process Dungeon -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $exe } | Select-Object -First 1
+	}
+	$second = Start-Process powershell -ArgumentList $child -PassThru -Wait -WindowStyle Hidden -RedirectStandardOutput $outB
+	if ($game) { Start-Sleep -Seconds 2; $game.Kill() }
+	if (-not $first.WaitForExit(120000)) { $first.Kill() }
+	$saidA = if (Test-Path $outA) { Get-Content $outA -Raw } else { '' }
+	$saidB = if (Test-Path $outB) { Get-Content $outB -Raw } else { '' }
+	Remove-Item $outA, $outB -ErrorAction SilentlyContinue
+	$guards = @(
+		@{ what = "the first run's game started";        ok = [bool]$game },
+		@{ what = 'a second run beside it is refused';  ok = ($second.ExitCode -eq 3) -and ($saidB -match 'refused: ') },
+		@{ what = 'the killed run says it did not finish'; ok = ($saidA -match 'THE GAME DID NOT FINISH') },
+		@{ what = '...and exits non-zero';              ok = ($first.ExitCode -is [int]) -and ($first.ExitCode -ne 0) },
+		@{ what = 'both said the bin was already muted'; ok = ($saidA -match 'audio: already muted') -and ($saidB -match 'audio: already muted') }
+	)
+	$guardOk = $true
+	foreach ($g in $guards) {
+		Write-Host ("  {0,-42} {1}" -f $g.what, $(if ($g.ok) { 'ok' } else { 'FAIL' })) -ForegroundColor $(if ($g.ok) { 'Gray' } else { 'Red' })
+		if (-not $g.ok) { $guardOk = $false }
+	}
+	Write-Host ("  (second run exited {0}, first {1})" -f $second.ExitCode, $first.ExitCode)
+
+	$ok = ($p.ExitCode -eq 1) -and ($q.ExitCode -eq 2) -and $resetOk -and $batchOk -and $headOk -and $respondOk -and $guardOk
 	Write-Host ''
 	Write-Host ("eval RESULT={0} self_test=1" -f $(if ($ok) { 'PASS' } else { 'FAIL' }))
-	if ($ok) { Write-Host 'the runner reports both failures, recycling and headless change nothing, and the numbers still move' }
+	if ($ok) { Write-Host 'the runner reports both failures, recycling and headless change nothing, the numbers still move, and a second or killed run does not count' }
 	else { Write-Host 'A RUNNER THAT CANNOT FAIL MEANS NOTHING' -ForegroundColor Red }
 	exit $(if ($ok) { 0 } else { 1 })
 }
@@ -434,6 +499,9 @@ $args = @()
 if ($Headless) { $args += '-headless' }
 $args += @('-eval') + $paths
 $t0 = Get-Date
+# The log deleted first, so a game that dies before writing one leaves nothing
+# for the "did it finish" check below to mistake for this run's.
+Remove-Item $log -ErrorAction SilentlyContinue
 $p = Start-Process -FilePath $exe -ArgumentList $args -PassThru -Wait
 $totalSecs = [int]((Get-Date) - $t0).TotalSeconds
 
@@ -448,6 +516,12 @@ $totalSecs = [int]((Get-Date) - $t0).TotalSeconds
 # than on the suites' own echoes means a suite cannot break the split by
 # printing something that looks like a header.
 $logLines = ReadLog
+# A RUN COUNTS ONLY IF IT FINISHED. Every batch the runner completes - or
+# abandons on a timeout - ends in 'eval BATCH RESULT='; a game that crashed or
+# was killed writes neither, and its partial log must not be read as a result
+# (code-review C430: the exit code used to go unread).
+$batchLine = @($logLines | Where-Object { $_ -match 'eval BATCH RESULT=' }) | Select-Object -Last 1
+$runDied = -not $batchLine
 $section = @{}
 $verdicts = @{}
 $current = $null
@@ -544,6 +618,13 @@ foreach ($r in $results) {
 		$(if ($r.Verdict -eq 'PASS') { '' } else { 'Red' })
 }
 Say ''
+if ($runDied) {
+	Say ("THE GAME DID NOT FINISH (exit code {0}): no 'eval BATCH RESULT=' line - nothing above counts" -f $p.ExitCode) 'Red'
+	$failed++
+} elseif ($p.ExitCode -ne 0 -and $failed -eq 0) {
+	Say ("the game exited {0} although every suite passed - the run does not count" -f $p.ExitCode) 'Red'
+	$failed++
+}
 # ONE total rather than a column of per-suite times: they all ran in one process
 # now, so a per-suite wall clock would be a number the harness cannot honestly
 # produce. The load is paid once and shows up in whichever suite went first.

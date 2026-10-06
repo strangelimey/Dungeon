@@ -63,8 +63,9 @@ import io
 import os
 import re
 import shutil
-import subprocess
 import sys
+
+import harness_game
 
 # The checkout this script lives in (tools\..), NOT a fixed path: a hardcoded
 # worktree meant a run from any other checkout drove THAT tree's exe and
@@ -77,6 +78,10 @@ MANIFEST = os.path.join(PROJ, "project.ini")
 EXE = os.path.join(ROOT, r"build\debug\bin\Dungeon.exe")
 LOG = os.path.join(ROOT, r"build\debug\bin\dungeon.log")
 SCRIPTS = os.path.join(ROOT, r"tools\EvalScripts")
+
+# This worktree's game shares the log every phase reads: refuse beside it
+# (tools/harness_game.py).
+harness_game.refuse_if_running(EXE)
 
 
 def documents_dir():
@@ -122,12 +127,14 @@ def write(p, s):
 def run(script, project=None):
     # `project` is the -project flag: which WORLD to open, for one run, leaving
     # settings.ini alone. It is how a test scenario gets a world of its own.
-    args = [EXE, "-headless"]
-    if project:
-        args += ["-project", project]
-    args += ["-eval", os.path.join(SCRIPTS, script)]
-    subprocess.run(args, cwd=ROOT, capture_output=True, timeout=600)
-    return io.open(LOG, encoding="utf-8", errors="replace").read()
+    # A run that died before its verdict counts as a failure on its own, not
+    # as a log to be read as if it were whole.
+    global failures
+    extra = ["-project", project] if project else []
+    code, log = harness_game.run_eval(EXE, ROOT, LOG, [os.path.join(SCRIPTS, script)], extra)
+    if harness_game.report_unfinished(code, log, script):
+        failures += 1
+    return log
 
 
 def check(ok, label, detail=""):

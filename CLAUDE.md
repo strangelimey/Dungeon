@@ -473,8 +473,15 @@ Key conventions (memorize, they bite):
   of the frame. It is NOT mainly a speed switch — ten suites go 42 s → 37 s,
   because the cost is the asset load plus `step` loops, and a `step` runs many
   simulated seconds inside ONE frame, so there are few frames to save. What it
-  buys is a run that steals no focus, survives RDP / a scheduled task, and can be
-  run several at a time. It does NOT remove the graphics device: the swapchain is
+  buys is a run that steals no focus and survives RDP / a scheduled task, and a
+  debug one opens no log console either (Main reads the flag before its
+  AllocConsole). "Several at a time" means one PER WORKTREE: a game writes ONE
+  dungeon.log beside its exe, truncated on open, so two runs of one build
+  interleave each other's verdict source - Eval.ps1, PipelineTest and the Python
+  judges refuse to start beside their own worktree's game (tools\HarnessGame.ps1
+  / harness_game.py, exit 3), and a run COUNTS only if it finished (exit 0, or
+  its `eval BATCH RESULT=` line; a killed run is a failure, not a short log).
+  It does NOT remove the graphics device: the swapchain is
   bound to an HWND, so the window still exists and is merely never shown, and
   prising the device out would mean a null path at every gfx call site for no
   gain (a GPU-less machine is already covered — GraphicsDevice falls back to

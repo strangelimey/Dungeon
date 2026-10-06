@@ -110,7 +110,6 @@ import io
 import os
 import re
 import shutil
-import subprocess
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -118,6 +117,11 @@ PROJ = os.path.join(ROOT, r"assets\projects\dungeon-demo")
 EXE = os.path.join(ROOT, r"build\debug\bin\Dungeon.exe")
 LOG = os.path.join(ROOT, r"build\debug\bin\dungeon.log")
 SCRIPTS = os.path.join(ROOT, r"tools\EvalScripts")
+
+# This worktree's game shares the log every phase reads: refuse beside it
+# (tools/harness_game.py).
+import harness_game
+harness_game.refuse_if_running(EXE)
 
 # Muted for the whole run (tools/harness_audio.py). The phases are flat, not
 # one try block, so the restore rides atexit - which also runs after sys.exit,
@@ -131,9 +135,14 @@ failures = 0
 
 def run(script, project="dungeon-demo"):
     # -project keeps the run off whatever world the developer last switched to.
-    args = [EXE, "-headless", "-project", project, "-eval", os.path.join(SCRIPTS, script)]
-    subprocess.run(args, cwd=ROOT, capture_output=True, timeout=600)
-    return io.open(LOG, encoding="utf-8", errors="replace").read()
+    # A run that died before its verdict counts as a failure on its own, not
+    # as a log to be read as if it were whole.
+    global failures
+    code, log = harness_game.run_eval(EXE, ROOT, LOG, [os.path.join(SCRIPTS, script)],
+                                      ["-project", project])
+    if harness_game.report_unfinished(code, log, script):
+        failures += 1
+    return log
 
 
 def check(ok, label, detail=""):

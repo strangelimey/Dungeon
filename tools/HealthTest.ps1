@@ -39,7 +39,7 @@ $bin = Join-Path $root "build\$Config\bin"
 
 # Muted for the whole run, restored however it ends (tools\HarnessAudio.ps1).
 . (Join-Path $PSScriptRoot 'HarnessAudio.ps1')
-if (-not $env:DN_HARNESS_MUTED) { exit (Invoke-Muted $bin $PSCommandPath $PSBoundParameters) }
+if (-not (Test-HarnessMuted $bin)) { exit (Invoke-Muted $bin $PSCommandPath $PSBoundParameters) }
 # Launch, input and log waits: the one shared copy (tools\HarnessGame.ps1).
 . (Join-Path $PSScriptRoot 'HarnessGame.ps1')
 

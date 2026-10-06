@@ -31,9 +31,11 @@
 import io
 import os
 import re
-import subprocess
 import sys
 import tempfile
+
+import harness_audio
+import harness_game
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 EXE = os.path.join(ROOT, r"build\debug\bin\Dungeon.exe")
@@ -60,6 +62,7 @@ SPELL_FREE = {
 	"a strong gust turns an arrow back",
 	"and the turned arrows kill the archer",
 	"the script ran to its end",
+	"the game ran the script to its verdict",
 }
 
 
@@ -71,15 +74,14 @@ def check(ok, label, detail=""):
 
 
 def run(script):
-	args = [EXE, "-headless", "-eval", script]
-	try:
-		code = subprocess.run(args, cwd=ROOT, capture_output=True, timeout=600).returncode
-	except subprocess.TimeoutExpired:
-		code = -1
-	log = io.open(LOG, encoding="utf-8", errors="replace").read().splitlines()
-	for line in log:
-		if "FATAL" in line:
-			print(f"         game FATAL: {line.split('FATAL', 1)[1][:160]}")
+	code, text = harness_game.run_eval(EXE, ROOT, LOG, [script])
+	log = text.splitlines()
+	for f in harness_game.fatal_lines(text):
+		print(f"         game FATAL: {f}")
+	# A run that died before its verdict is a failed run, not a log to judge as
+	# if it were whole (the code used to be captured and never read).
+	check(harness_game.finished(code, text), "the game ran the script to its verdict",
+		  f"exit code {code}, no verdict line")
 	verdict = next((l for l in log if "eval RESULT=" in l), "")
 	said = [l.split("console: ", 1)[1] for l in log if "console: " in l]
 	return code, verdict, [l for l in said if not l.startswith("> ")]
@@ -364,4 +366,9 @@ def main():
 
 
 if __name__ == "__main__":
-	sys.exit(main())
+	# This worktree's game shares the log the run reads: refuse beside it. And
+	# muted for the run, like every other harness (tools/harness_audio.py).
+	harness_game.refuse_if_running(EXE)
+	with harness_audio.muted(os.path.dirname(EXE)):
+		code = main()
+	sys.exit(code)

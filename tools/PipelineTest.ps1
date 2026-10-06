@@ -45,7 +45,7 @@ $bin = Join-Path $root "build\$Config\bin"
 
 # Muted for the whole run, restored however it ends (tools\HarnessAudio.ps1).
 . (Join-Path $PSScriptRoot 'HarnessAudio.ps1')
-if (-not $env:DN_HARNESS_MUTED) { exit (Invoke-Muted $bin $PSCommandPath $PSBoundParameters) }
+if (-not (Test-HarnessMuted $bin)) { exit (Invoke-Muted $bin $PSCommandPath $PSBoundParameters) }
 
 $exe = Join-Path $bin 'Dungeon.exe'
 $log = Join-Path $bin 'dungeon.log'
@@ -68,6 +68,10 @@ if (-not (Test-Path $exe)) {
 	Write-Host "pipeline: no exe at $exe - build first" -ForegroundColor Red
 	exit 2
 }
+# One run per worktree: this worktree's game writes the one log every verdict
+# here is read from (tools\HarnessGame.ps1, code-review C430).
+. (Join-Path $PSScriptRoot 'HarnessGame.ps1')
+Assert-NotRunning $exe
 
 $checks = 0
 $failed = 0
@@ -88,8 +92,11 @@ function Run-Script($name) {
 	$a = @()
 	if ($Headless) { $a += '-headless' }
 	$a += @('-eval', $path)
+	# The log deleted first: a launch that died before opening it would leave the
+	# previous run's lines to be read as this one's.
+	Remove-Item $log -ErrorAction SilentlyContinue
 	$p = Start-Process -FilePath $exe -ArgumentList $a -PassThru -Wait
-	$lines = @(Get-Content $log)
+	$lines = if (Test-Path $log) { @(Get-Content $log) } else { @() }
 	return @{
 		exit = $p.ExitCode
 		lines = $lines

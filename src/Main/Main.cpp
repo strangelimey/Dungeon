@@ -27,14 +27,31 @@
 int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
 	using namespace dungeon;
 
+	// `-headless` (docs/eval-harness.md) is read FIRST, before anything opens a
+	// window: the debug console below is one, and a headless run must show
+	// nothing on anyone's desktop. See the window creation further down for
+	// what the flag does and does not remove.
+	bool headless = false;
+	{
+		int argc = 0;
+		LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+		for (int i = 1; argv && i < argc; ++i)
+			if (std::wstring_view(argv[i]) == L"-headless") headless = true;
+		if (argv) LocalFree(argv);
+	}
+
 #ifdef _DEBUG
-	// Show a console for logs in debug builds. It is OURS — allocated here — so
-	// its code page is ours to set, and log lines are UTF-8 (see Core/Log.h).
-	AllocConsole();
-	FILE* unused = nullptr;
-	freopen_s(&unused, "CONOUT$", "w", stdout);
-	freopen_s(&unused, "CONOUT$", "w", stderr);
-	log::UseUtf8Console();
+	// Show a console for logs in debug builds - not for a headless run, whose
+	// whole point is that nothing appears (everything is in dungeon.log anyway).
+	// It is OURS - allocated here - so its code page is ours to set, and log
+	// lines are UTF-8 (see Core/Log.h).
+	if (!headless) {
+		AllocConsole();
+		FILE* unused = nullptr;
+		freopen_s(&unused, "CONOUT$", "w", stdout);
+		freopen_s(&unused, "CONOUT$", "w", stderr);
+		log::UseUtf8Console();
+	}
 #endif
 
 	// Names this thread for the allocation counters — and, because the operator
@@ -59,7 +76,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
 	game::GameSettings boot;
 	boot.Load();
 
-	// `-headless` (docs/eval-harness.md): no window on screen and no drawing —
+	// `-headless` (parsed at the top): no window on screen and no drawing —
 	// the game simulates, the dev console still runs, and everything worth
 	// reading comes out of dungeon.log. Read BEFORE the window exists, because
 	// whether it is ever shown is a property of its creation.
@@ -73,14 +90,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
 	//
 	// It is a FLAG rather than something `-eval` implies, because watching an
 	// eval run play out is exactly how several of these scripts were debugged.
-	bool headless = false;
-	{
-		int argc = 0;
-		LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
-		for (int i = 1; argv && i < argc; ++i)
-			if (std::wstring_view(argv[i]) == L"-headless") headless = true;
-		if (argv) LocalFree(argv);
-	}
+	//
 	// Nobody is watching a headless run, so a fatal error must END it rather
 	// than park it on a modal dialog on whoever's desktop (Core/CrashHandler.h).
 	if (headless) crash::SetUnattended();
