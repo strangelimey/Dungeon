@@ -105,18 +105,39 @@
 #      hand-built floor from the style's list; and the overview's "what next"
 #      reads build -> populate -> check/ready, counting what the files hold.
 #
-# Every project file a phase writes is restored byte for byte afterwards.
+# NOTHING HERE EDITS THE REAL WORLD (code-review C431). Each phase starts on a
+# FRESH SCRATCH COPY of dungeon-demo, et_demo, and every run opens it with
+# -project; the phases used to edit dungeon-demo itself and put it back with a
+# delete then a copy, so a run killed mid-phase left it changed - and the next
+# run began by deleting the backup that was its only clean copy. Now a killed
+# run leaves a scratch folder, which the next run clears. The style library has
+# one fixed home (assets/library), so phase 16 still changes it - behind a
+# backup that only the restore that used it deletes (harness_game.back_up). The
+# save phase 15 makes is this worktree's (harness_game.save_name). The run ends
+# by checking the real worlds and the library are byte for byte as it found
+# them - BEFORE it cleared up after a killed run, so the clean-up is judged too
+# - and that git status shows nothing new and nothing of this judge's worlds.
 import io
 import os
 import re
-import shutil
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PROJ = os.path.join(ROOT, r"assets\projects\dungeon-demo")
+PROJECTS = os.path.join(ROOT, r"assets\projects")
+SCRATCH = "et_demo"
+PROJ = os.path.join(PROJECTS, SCRATCH)
+LIBRARY = os.path.join(ROOT, r"assets\library")
+LIBBAK = os.path.join(ROOT, r"build\editortest-library")
 EXE = os.path.join(ROOT, r"build\debug\bin\Dungeon.exe")
 LOG = os.path.join(ROOT, r"build\debug\bin\dungeon.log")
 SCRIPTS = os.path.join(ROOT, r"tools\EvalScripts")
+COPIES = os.path.join(ROOT, r"build\harness-scripts\editortest")
+# Every world a phase makes (and the half-built one phase 9 plants), with the
+# scratch copy: cleared at the start (what a killed run left) and at the end,
+# each with the .building-<name> a create killed half-way leaves.
+WORLDS = (SCRATCH, "nw_blank", "nw_copy", "nw_level", "nw_bad", ".building-nw_ghost",
+          "nwd_level", "nwd_blank", "wz_a", "wz_b", "wz_c", "wz_undead", "wz_dlg",
+          "p7_world", "p7_wiz")
 
 # Never a stale exe, and never beside this worktree's own game, which shares
 # the log every phase reads (tools/harness_game.py).
@@ -124,23 +145,57 @@ import harness_game
 harness_game.refuse_if_stale(EXE)
 harness_game.refuse_if_running(EXE)
 
-# Muted for the whole run (tools/harness_audio.py). The phases are flat, not
-# one try block, so the restore rides atexit - which also runs after sys.exit,
-# an uncaught exception and Ctrl+C.
+# flags.eval's save slot, renamed to this worktree's: the saves folder is
+# shared with every other session and with Michael's own play.
+SAVES = {"flagtest": harness_game.save_name(ROOT, "flagtest")}
+
+
+def cleanup():
+    """Every scratch world and save this judge makes, and the library put back
+    if a backup of it is standing. Safe to run twice."""
+    harness_game.recover(LIBRARY, LIBBAK)
+    for w in WORLDS:
+        harness_game.remove_world(ROOT, w)
+    harness_game.remove_saves(SAVES.values())
+
+
+# The guard is taken BEFORE clearing up what a killed run left, so a clean-up
+# that does damage fails the run instead of becoming its baseline: the library
+# must end as a standing backup holds it, and nothing of this judge's worlds may
+# be left in git status, a killed run's included.
+real = harness_game.RealTree(ROOT, own=WORLDS, backups={LIBRARY: LIBBAK})
+cleanup()
+
+# Muted for the whole run (tools/harness_audio.py), and cleaned up however it
+# ends. The phases are flat, not one try block, so both ride atexit - which also
+# runs after sys.exit, an uncaught exception and Ctrl+C (not after a kill: the
+# next run's cleanup() above is for that).
 import atexit
 import harness_audio
 atexit.register(harness_audio.restore, harness_audio.mute(os.path.dirname(EXE)))
+atexit.register(cleanup)
 
 failures = 0
 
 
-def run(script, project="dungeon-demo"):
-    # -project keeps the run off whatever world the developer last switched to.
-    # A run that died before its verdict counts as a failure on its own, not
-    # as a log to be read as if it were whole.
+def fresh():
+    """Each phase starts on a fresh copy of dungeon-demo."""
+    harness_game.scratch_world(ROOT, SCRATCH)
+
+
+def drop():
+    """...and its scratch world goes with it."""
+    harness_game.remove_world(ROOT, SCRATCH)
+
+
+def run(script, project=SCRATCH):
+    # -project opens the scratch world, never the real one (nor whatever world
+    # the developer last switched to). A run that died before its verdict
+    # counts as a failure on its own, not as a log to be read as if it were
+    # whole.
     global failures
-    code, log = harness_game.run_eval(EXE, ROOT, LOG, [os.path.join(SCRIPTS, script)],
-                                      ["-project", project])
+    path = harness_game.eval_script(os.path.join(SCRIPTS, script), COPIES, SAVES)
+    code, log = harness_game.run_eval(EXE, ROOT, LOG, [path], ["-project", project])
     if harness_game.report_unfinished(code, log, script):
         failures += 1
     return log
@@ -190,6 +245,7 @@ SETTINGS = os.path.join(os.path.dirname(EXE), "settings.ini")
 
 # --- phase 1: a drag is one undo step ----------------------------------------
 print("1 - a paint drag is one undo step")
+fresh()
 log = run("strokeundo.eval")
 check(passed(log), "the script ran clean")
 h = hashes(log)
@@ -206,9 +262,7 @@ else:
 
 # --- phase 2: a check leaves the save alone -----------------------------------
 print("2 - checking does not change what a save writes")
-backup = os.path.join(ROOT, r"build\editortest-backup")
-shutil.rmtree(backup, ignore_errors=True)
-shutil.copytree(PROJ, backup)
+fresh()
 try:
     log = run("validatesave.eval")
     check(passed(log), "the script ran clean")
@@ -220,12 +274,11 @@ try:
     check(saved == ["eval_arena"], "savemap wrote the active level alone",
           f"saved: {saved}")
 finally:
-    shutil.rmtree(PROJ)
-    shutil.copytree(backup, PROJ)
-    shutil.rmtree(backup, ignore_errors=True)
+    drop()
 
 # --- phase 3: the edit counter ------------------------------------------------
 print("3 - the edit counter moves on a change and only on a change")
+fresh()
 log = run("editrev.eval")
 check(passed(log), "the script ran clean")
 revs = [int(r) for r in re.findall(r"console: editor rev (\d+)", log)]
@@ -239,6 +292,7 @@ else:
 
 # --- phase 4: batched fills leave no chunk stale ------------------------------
 print("4 - a batched fill rebuilds every chunk it touched")
+fresh()
 log = run("chunkbatch.eval")
 check(passed(log), "the script ran clean")
 h = hashes(log)
@@ -258,6 +312,7 @@ else:
 
 # --- phase 5: the area fill ---------------------------------------------------
 print("5 - the area fill paints the room or corridor, and stops there")
+fresh()
 log = run("areafill.eval")
 check(passed(log), "the script ran clean")
 areas = [int(n) for n in re.findall(r"editor: Filled the room or corridor \((\d+) cells\)", log)]
@@ -299,9 +354,7 @@ def sections(log):
     return out
 
 
-backup = os.path.join(ROOT, r"build\editortest-backup")
-shutil.rmtree(backup, ignore_errors=True)
-shutil.copytree(PROJ, backup)
+fresh()
 try:
     # The two breakages the eval script's PART B and the badge rely on.
     crypt2 = os.path.join(PROJ, r"levels\crypt2.map")
@@ -337,17 +390,13 @@ try:
     check("editor box crypt2 1,1 error map.check.stairunpaired (from crypt1 1,1)" in far,
           "and at its far end, on the level it leads to", str(far))
 finally:
-    shutil.rmtree(PROJ)
-    shutil.copytree(backup, PROJ)
-    shutil.rmtree(backup, ignore_errors=True)
+    drop()
 
 # --- phase 7: painting with a theme -------------------------------------------
 print("7 - a theme paints a whole look, by reference")
 CELL = re.compile(r"console: editor cell (\S+) (\d+),(\d+) (\w+) wall=(\S+)/(\S+) "
                   r"floor=(\S+)/(\S+) ceiling=(\S+)/(\S+)")
-backup = os.path.join(ROOT, r"build\editortest-backup")
-shutil.rmtree(backup, ignore_errors=True)
-shutil.copytree(PROJ, backup)
+fresh()
 try:
     # floor_rubble is not in eval_arena's palette: painting must enrol it.
     io.open(os.path.join(PROJ, r"catalog\themes.cat"), "w", encoding="utf-8", newline="").write(
@@ -394,15 +443,11 @@ try:
         check(wall[4] == "theme:theme1" and wall[5] == "wall_marble",
               "and the wall beside it", str(wall))
 finally:
-    shutil.rmtree(PROJ)
-    shutil.copytree(backup, PROJ)
-    shutil.rmtree(backup, ignore_errors=True)
+    drop()
 
 # --- phase 8: editing a theme -------------------------------------------------
 print("8 - editing a theme repaints every square that uses it")
-backup = os.path.join(ROOT, r"build\editortest-backup")
-shutil.rmtree(backup, ignore_errors=True)
-shutil.copytree(PROJ, backup)
+fresh()
 try:
     io.open(os.path.join(PROJ, r"catalog\themes.cat"), "w", encoding="utf-8", newline="").write(
         "[marble_hall]\r\ndisplay = Marble Hall\r\nfloor = floor_rubble\r\n"
@@ -434,15 +479,13 @@ try:
     check(any("floor=theme:grand_hall/floor_temple_b" in l for l in four),
           "a member floor type renamed keeps the theme resolving", str(four))
 finally:
-    shutil.rmtree(PROJ)
-    shutil.copytree(backup, PROJ)
-    shutil.rmtree(backup, ignore_errors=True)
+    drop()
 
 # --- phase 9: making a world ----------------------------------------------------
 print("9 - a new world three ways: blank, this world whole, one level")
-PROJECTS = os.path.join(ROOT, r"assets\projects")
 MADE = ("nw_blank", "nw_copy", "nw_level", "nw_bad")
 LEFTOVER = os.path.join(PROJECTS, ".building-nw_ghost")
+fresh()
 arena = os.path.join(PROJ, r"levels\eval_arena.map")
 arena_before = io.open(arena, "rb").read()
 try:
@@ -471,7 +514,8 @@ try:
 
     # THE COPY CARRIES THE UNSAVED EDIT, AND THIS WORLD KEEPS ITS FILE. The 3x3
     # at 3..5 was painted and never saved: the copy's eval_arena must hold it
-    # (variant records on those squares) and dungeon-demo's must not have moved.
+    # (variant records on those squares) and the world it was copied from (the
+    # scratch copy of dungeon-demo) must not have moved.
     copied = read("nw_copy", r"levels\eval_arena.map")
     painted = sum(1 for x in range(3, 6) for z in range(3, 6)
                   if re.search(rf"^variant floor {x} {z} \d+", copied, re.M))
@@ -494,12 +538,13 @@ try:
         check("validate: clean" in wlog, f"{w} opens and passes the checker",
               next((l for l in wlog.splitlines() if "validate" in l), "no validate line"))
 finally:
-    for w in MADE:
-        shutil.rmtree(os.path.join(PROJECTS, w), ignore_errors=True)
-    shutil.rmtree(LEFTOVER, ignore_errors=True)
+    for w in MADE + (os.path.basename(LEFTOVER),):
+        harness_game.remove_world(ROOT, w)
+    drop()
 
 # --- phase 10: the New world dialog ---------------------------------------------
 print("10 - the New world dialog makes a world, and hands it to the Worlds list")
+fresh()
 try:
     log = run("newworlddialog.eval")
     check(passed(log), "the script ran clean")
@@ -519,7 +564,8 @@ try:
           after[-1] if after else "no worlds dialog line")
 finally:
     for w in ("nwd_level", "nwd_blank"):
-        shutil.rmtree(os.path.join(PROJECTS, w), ignore_errors=True)
+        harness_game.remove_world(ROOT, w)
+    drop()
 
 # --- phase 11: the wizard -------------------------------------------------------
 print("11 - the wizard generates a first floor, tagged and reproducible")
@@ -540,6 +586,7 @@ def tagged(tag):
     return out
 
 
+fresh()
 try:
     log = run("wizard.eval")
     check(passed(log), "the script ran clean")
@@ -576,7 +623,8 @@ try:
               next((l for l in wlog.splitlines() if "validate" in l), "no validate line"))
 finally:
     for w in WIZ:
-        shutil.rmtree(os.path.join(PROJECTS, w), ignore_errors=True)
+        harness_game.remove_world(ROOT, w)
+    drop()
 
 # --- phase 12: the palette's category bar -------------------------------------
 print("12 - the category bar shows one group, both ways, and the filter sees past it")
@@ -608,8 +656,9 @@ def shown(line):
     return m.group(1), m.group(2), m.group(3), secs
 
 
-# The bar's state lives in settings.ini beside the exe (SETTINGS, above), so
-# this phase puts the developer's copy back afterwards like every project file.
+# The bar's state lives in settings.ini beside the exe (SETTINGS, above), not
+# in the world, so this phase puts the developer's copy back afterwards.
+fresh()
 saved_settings = io.open(SETTINGS, "rb").read() if os.path.isfile(SETTINGS) else None
 try:
     log = run("palette.eval")
@@ -665,6 +714,7 @@ try:
     check(len(back) == 1 and back[0][:2] == ("kind", "items"),
           "a fresh start opens the palette where it was left", str(back))
 finally:
+    drop()
     if saved_settings is None:
         if os.path.isfile(SETTINGS):
             os.remove(SETTINGS)
@@ -715,9 +765,7 @@ def swarms(stem):
     return len(re.findall(r"^monster skel_swarm ", text, re.M)), bool(text)
 
 
-backup = os.path.join(ROOT, r"build\editortest-backup")
-shutil.rmtree(backup, ignore_errors=True)
-shutil.copytree(PROJ, backup)
+fresh()
 try:
     log = run("power.eval")
     check(passed(log), "the script ran clean")
@@ -755,9 +803,7 @@ try:
     check(cw is not None and not cw[2] and cw[1] == cw[0] and cleared == before,
           "removing the override puts every power and band back", str(cw))
 finally:
-    shutil.rmtree(PROJ)
-    shutil.copytree(backup, PROJ)
-    shutil.rmtree(backup, ignore_errors=True)
+    drop()
 
 # --- phase 14: the docks and the overview --------------------------------------
 print("14 - the docks resize and remember, and the overview counts what the files hold")
@@ -824,9 +870,7 @@ def dungeon_levels():
 
 
 saved_settings = io.open(SETTINGS, "rb").read() if os.path.isfile(SETTINGS) else None
-backup = os.path.join(ROOT, r"build\editortest-backup")
-shutil.rmtree(backup, ignore_errors=True)
-shutil.copytree(PROJ, backup)
+fresh()
 try:
     log = run("docks.eval")
     check(passed(log), "the script ran clean")
@@ -890,9 +934,7 @@ try:
           "a fresh start opens both docks at the widths they were left",
           str(back[0] if back else "no reading"))
 finally:
-    shutil.rmtree(PROJ)
-    shutil.copytree(backup, PROJ)
-    shutil.rmtree(backup, ignore_errors=True)
+    drop()
     if saved_settings is None:
         if os.path.isfile(SETTINGS):
             os.remove(SETTINGS)
@@ -964,9 +1006,7 @@ def palette_rows(lines):
     return out
 
 
-backup = os.path.join(ROOT, r"build\editortest-backup")
-shutil.rmtree(backup, ignore_errors=True)
-shutil.copytree(PROJ, backup)
+fresh()
 try:
     write_fixture()
     log = run("flags.eval")
@@ -1047,14 +1087,12 @@ try:
           "a stair waiting on a flag bars the way until it is on, then goes down",
           str([l for l in stair if " map, " in l or l.startswith("20,")]))
 finally:
-    shutil.rmtree(PROJ)
-    shutil.copytree(backup, PROJ)
-    shutil.rmtree(backup, ignore_errors=True)
+    drop()
+    harness_game.remove_saves(SAVES.values())  # its save, gone as soon as it is done with
 
 # --- phase 16: styles and the library ---------------------------------------------
 print("16 - styles: the library, adding and saving, the monster lens, the rename sweeps")
 
-LIBRARY = os.path.join(ROOT, r"assets\library")
 STYLELINE = re.compile(r"style (\S+) (world|library)( current)? room=(\S+) corridor=(\S+) "
                        r"width=(\S+) monsters=(.*)")
 
@@ -1098,12 +1136,13 @@ def read(rel):
     return io.open(os.path.join(PROJ, rel), encoding="utf-8").read()
 
 
-backup = os.path.join(ROOT, r"build\editortest-backup")
-libbak = os.path.join(ROOT, r"build\editortest-library")
-shutil.rmtree(backup, ignore_errors=True)
-shutil.rmtree(libbak, ignore_errors=True)
-shutil.copytree(PROJ, backup)
-shutil.copytree(LIBRARY, libbak)
+fresh()
+# THE LIBRARY IS REAL: it has one home, so this phase changes it (an add reads
+# it, a save writes it) behind a backup. back_up() never deletes a backup it
+# finds - that one is a killed run's and the clean copy - and restore() writes
+# the library back in place and only then discards it (renamed out of its name
+# first, so a kill during the delete never leaves a partial "clean copy").
+harness_game.back_up(LIBRARY, LIBBAK)
 try:
     drop_block(os.path.join(PROJ, r"catalog\floors.cat"), "ground_soil_rocky")
     walls_before = io.open(os.path.join(PROJ, r"catalog\walls.cat"), "rb").read()
@@ -1183,12 +1222,8 @@ try:
           and "flag = relic_taken=1" in items and "[relic_taken]" in read(r"catalog\flags.cat"),
           "renaming a flag rewrites the lever, the stair and the item that name it")
 finally:
-    shutil.rmtree(PROJ)
-    shutil.copytree(backup, PROJ)
-    shutil.rmtree(backup, ignore_errors=True)
-    shutil.rmtree(LIBRARY)
-    shutil.copytree(libbak, LIBRARY)
-    shutil.rmtree(libbak, ignore_errors=True)
+    drop()
+    harness_game.restore(LIBBAK, LIBRARY)
 
 # --- phase 17: the shape brushes ---------------------------------------------------
 print("17 - shape brushes: corridor, room, stamp and region, in the current style")
@@ -1217,9 +1252,7 @@ def read_level(stem):
     return rows, themes
 
 
-backup = os.path.join(ROOT, r"build\editortest-backup")
-shutil.rmtree(backup, ignore_errors=True)
-shutil.copytree(PROJ, backup)
+fresh()
 try:
     # The fixture: rock everywhere but a 5x5 room round the start (14,12).
     def rocky(lines):
@@ -1302,9 +1335,7 @@ try:
     check(sm is not None and sm[0] == "region" and sm[1] == 0 and sm[3] == 0,
           "a region under 6x6 generates nothing", str(sm))
 finally:
-    shutil.rmtree(PROJ)
-    shutil.copytree(backup, PROJ)
-    shutil.rmtree(backup, ignore_errors=True)
+    drop()
 
 # --- phase 18: the workflow, wired through ------------------------------------------
 print("18 - the four stages as one path: a styled world, add, build, populate, overview")
@@ -1329,11 +1360,11 @@ def monsters_in(text):
 # The dialog's Create and Populate PERSIST their knobs (settings.ini gen_knobs),
 # and other suites' scripts inherit the knobs they leave unset - so the style's
 # recipe this phase uses must not outlive it.
-SETTINGS = os.path.join(os.path.dirname(EXE), "settings.ini")
 settings_before = io.open(SETTINGS, "rb").read() if os.path.isfile(SETTINGS) else None
+fresh()
 try:
     for w in P7:
-        shutil.rmtree(os.path.join(PROJECTS, w), ignore_errors=True)
+        harness_game.remove_world(ROOT, w)
     log = run("workflow_worlds.eval")
     check(passed(log), "the worlds script ran clean")
     # A BLANK world in a library style: the style and what it names arrive, the
@@ -1428,9 +1459,17 @@ try:
           "the empty floor carries the style's tags and room theme too")
 finally:
     for w in P7:
-        shutil.rmtree(os.path.join(PROJECTS, w), ignore_errors=True)
+        harness_game.remove_world(ROOT, w)
+    drop()
     if settings_before is not None:
         io.open(SETTINGS, "wb").write(settings_before)
+    elif os.path.isfile(SETTINGS):
+        os.remove(SETTINGS)
+
+# --- the real tree --------------------------------------------------------------
+print("the real tree: dungeon-demo and the library as the run found them")
+cleanup()
+real.check(check)
 
 print()
 print("PASS" if failures == 0 else f"FAIL - {failures} check(s) failed")

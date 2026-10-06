@@ -77,7 +77,8 @@ $VK_RETURN = 0x0D; $VK_ESCAPE = 0x1B; $VK_CONSOLE = 0xC0
 # ---------------------------------------------------------------------------
 
 # Exit codes the harnesses share, here and in harness_game.py: 0 PASS, 1 FAIL,
-# 2 no build, 3 refused (this worktree's game is already running), 4 refused
+# 2 nothing ran (no build, or an argument the judge does not know), 3 refused
+# (this worktree's game is already running), 4 refused
 # (the exe is behind its sources). A refusal is not a verdict, so it must never
 # read as one.
 $HarnessExitRunning = 3

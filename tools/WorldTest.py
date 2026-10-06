@@ -58,7 +58,16 @@
 #      leaving and coming back: straight in, via an ambush on the road, and via
 #      a save made on the world map (which must also load ONTO the world map).
 #
-# Every file this touches is restored, including the save it downgrades.
+# NOTHING HERE TOUCHES THE REAL WORLD (code-review C431). Every phase runs in
+# wt_demo, a scratch copy of dungeon-demo made at the start and deleted at the
+# end; the scripts that name the world they are in are given the scratch name.
+# The one exception is phase 16's control, which must open dungeon-demo itself
+# and is read-only there. The saves are THIS worktree's (harness_game.save_name)
+# in the folder everyone shares, and only those are deleted. The run ends by
+# checking the real worlds and the library are byte for byte as it found them
+# (before it cleared up after a killed run) and that git status names none of
+# its scratch worlds. A failure that stops the run early is still a FAIL (exit
+# 1), never the "nothing ran" of exit 2 (tools/harness_game.py).
 import io
 import os
 import re
@@ -71,48 +80,31 @@ import harness_game
 # worktree meant a run from any other checkout drove THAT tree's exe and
 # mutated THAT tree's project files, underneath whoever was working there.
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PROJ = os.path.join(ROOT, r"assets\projects\dungeon-demo")
+REAL_PROJ = os.path.join(ROOT, r"assets\projects\dungeon-demo")
+SCRATCH = "wt_demo"
+PROJ = os.path.join(harness_game.projects_dir(ROOT), SCRATCH)
 WORLD = os.path.join(PROJ, r"world\world.map")
 DUNGEONS = os.path.join(PROJ, r"catalog\dungeons.cat")
 MANIFEST = os.path.join(PROJ, "project.ini")
 EXE = os.path.join(ROOT, r"build\debug\bin\Dungeon.exe")
 LOG = os.path.join(ROOT, r"build\debug\bin\dungeon.log")
 SCRIPTS = os.path.join(ROOT, r"tools\EvalScripts")
+COPIES = os.path.join(ROOT, r"build\harness-scripts\worldtest")
+# Every world a phase makes, and the scratch one: cleared at the start (what a
+# killed run left) and at the end.
+WORLDS = (SCRATCH, "wt_scratch", "wt_dlg", "wt_del", "wt_del2", "wt_dng", "wt_ren", "wt_swap")
 
 # Never a stale exe, and never beside this worktree's own game, which shares
 # the log every phase reads (tools/harness_game.py).
 harness_game.refuse_if_stale(EXE)
 harness_game.refuse_if_running(EXE)
 
-
-def documents_dir():
-    # The GAME'S rule, asked the same way (Core/Paths.cpp SaveDir): the
-    # Documents KNOWN FOLDER. It was hardcoded as %USERPROFILE%\OneDrive\
-    # Documents, which is right only where OneDrive has redirected Documents -
-    # anywhere else the game saves to one folder and this reads another.
-    # Refuses rather than guessing, since a wrong guess reads as "no save".
-    import ctypes
-    import uuid
-    from ctypes import wintypes
-
-    class GUID(ctypes.Structure):
-        _fields_ = [("Data1", wintypes.DWORD), ("Data2", wintypes.WORD),
-                    ("Data3", wintypes.WORD), ("Data4", ctypes.c_ubyte * 8)]
-
-    folder = GUID.from_buffer_copy(
-        uuid.UUID("{FDD39AD0-238F-46AF-ADB4-6C85480369C7}").bytes_le)  # FOLDERID_Documents
-    path = ctypes.c_wchar_p()
-    hr = ctypes.windll.shell32.SHGetKnownFolderPath(
-        ctypes.byref(folder), 0, None, ctypes.byref(path))
-    try:
-        if hr != 0 or not path.value:
-            raise OSError("SHGetKnownFolderPath(Documents) failed: 0x%08X" % (hr & 0xFFFFFFFF))
-        return path.value
-    finally:
-        ctypes.windll.ole32.CoTaskMemFree(path)
-
-
-SAVE = os.path.join(documents_dir(), r"DungeonSaves\worldtrip.dsav")
+# The scripts' save slots, renamed to this worktree's (worldtrip -> worldtrip_
+# <worktree>_<hash>): the saves folder is shared with every other session and
+# with Michael's own play, and this suite downgrades one and deletes them all.
+SAVES = {n: harness_game.save_name(ROOT, n)
+         for n in ("worldtrip", "encountertrip", "questtrip", "worldpersist")}
+SAVE = harness_game.save_path(SAVES["worldtrip"])
 
 failures = 0
 
@@ -125,14 +117,18 @@ def write(p, s):
     io.open(p, "w", encoding="utf-8", newline="").write(s)
 
 
-def run(script, project=None):
+def run(script, project=SCRATCH, words=None):
     # `project` is the -project flag: which WORLD to open, for one run, leaving
-    # settings.ini alone. It is how a test scenario gets a world of its own.
+    # settings.ini alone. It is how a test scenario gets a world of its own, and
+    # by default it is the scratch copy; None opens what a bare harness run
+    # opens (dungeon-demo), which only phase 16's control wants. `words` renames
+    # whole words in the script's commands (a world it names by id).
     # A run that died before its verdict counts as a failure on its own, not
     # as a log to be read as if it were whole.
     global failures
     extra = ["-project", project] if project else []
-    code, log = harness_game.run_eval(EXE, ROOT, LOG, [os.path.join(SCRIPTS, script)], extra)
+    path = harness_game.eval_script(os.path.join(SCRIPTS, script), COPIES, SAVES, words)
+    code, log = harness_game.run_eval(EXE, ROOT, LOG, [path], extra)
     if harness_game.report_unfinished(code, log, script):
         failures += 1
     return log
@@ -145,6 +141,12 @@ def check(ok, label, detail=""):
         failures += 1
         if detail:
             print(f"         {detail}")
+
+
+class Stop(Exception):
+    """A failure (already counted by check()) that leaves the later phases
+    nothing to stand on. The run still clears up, checks the real tree and
+    prints its FAIL verdict."""
 
 
 def party_lines(log):
@@ -190,11 +192,20 @@ CASES = [
      "map.check.levelorphan"),
 ]
 
-# project.ini joins the backup list because phase 13 now CREATES a level,
-# which saves the whole project. Its files are removed in the finally block.
+# The guard is taken BEFORE clearing up what a killed run left (its worlds and
+# its saves, all this worktree's own), so the clean-up is judged too: nothing
+# of this judge's worlds may be left in git status, a killed run's included.
+real = harness_game.RealTree(ROOT, own=WORLDS)
+for w in WORLDS:
+    harness_game.remove_world(ROOT, w)
+harness_game.remove_saves(SAVES.values())
+harness_game.scratch_world(ROOT, SCRATCH)
+# The scratch world's own originals: phases 1 and 10 change these files and put
+# them back, because later phases run in the same scratch world.
 originals = {p: read(p) for p in (WORLD, DUNGEONS, MANIFEST)}
 # settings.ini is the DEVELOPER'S, not the project's: phase 16 points it at a
-# scratch world on purpose, and it must come back exactly as it was.
+# scratch world on purpose, and it must come back exactly as it was - or go
+# again, if the run found none.
 SETTINGS = os.path.join(ROOT, r"build\debug\bin\settings.ini")
 settings_before = read(SETTINGS) if os.path.isfile(SETTINGS) else None
 # Muted for the whole run (tools/harness_audio.py) - AFTER the snapshot above,
@@ -205,17 +216,16 @@ try:
     print("1 - the world checks fire when the world is broken")
     log = run("worldcheck.eval")
     baseline = log[log.rfind("> validate"):]
+    check("clean - no faults found" in baseline,
+          "baseline is clean, so a finding below is the mutation's", baseline[:600])
     if "clean - no faults found" not in baseline:
-        print("BASELINE NOT CLEAN - a mutation's finding would be ambiguous:")
-        print(baseline[:600])
-        sys.exit(2)
-    check(True, "baseline is clean, so a finding below is the mutation's")
+        raise Stop("the baseline is not clean - every mutation's finding would be ambiguous")
 
     # The new-game world state, kept as phase 2's control.
     newgame = party_lines(log)
+    check(bool(newgame), "the `world` command printed the new game's party line")
     if not newgame:
-        print("the `world` command printed no party line - cannot continue")
-        sys.exit(2)
+        raise Stop("no new-game party line - phase 2 has no control")
     control = newgame[-1]
 
     for name, path, find, repl, key in CASES:
@@ -270,7 +280,7 @@ try:
                   f"-> {floor_minus_one})")
             write(SAVE, downgraded)
             log = run("worldload.eval")
-            check(f"worldtrip.dsav is version {floor_minus_one}, older than the "
+            check(f"{os.path.basename(SAVE)} is version {floor_minus_one}, older than the "
                   f"minimum" in log,
                   "the log says THIS save was refused, and what the floor is")
             check("LoadGame: could not read" in log, "and the load did not happen")
@@ -283,17 +293,20 @@ try:
         # so one that names none is refused - the control being the untouched
         # save's own line, read first.
         text = read(SAVE)
-        check("save world=dungeon-demo" in text,
+        check(f"save world={SCRATCH}" in text,
               "a save names the world it belongs to")
         shutil.copy(SAVE, SAVE + ".bak")
         try:
             write(SAVE, re.sub(r"save world=[^\r\n]*\r?\n", "", text, count=1))
             log = run("worldload.eval")
-            check("worldtrip.dsav names no world - refusing it" in log and
+            check(f"{os.path.basename(SAVE)} names no world - refusing it" in log and
                   "LoadGame: could not read" in log,
                   "one that names no world is refused, not loaded into this one")
         finally:
             shutil.move(SAVE + ".bak", SAVE)
+    # Each save goes as soon as its phase is done with it: while it is on disk
+    # it is in everyone's Load list (the folder is shared).
+    harness_game.remove_saves([SAVES["worldtrip"]])
 
     # --- phase 4: travel is a journey ---------------------------------------
     print("\n4 - travel costs what the terrain says")
@@ -367,13 +380,37 @@ try:
     print("stepping), so walking onto it is checked by driving the real game.")
     # --- phase 6: a dungeon with two ways in --------------------------------
     print("\n6 - two doors into one dungeon")
-    log = run("worldback.eval")
+    # THE CONTROL NEEDS A START ELSEWHERE. crypt2's start ('P') stands on 10,6,
+    # the very square the back way lands on, so "landed on the entry, not the
+    # start" could not be told apart - the old check ended in `or True`
+    # (code-review C432). For this run the scratch crypt2 starts on the first
+    # floor square that is not 10,6 and holds no stair; a back way that ignored
+    # its entry would land THERE, and mapinfo must report it as the start.
+    crypt2 = os.path.join(PROJ, r"levels\crypt2.map")
+    crypt2_before = read(crypt2)
+    eol = "\r\n" if "\r\n" in crypt2_before else "\n"
+    lines = crypt2_before.split(eol)
+    rows = [i for i, l in enumerate(lines) if l[:1] in ("#", ".", "P")]
+    stairs = {(int(m.group(1)), int(m.group(2))) for m in
+              re.finditer(r"^stairs \S+ (\d+) (\d+)", crypt2_before, re.M)}
+    elsewhere = next(((x, z) for z, i in enumerate(rows) for x, ch in enumerate(lines[i])
+                      if ch == "." and (x, z) != (10, 6) and (x, z) not in stairs), None)
+    for i in rows:
+        lines[i] = lines[i].replace("P", ".")
+    if elsewhere:
+        r = rows[elsewhere[1]]
+        lines[r] = lines[r][:elsewhere[0]] + "P" + lines[r][elsewhere[0] + 1:]
+    write(crypt2, eol.join(lines))
+    try:
+        log = run("worldback.eval")
+    finally:
+        write(crypt2, crypt2_before)
 
-    # The back way opens the SAME dungeon on a DIFFERENT level. showcase is
-    # 28x24 and level2 is 55x15, so the map line alone says which one opened.
+    # The back way opens the SAME dungeon on a DIFFERENT level: crypt1 is
+    # 14x10 and crypt2 12x8, so the map line alone says which one opened.
     check("12x8 map" in log,
           "the back way opens a different floor of the same dungeon")
-    # ...and at ITS cell, not the level's start. level2 starts at 3,3, which
+    # ...and at ITS cell, not the level's start (moved off it above), which
     # is the control: landing there would mean the location's entry was
     # ignored and the front door's rule applied.
     # FACING NORTH: 10,6 holds crypt2's exit stair, and arriving on a stair
@@ -381,8 +418,12 @@ try:
     check("10,6 facing north" in log,
           "landing on the location's own cell, not the level's start (10,6 vs P), "
           "facing off the exit stair there")
-    check("start 10,6" not in log or True,
-          "and the level really does start elsewhere (the control)")
+    started = re.search(r"12x8 map, start (\d+),(\d+)", log)
+    check(elsewhere is not None and started is not None and
+          (int(started.group(1)), int(started.group(2))) == elsewhere,
+          "and the level really does start elsewhere (the control): mapinfo names "
+          f"the moved start {elsewhere}",
+          started.group(0) if started else "(no 12x8 mapinfo line)")
 
     # Out by the FRONT after coming in the BACK: an exit knows its own door.
     # 10,10 is the front location, 5,13 the back one.
@@ -423,11 +464,8 @@ try:
           " / ".join(l[-46:] for l in party))
 
     # --- and a save inside one is refused, not written ----------------------
-    trip = os.path.join(os.path.dirname(SAVE), "encountertrip.dsav")
-    try:
-        os.remove(trip)
-    except OSError:
-        pass
+    # This worktree's slot, cleared at the start: so a file here is this run's.
+    trip = harness_game.save_path(SAVES["encountertrip"])
     log = run("worldnosave.eval")
     check("refusing to save inside a random encounter" in log,
           "a save inside an encounter is refused, and says why")
@@ -492,6 +530,7 @@ try:
     # And all of it survives a save. The last readings come AFTER the load.
     check(len(q) >= 4 and "at 'found'" in q[-1],
           "quest stage and flags ride the save", " / ".join(q[-2:]))
+    harness_game.remove_saves([SAVES["questtrip"]])
     # --- phase 10: the world can be written --------------------------------
     print("\n10 - the world survives being written and read back")
     world_before = read(WORLD)
@@ -680,7 +719,7 @@ try:
     # THE CONTROL: it is listed beside the one that made it, and the one that
     # made it is still the one that is OPEN. Creating a world must not move you
     # into it — that is a separate, deliberate switch (`worlds load`).
-    check("dungeon-demo  (open)" in log and "wt_scratch" in log,
+    check(f"{SCRATCH}  (open)" in log and "wt_scratch" in log,
           "...listed beside the world that made it, which is still the open one")
 
     # Opened BY NAME on the command line, which is the scenario interface.
@@ -698,7 +737,8 @@ try:
 
     # --- phase 15: the worlds dialog ----------------------------------------
     print("\n15 - the worlds dialog lists, creates and arms")
-    log = run("worldsdialog.eval")
+    # The script clicks the RUNNING world's row by name: the scratch world's.
+    log = run("worldsdialog.eval", words={"dungeon-demo": SCRATCH})
     dlg = [l.split("console: ", 1)[1] for l in log.splitlines()
            if "console: worlds dialog" in l or "console: the worlds dialog" in l]
     check(any("needs the world map" in l for l in dlg),
@@ -715,7 +755,8 @@ try:
         armed = l.split("armed '", 1)[1].split("'", 1)[0]
         return state, worlds, armed, l.split(" - ", 1)[1]
     rows = [r for r in map(parse, dlg) if r]
-    check(bool(rows) and rows[0][0] == "open" and "dungeon-demo" in rows[0][1]
+    check(bool(rows) and rows[0][0] == "open" and SCRATCH in rows[0][1]
+          and "dungeon-demo" in rows[0][1]
           and "wt_dlg" not in rows[0][1] and rows[0][2] == "",
           "on the world screen it opens, listing the worlds on disk, nothing armed")
     # EACH REFUSAL NAMES ITS OWN RULE (W4's lesson): a check for the duplicate
@@ -746,11 +787,17 @@ try:
     # open dungeon-demo. Before the rule, a world Michael switched into became
     # every suite's ground.
     # From the file as it is NOW, not settings_before, or this unmutes the run.
-    if settings_before is not None:
-        lines = [l for l in read(SETTINGS).splitlines()
-                 if not l.startswith("project=")]
-        write(SETTINGS, "\n".join(lines + ["project=wt_scratch"]) + "\n")
-    log = run("worlddelete.eval")
+    # ALWAYS set up: with no settings.ini before the run this used to skip the
+    # control and still print its check (code-review C432); the finally block
+    # removes a file the run made.
+    now = read(SETTINGS) if os.path.isfile(SETTINGS) else ""
+    lines = [l for l in now.splitlines() if not l.startswith("project=")]
+    write(SETTINGS, "\n".join(lines + ["project=wt_scratch"]) + "\n")
+    check("project=wt_scratch" in read(SETTINGS),
+          "the control: settings.ini names another world (wt_scratch)")
+    # NO -project: this run must land on the real dungeon-demo by the harness
+    # rule alone. It only reads it (RealTree checks that at the end).
+    log = run("worlddelete.eval", project=None)
     con = [l.split("console: ", 1)[1] for l in log.splitlines() if "console: " in l]
     check("  dungeon-demo  (open)" in con,
           "a harness run opens dungeon-demo even when settings.ini names another world")
@@ -792,7 +839,7 @@ try:
           "dungeon-demo is refused as the fallback, even when it is not running")
     check(any("You are in 'wt_dlg'" in l for l in con),
           "and the world you are in is refused as the running one")
-    check(os.path.isfile(os.path.join(PROJ, "project.ini")),
+    check(os.path.isfile(os.path.join(REAL_PROJ, "project.ini")),
           "...and dungeon-demo is, of course, still there")
 
     # --- phase 17: deleting a dungeon ----------------------------------------
@@ -984,7 +1031,8 @@ try:
     # --- phase 19: a world is loaded when a game starts ----------------------
     print("\n19 - no world until a game starts, and a switch that leaks nothing")
     shutil.rmtree(os.path.join(ROOT, r"assets\projects\wt_swap"), ignore_errors=True)
-    log = run("worldswap.eval")
+    # A is the scratch world: the script's `worlds load dungeon-demo` loads it.
+    log = run("worldswap.eval", words={"dungeon-demo": SCRATCH})
     status = [l.split("console: ", 1)[1] for l in log.splitlines()
               if "console: world " in l]
     def srv(line):
@@ -995,9 +1043,9 @@ try:
         check(status[0].startswith("world none  game not loaded"),
               "the title screen has NO world - the world loads when a game starts",
               status[0])
-        check(status[1].startswith("world dungeon-demo  game loaded") and
+        check(status[1].startswith(f"world {SCRATCH}  game loaded") and
               status[2].startswith("world wt_swap  game loaded") and
-              status[3].startswith("world dungeon-demo  game loaded"),
+              status[3].startswith(f"world {SCRATCH}  game loaded"),
               "A -> B -> A switches in the process, no relaunch", " | ".join(status[1:4]))
         # THE LEAK CHECK. Descriptor slots are the one GPU resource with a
         # visible gauge; a world's textures are most of them. Coming back to A
@@ -1008,7 +1056,7 @@ try:
               f"{srv(status[2])} -> {srv(status[3])}")
         check(srv(status[0]) < srv(status[1]),
               f"and the title screen holds less than a world ({srv(status[0])})")
-    check("already in 'dungeon-demo'" in log and len(status) == 5 and
+    check(f"already in '{SCRATCH}'" in log and len(status) == 5 and
           srv(status[4]) == srv(status[3]),
           "loading the world already open reloads nothing")
     check("World unloaded" in log and "eval RESULT=PASS script=worldswap.eval" in log,
@@ -1044,6 +1092,7 @@ try:
     check("one-pipeline violation" not in log,
           "and no monster's health moved outside the pipeline on the way")
     check("eval RESULT=PASS script=worldpersist.eval" in log, "the script ran clean")
+    harness_game.remove_saves([SAVES["worldpersist"]])
 
     # --- phase 21: the character sheet ----------------------------------------
     print("\n21 - the character sheet: not a pause, and paging keeps its close box")
@@ -1065,29 +1114,26 @@ try:
           "world map to the world map", f"states {states[20:]}")
     check("eval RESULT=PASS script=worldsheet.eval" in log, "the script ran clean")
 
+except Stop as why:
+    # Already counted as a failure where it was found: a game RAN, so this is a
+    # FAIL like any other (exit 1), never the "nothing ran" of exit 2.
+    print(f"\nstopped early: {why}")
 finally:
+    harness_audio.restore(audio)
     if settings_before is not None:
         write(SETTINGS, settings_before)
-    harness_audio.restore(audio)
-    for p, s in originals.items():
-        write(p, s)
-    # THE SAVE THIS SUITE MAKES IS NOT ITS OWN BUSINESS ALONE. A save on disk
-    # puts Continue and Load on the landing page, and tools/InGameTest.ps1
-    # starts its run by pressing Enter there expecting "Start New Game" — so
-    # leaving this behind made a DIFFERENT suite load a save, sit in a level
-    # transition, and report that levelcheck never answered. Clean up.
-    # The level phase 13 makes, and the save. A level file left behind would
-    # make the NEXT run's "created crypt3" land on crypt4 and the check miss.
-    for scratch in ("wt_scratch", "wt_dlg", "wt_del", "wt_del2", "wt_dng", "wt_ren", "wt_swap"):
-        shutil.rmtree(os.path.join(ROOT, "assets", "projects", scratch),
-                      ignore_errors=True)
-    for leftover in (SAVE, SAVE + ".bak", os.path.join(os.path.dirname(SAVE), "worldpersist.dsav"),
-                     os.path.join(PROJ, r"levels\crypt3.map"),
-                     os.path.join(PROJ, r"levels\crypt3.ent")):
-        try:
-            os.remove(leftover)
-        except OSError:
-            pass
+    elif os.path.isfile(SETTINGS):
+        os.remove(SETTINGS)  # the run made it (the mute, phase 16's control)
+    # THE SAVES THIS SUITE MAKES ARE NOT ITS OWN BUSINESS ALONE. A save on disk
+    # puts Continue and Load on the landing page, and the folder is shared, so
+    # they all go - and only they: each is this worktree's slot. The worlds go
+    # too, the scratch copy with them (and phase 13's crypt3 inside it, which
+    # once made the NEXT run's "created crypt3" land on crypt4).
+    for w in WORLDS:
+        harness_game.remove_world(ROOT, w)
+    harness_game.remove_saves(SAVES.values())
 
+print("\nthe real tree")
+real.check(check)
 print(f"\nworldtest RESULT={'FAIL' if failures else 'PASS'} failures={failures}")
 sys.exit(1 if failures else 0)

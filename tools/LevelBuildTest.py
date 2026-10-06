@@ -70,6 +70,14 @@
 # checker reported 5 errors (stairblocked, stairunpaired, three levellost) and
 # phase 1 fails. With the link sought AFTER both layouts existed (the first
 # version), all three new floors came back unreachable.
+#
+# Every phase runs in a SCRATCH world (harness_game.scratch_world), and the run
+# ends by checking the real worlds and the style library are as it found them
+# (before it cleared up after a killed run) and that git status names none of
+# its scratch worlds.
+# A phase that is not 1-8 is REFUSED (exit 2), and a run in which no check ran
+# is a FAIL: `LevelBuildTest 9` used to run nothing and print PASS (code-review
+# C432).
 import io
 import os
 import re
@@ -82,13 +90,18 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 EXE = os.path.join(ROOT, r"build\debug\bin\Dungeon.exe")
 LOG = os.path.join(ROOT, r"build\debug\bin\dungeon.log")
 SCRIPTS = os.path.join(ROOT, r"tools\EvalScripts")
-DEMO = os.path.join(ROOT, r"assets\projects\dungeon-demo")
+PHASES = range(1, 9)
+# Each phase's scratch world, by name - so a run can clear what a killed one left.
+SCRATCH = ("lb_create", "lb_shape", "lb_complex", "lb_threat", "lb_recipe", "lb_play",
+           "lb_arrive", "lb_facing")
 
 failures = 0
+checks_run = 0
 
 
 def check(ok, label, detail=""):
-    global failures
+    global failures, checks_run
+    checks_run += 1
     print(f"  {'[ok  ]' if ok else '[FAIL]'} {label}")
     if not ok:
         failures += 1
@@ -108,10 +121,8 @@ def run(script, project):
 
 
 def scratch(name):
-    path = os.path.join(ROOT, "assets", "projects", name)
-    shutil.rmtree(path, ignore_errors=True)
-    shutil.copytree(DEMO, path)
-    return path
+    assert name in SCRATCH, f"{name} is not one of this judge's scratch worlds"
+    return harness_game.scratch_world(ROOT, name)
 
 
 def stairs_of(levels_dir, stem):
@@ -304,16 +315,37 @@ def room_depths(m):
     return depth
 
 
+def picked_phases(argv):
+    """The phases named on the command line (none named = all). Anything that is
+    not one of them REFUSES the run, before anything is launched: an unknown
+    phase used to be skipped silently, and a run of nothing printed PASS."""
+    bad = [a for a in argv if not (a.isdigit() and int(a) in PHASES)]
+    if bad:
+        print(f"refused: no phase {', '.join(bad)} - the phases are "
+              f"{PHASES[0]}-{PHASES[-1]} (exit {harness_game.EXIT_USAGE}, nothing ran)")
+        sys.exit(harness_game.EXIT_USAGE)
+    return {int(a) for a in argv}
+
+
+PICKED = set()
+
+
 def phase_wanted(n):
     """Phases named on the command line, or all of them."""
-    picked = {int(a) for a in sys.argv[1:] if a.isdigit()}
-    return not picked or n in picked
+    return not PICKED or n in PICKED
 
 
 def main():
     if not os.path.isfile(EXE):
         print(f"no debug build at {EXE}")
         return 2
+
+    # The guard is taken BEFORE clearing up what a killed run left, so the
+    # clean-up is judged too: nothing of this judge's worlds may be left in git
+    # status at the end, a killed run's included.
+    real = harness_game.RealTree(ROOT, own=SCRATCH)
+    for name in SCRATCH:
+        harness_game.remove_world(ROOT, name)
 
     if phase_wanted(1):
         print("1 - new floors join their dungeon, stairs to the floor above, and survive a reroll")
@@ -1000,12 +1032,21 @@ def main():
         finally:
             shutil.rmtree(proj, ignore_errors=True)
 
-    print(f"\n{'PASS' if failures == 0 else f'FAIL ({failures})'}")
+    ran = checks_run
+    print("\nthe real tree")
+    for name in SCRATCH:
+        harness_game.remove_world(ROOT, name)
+    real.check(check)
+    if ran == 0:
+        print("\nFAIL - no phase ran a check, so there is nothing to call a PASS")
+        return 1
+    print(f"\n{'PASS' if failures == 0 else f'FAIL ({failures})'} - {checks_run} checks")
     return 0 if failures == 0 else 1
 
 
 if __name__ == "__main__":
     import harness_audio
+    PICKED = picked_phases(sys.argv[1:])
     harness_game.refuse_if_stale(EXE)
     harness_game.refuse_if_running(EXE)
     with harness_audio.muted(os.path.dirname(EXE)):
