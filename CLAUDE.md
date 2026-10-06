@@ -1275,8 +1275,28 @@ sixteen kinds in another kind's pose; each kind now owns its icon pose).
   AssetPicker's way, does not scale to thousands), and the thumbnails go
   through `Game/ThumbCache.h`, the ONE copy of the load-a-few-a-frame / mark-seen-
   in-draw / LRU-evict-to-a-low-water-mark / drain-before-free rules, which the
-  AssetPicker uses too. Thumbnails load LINEAR (`LoadTextureThumb`'s srgb=false)
-  to match the party bar. ALLOCATION: an open picker is not a quiet frame
+  AssetPicker uses too. EVICTION NEVER TAKES A TILE ON SCREEN (code-review C111):
+  a draw's mark is a frame old by the time Update evicts, so the owner `Keep`s
+  every tile in view before `Evict`, and the cap grows to twice what is on
+  screen - BOUNDED BY THE SRV HEAP: no thumbnail loads once the heap is at
+  `ThumbCacheKnobs::kHeapLine` (896, an eighth left for the rest and under the
+  90% warning); a load turned away is asked again and makes Evict drop what is
+  off screen, and a screen bigger than the room shows the rest blank rather
+  than aborting (a 6K portrait grid would otherwise run the heap out). Dev
+  `thumbcap <n|off>` FORCES a cap (not grown), `thumbcap heap <n|off>` the
+  line, and both pickers' status lines end `blank= missing= onscreen= cap=
+  evicted= reloads= refused= heapline= heaptop=` - a reload, or one more
+  eviction, with the view still is a tile evicted while it showed or a draw
+  marking tiles not on screen; `missing=` is a load that found no image (an
+  uninstalled portrait), not a blank. ANYTHING THE SPRITE BATCH DRAWS
+  LOADS LINEAR (`LoadTextureThumb`'s default since C158): sprite.hlsl writes its
+  sample straight into the UNORM back buffer, so an sRGB view draws the image
+  far too dark - every asset picker tile and editor swatch did; sRGB is for a
+  texture a LIT 3D pass samples. InGameTest's THUMBNAILS checks photograph the
+  picker's tiles and the palette's swatches (`assetpicker survey`, `editor
+  palette swatches`: where each was drawn and its file's stored mean), run
+  the forced cap on both pickers (read twice, the view still between) and the
+  forced heap line on the asset picker. ALLOCATION: an open picker is not a quiet frame
   (SteadyStateFrame), and `Game::OpenPortraitPicker` excuses the opening click's
   frame (OverlayOpenedThisFrame) - open through it, never GameUI directly. Dev:
   `portrait picker [member|off|status]` / `filter <race|any> <sex|any> <age|any>`
@@ -2442,8 +2462,12 @@ fields silently could not be authored (code-review C101). `typeset dialog rows
 [all]` prints what each schema row built, read off the widget tree, and
 EditorTest phase 20 demands a control for every row of every category. A theme
 member row's SWATCH is asked of `swatchFor` each time it DRAWS and never kept
-(ui::Checkbox::swatch is a function): it is the world's albedo, and a quality
-change reloads it under an open dialog, which drew freed textures (C235). NO
+(ui::Checkbox::swatch is a function): it was the world's albedo once, which a
+quality change reloaded under an open dialog, drawing freed textures (C235). A
+surface swatch is now its OWN linear thumbnail (DungeonWorld::
+SurfaceSwatchForId, C158 - the sRGB albedo drew far too dark), for the palette,
+a theme's rows and the editor map's cell fill alike; a lookup that finds none
+ASKS for it and Game::Update loads a couple a frame (LoadWantedSwatches). NO
 live apply (a type is referenced by every placement
 and, for surfaces, by baked geometry): Save writes the .cat and, when a touched
 field is `rebakes` (a surface's texture/relief/wear), re-runs the wornblock bake

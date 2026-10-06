@@ -177,13 +177,24 @@ void Game::RegisterPartyCommands() {
 								   }
 								   OpenPortraitPicker(static_cast<size_t>(m));
 							   }
+							   // After the gauge, the cache (code-review C111): tiles in
+							   // view with no image yet, and with none installed, and
+							   // what eviction did since the picker opened - a RELOAD is
+							   // a tile evicted and wanted again, which with the view
+							   // still means one evicted while it was on screen
+							   // (`thumbcap` forces the cap) - and the heap line.
 							   const PortraitPicker::Status st = picker->GetStatus();
 							   m_console.Print(std::format(
 								   "picker {} shown={} of {} filter={},{},{} visible={}+{} "
-								   "thumbs={} srv={} peak={}",
+								   "thumbs={} srv={} peak={} blank={} missing={} onscreen={} "
+								   "cap={} evicted={} reloads={} refused={} heapline={} "
+								   "heaptop={}",
 								   st.open ? "open" : "closed", st.shown, st.total, st.race,
 								   st.sex, st.age, st.firstVisible, st.visible, st.thumbs,
-								   m_device.SrvLive(), m_device.SrvHighWater()));
+								   m_device.SrvLive(), m_device.SrvHighWater(), st.blank,
+								   st.missing, st.counts.onScreen, st.counts.cap,
+								   st.counts.evicted, st.counts.reloads, st.counts.refused,
+								   st.counts.heapLine, st.counts.heapTop));
 							   return;
 						   }
 						   size_t first = 0, last = m_characters.size();

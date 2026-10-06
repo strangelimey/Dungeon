@@ -146,6 +146,17 @@ std::unique_ptr<gfx::Texture> LoadTextureThumb(gfx::GraphicsDevice& device,
 	return nullptr;
 }
 
+std::optional<Vec4> StoredMeanColor(const std::string& stemPath) {
+	const auto img = assets::LoadImageFile(stemPath + ".png");
+	if (!img || img->pixels.empty()) return std::nullopt;
+	u64 sum[4] = {};
+	for (size_t p = 0; p + 3 < img->pixels.size(); p += 4)
+		for (size_t c = 0; c < 4; ++c) sum[c] += img->pixels[p + c];
+	const double n = static_cast<double>(img->pixels.size() / 4) * 255.0;
+	return Vec4{static_cast<float>(sum[0] / n), static_cast<float>(sum[1] / n),
+				static_cast<float>(sum[2] / n), static_cast<float>(sum[3] / n)};
+}
+
 namespace {
 // The one close-box texture, shared by every dialog. A namespace-scope owner
 // rather than a function-local static so the lifetime is EXPLICIT:

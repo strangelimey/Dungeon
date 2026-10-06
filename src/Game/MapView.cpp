@@ -625,7 +625,6 @@ bool MapView::Update(const Input& input, const gfx::Rect& panel) {
 	if (editor && m_editor && !m_settings.mapPaletteCollapsed) {
 		m_editor->HandleTyping(input);
 		m_editor->TrackMouse(mx, my, panel);
-		m_editor->LoadShownSwatches(2); // the Catalogue view's thumbnails, paced
 	}
 
 	// The docks' own input first (MapView_Docks.cpp): an edge drag in progress
@@ -1018,10 +1017,10 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 	// then their average colours, both buried it). Only while a Walls/Floors/
 	// Ceilings brush is armed does THAT surface draw its RESOLVED textures
 	// (editor override, theme or the mesh builder's position hash - the
-	// same albedo the 3D scene draws): walls on the solid squares (the block
-	// owns its texture), floors or ceilings on the open ones. Cells group by
-	// variant so the batch flushes once per texture, not per cell; an unloaded
-	// texture (a browsed level on a foreign palette) falls back to the ink.
+	// same texture set the 3D scene draws): walls on the solid squares (the
+	// block owns its texture), floors or ceilings on the open ones. Cells group
+	// by variant so the batch flushes once per texture, not per cell; a swatch
+	// not loaded yet (the first frame or two) falls back to the ink.
 	using SurfaceSel = DungeonWorld::SurfaceSel;
 	SurfaceSel fillSel = SurfaceSel::Floor;
 	bool fillArmed = false; // a surface brush is armed: show its textures
@@ -1033,12 +1032,14 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 		default: break;
 		}
 	}
-	// Each palette id's loaded albedo, resolved once (null = flat fallback).
-	// Empty unless a surface brush is armed, which keeps the loop on the inks.
+	// Each palette id's SWATCH - the palette's own linear thumbnail, resolved once
+	// (null = flat fallback until it has loaded). Not the scene's albedo, which
+	// is sRGB and drew far too dark here (code-review C158). Empty unless a
+	// surface brush is armed, which keeps the loop on the inks.
 	std::vector<const gfx::Texture*> fillTex;
 	if (fillArmed)
 		for (const std::string& id : map.Palette(fillSel))
-			fillTex.push_back(m_world->SurfaceAlbedoForId(fillSel, id));
+			fillTex.push_back(m_world->SurfaceSwatchForId(fillSel, id));
 	const int fillCount = static_cast<int>(fillTex.size());
 	// The cell's resolved variant: ResolveSurfaceVariant, the answer StampCell
 	// bakes, so the fill always matches the 3D scene.

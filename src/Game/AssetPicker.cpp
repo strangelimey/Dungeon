@@ -42,7 +42,9 @@ constexpr size_t kThumbLoadsPerFrame = 2;
 // A thumbnail is the set's mip chain trimmed to levels this size or smaller.
 constexpr u32 kThumbPx = 128;
 // How many tile images to keep. Each is ~16 KB of VRAM and one SRV slot, so
-// this is generous; it exists so a long scroll can't grow without bound.
+// this is generous; it exists so a long scroll can't grow without bound. A
+// window showing more than half of it grows it (ThumbCache: twice the screen,
+// within the heap line).
 constexpr size_t kThumbCap = 160;
 
 std::string Lower(std::string s) {
@@ -198,6 +200,14 @@ void AssetPicker::AssetTile::UpdateSelf(ui::UIContext& ctx) {
 void AssetPicker::AssetTile::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	const std::string& name = Name();
 	if (name.empty()) return; // the filter moved past this slot
+	// Scrolled out of the grid's view: the scissor would discard all of it, and
+	// drawing it would mark its image SEEN (ThumbFor) - every tile of the pool,
+	// every frame, so that "seen" meant nothing and an over-cap cache evicted
+	// and re-made the off-screen ones each frame, draining the GPU every time
+	// (found by the forced cap, code-review C111). The walk draws a grandchild
+	// of a scroll area whether or not it shows; the update walk does not.
+	m_imgDrawn = false;
+	if (!m_owner.InView(Pixel())) return;
 	const ui::Theme& th = ctx.GetTheme();
 	const ui::Font& font = TextFont();
 	const gfx::Rect& px = Pixel();
@@ -210,10 +220,13 @@ void AssetPicker::AssetTile::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batc
 	const float textH = 2.0f * (font.Height() + Rem(0.15f));
 	const float side = std::min(px.w - 2 * inset, px.h - 2 * inset - textH);
 	const gfx::Rect img{px.x + (px.w - side) * 0.5f, px.y + inset, side, side};
-	if (const gfx::Texture* thumb = m_owner.ThumbFor(name))
+	const gfx::Texture* thumb = m_owner.ThumbFor(name);
+	if (thumb)
 		batch.DrawSprite(img, {0, 0, 1, 1}, *thumb, {1, 1, 1, 1});
 	else
 		batch.DrawRect(img, {0.10f, 0.10f, 0.12f, 1.0f});
+	m_img = img; // the brightness survey's rect (SurveyTiles)
+	m_imgDrawn = thumb != nullptr;
 
 	const AssetInfo& a = m_owner.m_items[m_owner.m_shown[m_index]];
 	const float ty = img.y + img.h + Rem(0.15f);
@@ -245,27 +258,34 @@ void AssetPicker::OnTileClicked(size_t shownIndex) {
 // beats keeping a second derivation of it here.
 std::vector<AssetPicker::AssetTile*> AssetPicker::VisibleTiles() const {
 	std::vector<AssetTile*> out;
-	if (!m_grid) return out;
-	const gfx::Rect view = m_grid->Pixel();
-	for (AssetTile* tile : m_tiles) {
-		const gfx::Rect& px = tile->Pixel();
-		if (px.h <= 0.0f) continue;
-		if (px.y + px.h > view.y && px.y < view.y + view.h) out.push_back(tile);
-	}
+	for (AssetTile* tile : m_tiles)
+		if (InView(tile->Pixel())) out.push_back(tile);
 	return out;
+}
+
+bool AssetPicker::InView(const gfx::Rect& px) const {
+	if (!m_grid || px.h <= 0.0f) return false;
+	const gfx::Rect view = m_grid->Pixel();
+	return px.y + px.h > view.y && px.y < view.y + view.h;
 }
 
 // --- thumbnails --------------------------------------------------------------
 
+std::string AssetPicker::ThumbStem(const std::string& name) const {
+	const auto it = std::ranges::find(m_items, name, &AssetInfo::name);
+	if (it == m_items.end()) return {};
+	return paths::Asset("textures\\" + name + SmallestRes(it->resolutions));
+}
+
 std::unique_ptr<gfx::Texture> AssetPicker::LoadThumb(const std::string& name) const {
 	if (m_mode != Mode::Textures) return nullptr; // models are baked by the owner
-	const auto it = std::ranges::find(m_items, name, &AssetInfo::name);
-	if (it == m_items.end()) return nullptr;
+	const std::string stem = ThumbStem(name);
+	if (stem.empty()) return nullptr;
 	// The smallest installed resolution, trimmed to a tile (AssetUtil's
-	// LoadTextureThumb, which the editor's surface swatches share).
-	return LoadTextureThumb(
-		m_device, paths::Asset("textures\\" + name + SmallestRes(it->resolutions)),
-		kThumbPx);
+	// LoadTextureThumb, which the editor's surface swatches share). LINEAR, as
+	// everything the sprite batch draws: an sRGB view drew every tile far
+	// darker than the material looks in the world (code-review C158).
+	return LoadTextureThumb(m_device, stem, kThumbPx);
 }
 
 const gfx::Texture* AssetPicker::ThumbFor(const std::string& name) {
@@ -287,6 +307,42 @@ void AssetPicker::LoadVisibleThumbs(size_t max) {
 		slot->data.texture = LoadThumb(name);
 		++loaded;
 	}
+}
+
+void AssetPicker::KeepVisible() {
+	for (const AssetTile* tile : VisibleTiles())
+		if (!tile->Name().empty()) m_thumbs.Keep(tile->Name());
+}
+
+AssetPicker::ThumbStatus AssetPicker::GetThumbStatus() const {
+	ThumbStatus s;
+	s.held = m_thumbs.Size();
+	s.counts = m_thumbs.Counts();
+	for (const AssetTile* tile : VisibleTiles()) {
+		if (tile->Name().empty()) continue;
+		++s.visible;
+		const auto* entry = m_thumbs.Find(tile->Name());
+		if (!entry || !entry->tried || entry->data.needsBake) ++s.blank;
+		else if (!entry->data.texture) ++s.missing;
+	}
+	return s;
+}
+
+std::vector<AssetPicker::SurveyTile> AssetPicker::SurveyTiles() const {
+	std::vector<SurveyTile> out;
+	if (m_mode != Mode::Textures || !m_grid) return out;
+	// Only an image WHOLLY inside the view (the grid's clip): a row half scrolled
+	// under the search box is cut by the scissor, and a photograph of its rect
+	// would average the panel behind it in.
+	const gfx::Rect view = m_grid->ViewRect();
+	for (const AssetTile* tile : VisibleTiles()) {
+		const gfx::Rect& img = tile->ImageRect();
+		if (tile->Name().empty() || img.x < view.x || img.y < view.y ||
+			img.x + img.w > view.x + view.w || img.y + img.h > view.y + view.h)
+			continue;
+		out.push_back({tile->Name(), ThumbStem(tile->Name()), img, tile->ImageDrawn()});
+	}
+	return out;
 }
 
 void AssetPicker::PrepareModelIcons(size_t max) {
@@ -685,6 +741,13 @@ void AssetPicker::Update(const Input& input, float w, float h, float dt) {
 				break;
 			}
 	}
+	// A scripted scroll (`assetpicker scroll`): the range is the rows' height
+	// past the view, both known only now. The next layout clamps it.
+	if (m_scrollFraction >= 0.0f && m_grid && m_tileRows) {
+		const float range = std::max(m_tileRows->Pixel().h - m_grid->ViewRect().h, 0.0f);
+		m_grid->SetScroll(m_scrollFraction * range);
+		m_scrollFraction = -1.0f;
+	}
 
 	// The deferred work, at most one job a frame and cheapest first: tile images,
 	// then the selected asset's preview, then its facts (which decode a normal
@@ -702,6 +765,7 @@ void AssetPicker::Update(const Input& input, float w, float h, float dt) {
 		// outside the widget walk, which is where they were about to be read.
 		m_uiRebuild = true;
 	}
+	KeepVisible(); // what is on screen is never what Evict takes (C111)
 	m_thumbs.Evict();
 }
 

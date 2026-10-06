@@ -1752,23 +1752,29 @@ public:
 	// EditCell. A wall variant lives on the SOLID cell, floor/ceiling on the
 	// walkable one; the wrong cell type is a no-op.
 	void EditVariant(int x, int z, SurfaceSel sel, int variant);
-	// The loaded albedo behind a surface-palette catalog id, for the editor
-	// map's textured cell fill. Only the ACTIVE level's palette sets are ever
-	// loaded, so the lookup searches those; null for any other id (a browsed
-	// level on a foreign palette) — the map falls back to its flat ink.
-	const gfx::Texture* SurfaceAlbedoForId(SurfaceSel sel,
-										   const std::string& id) const;
-	// A surface type's SWATCH for a list (the palette, a theme's member
-	// rows): the loaded albedo when the active level has it, else a small
-	// thumbnail LoadSurfaceThumb made earlier, else null (the flat colour).
-	// Draw-safe: it never loads.
+	// A surface type's SWATCH - the palette's rows, a theme's member rows, and
+	// the editor map's textured cell fill: a small LINEAR thumbnail of its
+	// texture set, else null (the flat colour / ink) until one has loaded. NOT
+	// the level's loaded albedo, which it used to borrow: that is sRGB for the
+	// scene, and the sprite batch drew it far darker than the material looks
+	// (code-review C158; AssetUtil.h LoadTextureThumb says why). Any id at all,
+	// so a browsed level's foreign palette and the Catalogue view show too.
+	// Draw-safe: it never loads - a set not tried yet is ASKED FOR, and the
+	// next Update's LoadWantedSwatches loads it.
 	const gfx::Texture* SurfaceSwatchForId(SurfaceSel sel, const std::string& id) const;
-	// Loads that thumbnail for a type the level has not loaded (once per set,
-	// found or not) - the asset picker's loader, trimmed to swatch size. It
-	// uploads, which drains the GPU: call from Update, never mid-frame. True
-	// when it went to disk (so a caller can pace itself), false when there was
-	// nothing to do.
+	// Loads that thumbnail now (once per set, found or not) - the asset
+	// picker's loader, trimmed to swatch size - for a list about to show the
+	// type. It uploads, which drains the GPU: call from Update, never
+	// mid-frame. True when it went to disk (so a caller can pace itself), false
+	// when there was nothing to do.
 	bool LoadSurfaceThumb(SurfaceSel sel, const std::string& id);
+	// Loads up to `max` of the swatches a draw asked for (SurfaceSwatchForId).
+	// Game::Update calls it every frame, ahead of every editor dialog, so a
+	// swatch shows a frame or two after it is first drawn wherever it is drawn.
+	size_t LoadWantedSwatches(size_t max);
+	// The set and stem a swatch texture was loaded from (empty when it is not
+	// one) - the swatch brightness survey (`editor palette swatches`).
+	std::pair<std::string, std::string> SwatchSource(const gfx::Texture* swatch) const;
 
 	// --- surface palette membership (editor) --------------------------------
 	// A level paints only the surface types its `palette` record lists (the
@@ -4805,11 +4811,18 @@ private:
 	Surface m_walls;
 	Surface m_floors;
 	Surface m_ceilings;
-	// Swatch thumbnails for surface types the active level has NOT loaded
-	// (LoadSurfaceThumb), by texture SET name - a set is a pool asset, so one
-	// survives level and world changes. A null entry was tried and missing.
-	// Bounded by the surface catalogs (~16 KB and one SRV slot apiece).
-	std::unordered_map<std::string, std::unique_ptr<gfx::Texture>> m_surfaceThumbs;
+	// Swatch thumbnails (LoadSurfaceThumb), by texture SET name - a set is a
+	// pool asset, so one survives level, world and quality changes. A null
+	// texture was tried and missing. Bounded by the surface catalogs (~21 KB
+	// and one SRV slot apiece). `stem` is the file it came from.
+	struct SwatchThumb {
+		std::unique_ptr<gfx::Texture> texture;
+		std::string stem;
+	};
+	std::unordered_map<std::string, SwatchThumb> m_surfaceThumbs;
+	// Sets a draw asked for and found untried (SurfaceSwatchForId), loaded by
+	// LoadWantedSwatches. Mutable: the asking is from const draw-time lookups.
+	mutable std::vector<std::string> m_swatchWants;
 	// Resolved surface palettes: texture set names parallel to the map's palette
 	// ids, plus the per-surface parallax height scale — filled by
 	// ResolveSurfacePalettes, read by SurfaceDefs and LoadDungeonBlocks.

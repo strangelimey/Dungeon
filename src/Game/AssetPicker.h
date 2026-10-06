@@ -166,6 +166,32 @@ public:
 	// draws the picker's own tiles beside the icons with it.
 	const gfx::Texture* TileImage(const std::string& name) const;
 
+	// --- the thumbnail checks (`assetpicker status|survey|scroll`) -----------
+	// What the grid shows and what the cache did (code-review C111): the tiles
+	// in view, how many of them have no image YET (no entry, its load not
+	// reached, a model awaiting its bake), how many had a load that found none
+	// (`missing`), and the cache's counts.
+	struct ThumbStatus {
+		size_t visible = 0, blank = 0, missing = 0, held = 0;
+		ThumbCounts counts;
+	};
+	ThumbStatus GetThumbStatus() const;
+	// Each texture tile whose image is WHOLLY in view, where that image was last
+	// DRAWN (device px) and the stem it was loaded from - so a survey can
+	// photograph the grid and set each tile's mean beside its set's (code-review
+	// C158). `drawn` is false for a tile still showing its placeholder. Textures
+	// mode only (empty for models, whose tiles are baked renders, not a set's
+	// albedo).
+	struct SurveyTile {
+		std::string name, stem;
+		gfx::Rect img{};
+		bool drawn = false;
+	};
+	std::vector<SurveyTile> SurveyTiles() const;
+	// Scrolls the grid to a fraction of its range (0 = top, 1 = bottom), after
+	// the next layout - the portrait picker's `scroll`.
+	void ScrollTo(float fraction) { m_scrollFraction = std::clamp(fraction, 0.0f, 1.0f); }
+
 private:
 	// One tile: the asset's image over its name and badge, owning its own hover
 	// and clicks. A nested class so it can read the picker's model directly —
@@ -181,6 +207,10 @@ private:
 		// The name this tile stands for, or "" once the filter has moved past it.
 		const std::string& Name() const;
 		size_t ShownIndex() const { return m_index; }
+		// Where the image was last drawn, and whether it was the tile's image
+		// (false: the placeholder) - the brightness survey's rect.
+		const gfx::Rect& ImageRect() const { return m_img; }
+		bool ImageDrawn() const { return m_imgDrawn; }
 
 	protected:
 		void UpdateSelf(ui::UIContext& ctx) override;
@@ -190,6 +220,8 @@ private:
 		AssetPicker& m_owner;
 		size_t m_index;
 		bool m_hot = false;
+		gfx::Rect m_img{};
+		bool m_imgDrawn = false;
 	};
 
 	// A tile's image (ThumbCache keeps when it was last seen and whether it was
@@ -242,10 +274,19 @@ private:
 	// list. Read from the tiles' own PIXEL rects rather than re-derived from a
 	// scroll offset, so there is no second copy of the grid's geometry to drift.
 	std::vector<AssetTile*> VisibleTiles() const;
+	// Whether a tile's rect reaches into the grid's view - THE one test of "on
+	// screen", for the loaders, KeepVisible and the tile's own draw alike.
+	bool InView(const gfx::Rect& tilePx) const;
 	// Loads at most `max` on-screen tile images (textures) — called from Update,
 	// never from the draw: each load reads a .dds and uploads it, which drains
 	// the GPU, and doing a screenful at once is a visible stall.
 	void LoadVisibleThumbs(size_t max);
+	// Every tile in view is ON SCREEN this frame, so the eviction that follows
+	// leaves it alone (ThumbCache::Keep - a draw's mark is a frame old by then).
+	void KeepVisible();
+	// The stem a texture tile's image loads from: the set at its smallest
+	// installed resolution (the cheapest file to read).
+	std::string ThumbStem(const std::string& name) const;
 
 	gfx::GraphicsDevice& m_device;
 	ui::UIContext m_ui;
@@ -275,6 +316,7 @@ private:
 	// not yet know is tall.
 	bool m_scrollToSelected = false; // Open: show the current value
 	float m_restoreScroll = -1.0f;   // Rebuild: keep the position across a rebuild
+	float m_scrollFraction = -1.0f;  // ScrollTo: a fraction of the range, or < 0
 	bool m_tilesDirty = false;       // the filter moved; refill the grid's rows
 
 	// Details for the selected asset, built on selection (not per frame). Both

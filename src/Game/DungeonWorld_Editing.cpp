@@ -125,43 +125,61 @@ void DungeonWorld::EditVariant(int x, int z, SurfaceSel sel, int variant) {
 	RebuildChunksAround(x, z);
 }
 
-const gfx::Texture* DungeonWorld::SurfaceAlbedoForId(SurfaceSel sel,
-													 const std::string& id) const {
-	// The loaded albedo arrays sit in ACTIVE-palette order (LoadTextureSet), so
-	// finding the id's palette index finds its texture.
-	const std::vector<std::string>& pal = sel == SurfaceSel::Wall	 ? m_map.WallPalette()
-										  : sel == SurfaceSel::Floor ? m_map.FloorPalette()
-																	 : m_map.CeilingPalette();
-	const Surface& surface = sel == SurfaceSel::Wall	? m_walls
-							 : sel == SurfaceSel::Floor ? m_floors
-														: m_ceilings;
-	for (size_t i = 0; i < pal.size() && i < surface.albedo.size(); ++i)
-		if (pal[i] == id) return surface.albedo[i].get();
-	return nullptr;
+namespace {
+// Loads one swatch: the smallest installed resolution of `set`, trimmed. 128px
+// rather than a palette row's height, because the editor map's cell fill draws
+// it too, a square across at a close zoom. LINEAR (LoadTextureThumb's default):
+// the sprite batch draws it. The texture (null when no resolution loads) and
+// the stem it came from.
+std::pair<std::unique_ptr<gfx::Texture>, std::string> LoadSwatch(gfx::GraphicsDevice& device,
+																   const std::string& set) {
+	constexpr u32 kSwatchPx = 128;
+	for (const char* res : {"_1k", "_2k", "_4k"}) {
+		std::string stem = paths::Asset("textures\\" + set + res);
+		if (auto texture = LoadTextureThumb(device, stem, kSwatchPx))
+			return {std::move(texture), std::move(stem)};
+	}
+	return {};
 }
+} // namespace
 
 const gfx::Texture* DungeonWorld::SurfaceSwatchForId(SurfaceSel sel,
 													 const std::string& id) const {
-	if (const gfx::Texture* loaded = SurfaceAlbedoForId(sel, id)) return loaded;
-	const auto it =
-		m_surfaceThumbs.find(CatalogGet(SurfaceCatalog(sel).Find(id), "texture", id));
-	return it != m_surfaceThumbs.end() ? it->second.get() : nullptr;
+	// The catalog's `texture` names the SET (a type without one is its own).
+	const std::string set = CatalogGet(SurfaceCatalog(sel).Find(id), "texture", id);
+	if (const auto it = m_surfaceThumbs.find(set); it != m_surfaceThumbs.end())
+		return it->second.texture.get();
+	if (std::ranges::find(m_swatchWants, set) == m_swatchWants.end())
+		m_swatchWants.push_back(set); // loaded by the next Update, never here
+	return nullptr;
 }
 
 bool DungeonWorld::LoadSurfaceThumb(SurfaceSel sel, const std::string& id) {
-	if (SurfaceAlbedoForId(sel, id)) return false; // the real thing is already here
-	// The catalog's `texture` names the SET (a type without one is its own).
 	const std::string set = CatalogGet(SurfaceCatalog(sel).Find(id), "texture", id);
 	if (m_surfaceThumbs.contains(set)) return false; // tried, found or not
-	// Swatches draw at a row's height, so 64px of the smallest installed set.
-	constexpr u32 kSwatchPx = 64;
-	std::unique_ptr<gfx::Texture> thumb;
-	for (const char* res : {"_1k", "_2k", "_4k"}) {
-		thumb = LoadTextureThumb(m_device, paths::Asset("textures\\" + set + res), kSwatchPx);
-		if (thumb) break;
-	}
-	m_surfaceThumbs.emplace(set, std::move(thumb));
+	auto [texture, stem] = LoadSwatch(m_device, set);
+	m_surfaceThumbs.emplace(set, SwatchThumb{std::move(texture), std::move(stem)});
 	return true;
+}
+
+size_t DungeonWorld::LoadWantedSwatches(size_t max) {
+	size_t loaded = 0;
+	while (loaded < max && !m_swatchWants.empty()) {
+		const std::string set = std::move(m_swatchWants.front());
+		m_swatchWants.erase(m_swatchWants.begin());
+		if (m_surfaceThumbs.contains(set)) continue; // an explicit load beat it
+		auto [texture, stem] = LoadSwatch(m_device, set);
+		m_surfaceThumbs.emplace(set, SwatchThumb{std::move(texture), std::move(stem)});
+		++loaded;
+	}
+	return loaded;
+}
+
+std::pair<std::string, std::string> DungeonWorld::SwatchSource(const gfx::Texture* swatch) const {
+	if (swatch)
+		for (const auto& [set, thumb] : m_surfaceThumbs)
+			if (thumb.texture.get() == swatch) return {set, thumb.stem};
+	return {};
 }
 
 // --- surface palette membership (editor) ------------------------------------

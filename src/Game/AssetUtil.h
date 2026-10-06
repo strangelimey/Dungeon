@@ -13,6 +13,7 @@
 
 #include "Assets/Model.h"
 #include "Assets/Wav.h"
+#include "Core/MathTypes.h"
 #include "Core/Types.h"
 #include "Graphics/Texture.h"
 
@@ -106,14 +107,30 @@ std::unique_ptr<gfx::Texture> TryLoadTextureFile(gfx::GraphicsDevice& device,
 // A THUMBNAIL of a texture: the stem's baked .dds chain with every level wider
 // than `maxPx` dropped (a 128px tile of a 2k set is ~16 KB instead of
 // megabytes), else the source PNG at whatever size it is when no CURRENT chain
-// is baked (the TryLoadTextureFile rule). sRGB by default (an albedo); a UI
-// image passes false, so its thumbnail matches how the full image draws (the
-// party portraits load linear). Null if neither loads. It UPLOADS, which drains the GPU: call it from Update, never
-// while a frame is being recorded. The asset picker's tiles, the editor's
-// surface swatches and the portrait picker all load here.
+// is baked (the TryLoadTextureFile rule). Null if neither loads. It UPLOADS,
+// which drains the GPU: call it from Update, never while a frame is being
+// recorded. The asset picker's tiles, the editor's surface swatches and the
+// portrait picker all load here.
+//
+// LINEAR BY DEFAULT, and that is a rule, not a preference: ANYTHING THE SPRITE
+// BATCH DRAWS LOADS LINEAR. sprite.hlsl writes its sample straight into the
+// UNORM back buffer, so the stored (already sRGB-encoded) bytes must reach it
+// as they are; an sRGB view decodes them to linear light on the way and the
+// image draws far darker than it is (code-review C158: every asset picker tile
+// and editor swatch did, an albedo shown much darker than the material looks
+// in the world). `srgb` = true is for a texture a LIT 3D pass samples - the
+// icon bake and the picker's model tiles, which shade it like the scene does.
 std::unique_ptr<gfx::Texture> LoadTextureThumb(gfx::GraphicsDevice& device,
 											   const std::string& stemPath, u32 maxPx,
-											   bool srgb = true);
+											   bool srgb = false);
+
+// The mean of a texture's STORED values, 0..1 per channel with no sRGB decode -
+// what a sprite of it correctly drawn (linear, above) averages to on screen.
+// Read off the source `<stemPath>.png` (the baked mips are box-filtered in that
+// same space, so a thumbnail's mean is the image's); nullopt when there is none.
+// The thumbnail survey's yardstick (`assetpicker survey`, `editor palette
+// swatches`): a decode of the whole image, so a dev readout, never per frame.
+std::optional<Vec4> StoredMeanColor(const std::string& stemPath);
 
 // As TryLoadTextureFile, but the texture is required: a missing one does NOT
 // abort - it warns (naming what to bake) and returns a magenta/black checker

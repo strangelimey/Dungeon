@@ -1440,18 +1440,37 @@ void Game::RegisterWorldCommands() {
 	m_console.Register(
 		{.name = "assetpicker",
 		 .group = CmdGroup::Types,
-		 .params = "textures|models [name]\nonly [name...]\noff|status",
+		 .params = "textures|models [name]\nonly [name...]\nscroll <0..1>\nsurvey\noff|status",
 		 .summary = "open the asset pool browser (in the editor), or report it"},
 		[this](const std::vector<std::string>& args) {
 			const std::string sub = args.empty() ? "status" : args[0];
 			// `only`: the open picker lists just these (none = all again) - several
 			// at once, which the search box cannot (the map-icon survey's models).
-			if (sub == "only") {
+			if (sub == "only" || sub == "scroll" || sub == "survey") {
 				if (!m_assetPicker.IsOpen()) {
-					m_console.Refuse("assetpicker only: the picker is not open");
+					m_console.Refuse(std::format("assetpicker {}: the picker is not open", sub));
 					return;
 				}
+			}
+			if (sub == "only") {
 				m_assetPicker.ShowOnly({args.begin() + 1, args.end()});
+			} else if (sub == "scroll") {
+				if (!Need(m_console, args, 2)) return;
+				m_assetPicker.ScrollTo(static_cast<float>(std::atof(args[1].c_str())));
+			} else if (sub == "survey") {
+				// THE BRIGHTNESS SURVEY (code-review C158): each texture tile in view,
+				// where its image was drawn and its set's stored mean - what a correct
+				// (linear) draw of it averages to. A harness photographs the window
+				// and sets the two side by side (InGameTest).
+				if (m_assetPicker.CurrentMode() != AssetPicker::Mode::Textures) {
+					m_console.Refuse("assetpicker survey: texture tiles only (models are baked renders)");
+					return;
+				}
+				const std::vector<AssetPicker::SurveyTile> tiles = m_assetPicker.SurveyTiles();
+				m_console.Print(std::format("assetpicker survey: {} tiles", tiles.size()));
+				for (const AssetPicker::SurveyTile& t : tiles)
+					PrintThumbSurveyLine("assetpicker tile", t.name, t.stem, t.img, t.drawn);
+				return;
 			} else if (sub == "textures" || sub == "models") {
 				m_pickApply = nullptr; // a pick goes nowhere
 				// A name opens on that asset, selected and previewed, as a field
@@ -1467,10 +1486,69 @@ void Game::RegisterWorldCommands() {
 				m_console.RefuseUsage();
 				return;
 			}
-			m_console.Print(std::format("assetpicker {} thumbs={} srv={} peak={}",
-										m_assetPicker.IsOpen() ? "open" : "closed",
-										m_assetPicker.ThumbCount(), m_device.SrvLive(),
-										m_device.SrvHighWater()));
+			// The cache's side (code-review C111): the tiles in view, how many still
+			// show no image and how many found none, and what eviction did since the
+			// picker opened. A RELOAD is a tile evicted and wanted again - with the
+			// view still, one evicted while it was on screen. Then the heap line.
+			const AssetPicker::ThumbStatus st = m_assetPicker.GetThumbStatus();
+			m_console.Print(std::format(
+				"assetpicker {} thumbs={} srv={} peak={} visible={} blank={} missing={} "
+				"onscreen={} cap={} evicted={} reloads={} refused={} heapline={} heaptop={}",
+				m_assetPicker.IsOpen() ? "open" : "closed", m_assetPicker.ThumbCount(),
+				m_device.SrvLive(), m_device.SrvHighWater(), st.visible, st.blank, st.missing,
+				st.counts.onScreen, st.counts.cap, st.counts.evicted, st.counts.reloads,
+				st.counts.refused, st.counts.heapLine, st.counts.heapTop));
+		});
+	// The thumbnail caches' cap, FORCED (code-review C111): every ThumbCache
+	// evicts against it and does not grow it to the screen, so a cap below what
+	// is in view can be set and the pickers' status lines show whether a tile
+	// on screen was ever evicted (`reloads=` with the view still). `heap` moves
+	// the SRV line no thumbnail loads past (ThumbCache::kHeapLine), so a check
+	// can put it just above what is live and watch a cache stop there.
+	m_console.Register(
+		{.name = "thumbcap",
+		 .group = CmdGroup::Types,
+		 .params = "[<n>|off]\nheap <n>|off",
+		 .summary = "force the thumbnail caches' cap or heap line (checks of the eviction rules)"},
+		[this](const std::vector<std::string>& args) {
+			if (!args.empty() && args[0] == "heap") {
+				if (args.size() < 2) {
+					m_console.RefuseUsage();
+					return;
+				}
+				if (args[1] == "off") {
+					ThumbCacheKnobs::heapLineOverride = 0;
+				} else {
+					const int n = std::atoi(args[1].c_str());
+					if (n < 1 || n > static_cast<int>(gfx::kSrvHeapCapacity)) {
+						m_console.RefuseUsage();
+						return;
+					}
+					ThumbCacheKnobs::heapLineOverride = static_cast<u32>(n);
+				}
+				m_console.Print(std::format(
+					"thumbcap heap {}{}", ThumbCacheKnobs::HeapLine(),
+					ThumbCacheKnobs::heapLineOverride ? " (forced)" : " (the real line)"));
+				return;
+			}
+			if (!args.empty()) {
+				if (args[0] == "off") {
+					ThumbCacheKnobs::capOverride = 0;
+				} else {
+					const int n = std::atoi(args[0].c_str());
+					if (n < 1) {
+						m_console.RefuseUsage();
+						return;
+					}
+					ThumbCacheKnobs::capOverride = static_cast<size_t>(n);
+				}
+			}
+			if (ThumbCacheKnobs::capOverride)
+				m_console.Print(std::format("thumbcap {} (forced, not grown to the screen)",
+											ThumbCacheKnobs::capOverride));
+			else
+				m_console.Print("thumbcap off (each cache's own, grown to twice what is on screen "
+								"within the heap line)");
 		});
 	m_console.Register(
 		{.name = "newtype",

@@ -151,6 +151,12 @@ public:
 	// The filter text, for the harness (the box types it for a person).
 	void SetFilter(std::string_view text);
 	const std::string& Filter() const { return m_filter; }
+	// The [-] button: every section and sub-group shut. And its opposite, which
+	// no button offers - every section of the shown group open, every sub-group
+	// in them too - so a harness can see the rows (`editor palette expand`; the
+	// swatch survey, whose rows sit in shut sub-groups otherwise).
+	void CollapseAll();
+	void ExpandShown();
 	// The bar's icons, in CategoryIconNames() order; MapView loads them (it has
 	// the device) and hands them over in SetEditor. Null = a text face.
 	static std::span<const char* const> CategoryIconNames();
@@ -329,23 +335,30 @@ public:
 	// band...), for the harness - `editor palette items <catalog>`.
 	std::vector<PaletteItem> Items(PaletteCat cat) const { return CategoryItems(cat); }
 	// One surface type (a Walls/Floors/Ceilings category) as the palette shows
-	// it: display name, group, the loaded albedo and the flat fallback colour.
-	// Public so a dialog listing surface types (a theme's members) shows
-	// them exactly as the palette does. The swatch is the level's loaded albedo,
-	// else a thumbnail LoadSurfaceSwatch made (DungeonWorld::SurfaceSwatchForId).
+	// it: display name, group, the swatch and the flat fallback colour. Public
+	// so a dialog listing surface types (a theme's members) shows them exactly
+	// as the palette does. The swatch is the type's LINEAR thumbnail
+	// (DungeonWorld::SurfaceSwatchForId - never the scene's sRGB albedo, which
+	// drew too dark, code-review C158).
 	PaletteItem SurfaceItem(PaletteCat cat, const std::string& id) const;
 	// Just that swatch, for a row that asks for it every time it draws and must
-	// never keep it: the albedo is the world's, and a quality change reloads it
-	// under an open dialog (code-review C235). Lookup only, safe mid-frame - a
-	// thumbnail not loaded yet is the flat colour until LoadSurfaceSwatch.
+	// never keep it (code-review C235: it was the world's albedo once, which a
+	// quality change reloaded under an open dialog). Lookup only, safe
+	// mid-frame - a thumbnail not loaded yet is the flat colour, and asked for.
 	ui::Swatch SurfaceSwatch(PaletteCat cat, const std::string& id) const;
-	// Loads the thumbnail swatch for a surface type this level has not loaded.
-	// Uploads, so from Update only: a list about to show catalogue types (the
-	// Catalogue view, a theme's member lists) asks for them first.
+	// Loads the thumbnail swatch for a surface type now. Uploads, so from
+	// Update only: a list about to show catalogue types (a theme's member
+	// lists) asks for them first rather than a frame after they draw.
 	void LoadSurfaceSwatch(PaletteCat cat, const std::string& id);
-	// Per frame from MapView::Update: while the Catalogue view is on, loads up
-	// to `max` swatches the open surface sections are missing.
-	void LoadShownSwatches(size_t max);
+	// The texture swatches the palette DREW last frame, with their rects (device
+	// px - what a photograph of the window holds) - the swatch brightness
+	// survey (`editor palette swatches`, C158). Recorded by the draw into
+	// reserved room, so it costs the frame nothing.
+	struct DrawnSwatch {
+		const gfx::Texture* texture = nullptr;
+		gfx::Rect rect{};
+	};
+	std::span<const DrawnSwatch> DrawnSwatches() const { return m_drawnSwatches; }
 
 	// --- surface palette membership ------------------------------------------
 	// Appends `id` to the viewed level's palette (live world or browsed stash),
@@ -654,6 +667,10 @@ private:
 	Selection m_hoverItem{PaletteCat::Count, -1};
 	std::string m_rowTip;
 	gfx::Rect m_rowTipAt{};
+	// DrawnSwatches: cleared at the top of every RenderBody, filled as it draws
+	// a row's texture swatch, never past the room reserved at construction.
+	static constexpr size_t kDrawnSwatchRoom = 96;
+	std::vector<DrawnSwatch> m_drawnSwatches;
 	std::array<const gfx::Texture*, 16> m_icoCats{}; // see SetCategoryIcons
 
 	// Controls-row geometry (all derived from the panel like the dock chrome):

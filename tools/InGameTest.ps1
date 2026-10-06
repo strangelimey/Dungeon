@@ -28,6 +28,18 @@
 #               build\<cfg>\bin\shots for a look. Run-wide checks, before the
 #               screens.
 #
+#   thumbnails  (code-review C158, C111) the asset picker's texture tiles and
+#               the editor palette's surface swatches are PHOTOGRAPHED and each
+#               one's mean set beside the stored mean of the file it came from
+#               (`assetpicker survey`, `editor palette swatches`): a tile drawn
+#               through an sRGB view comes out far darker. And on both pickers
+#               a cap FORCED below what is in view (`thumbcap 8`), scrolled so
+#               eviction must run: nothing in view blank, nothing reloaded, and
+#               nothing more evicted once the view stands still. And the asset
+#               picker under a heap line FORCED just above what is live
+#               (`thumbcap heap`): it stops loading at the line and makes room
+#               from what is off screen. Run-wide checks, before the screens.
+#
 #   backdrop    (code-review C365) what Render drew behind the pause menu and
 #               the sheet opened from the world map: the world map, with no 3D
 #               pass - not the parked dungeon. A drawing fact, so only a run
@@ -232,6 +244,100 @@ function Save-PadShot([string]$path, [int[]]$rect, [string]$cropPath) {
 	} finally {
 		$bmp.Dispose()
 	}
+}
+
+# THE THUMBNAIL SURVEY'S CAMERA (code-review C158): a PrintWindow of THIS game's
+# client area, as above, saved to $path, and the mean colour (r, g, b in 0..1) of
+# each rect in $rects (x, y, w, h in client px) less a 2 px border, so the
+# filtered edge and a rect's fractions (printed as whole pixels) never count -
+# and nearly the whole image does, which is what its stored mean is taken over
+# (a rune's glyph sits in the middle, so a middle cut alone reads darker). $null
+# for a rect outside the picture; $null overall when nothing was captured.
+function Measure-Shot([string]$path, $rects) {
+	Add-Type -AssemblyName System.Drawing
+	$r = New-Object HarnessWin+RECT
+	[HarnessWin]::GetClientRect($hwnd, [ref]$r) | Out-Null
+	if ($r.Right -le 0 -or $r.Bottom -le 0) { return $null }
+	$fmt = [System.Drawing.Imaging.PixelFormat]::Format32bppArgb
+	$bmp = New-Object System.Drawing.Bitmap($r.Right, $r.Bottom, $fmt)
+	$g = [System.Drawing.Graphics]::FromImage($bmp)
+	$hdc = $g.GetHdc()
+	$ok = [HarnessWin]::PrintWindow($hwnd, $hdc, 3)
+	$g.ReleaseHdc($hdc); $g.Dispose()
+	try {
+		if (-not $ok) { return $null }
+		New-Item -ItemType Directory -Force $shotDir | Out-Null
+		$bmp.Save($path)
+		$data = $bmp.LockBits((New-Object System.Drawing.Rectangle(0, 0, $bmp.Width, $bmp.Height)),
+			[System.Drawing.Imaging.ImageLockMode]::ReadOnly, $fmt)
+		$stride = $data.Stride
+		$bytes = New-Object byte[] ($stride * $bmp.Height)
+		[System.Runtime.InteropServices.Marshal]::Copy($data.Scan0, $bytes, 0, $bytes.Length)
+		$bmp.UnlockBits($data)
+		$out = @()
+		foreach ($rc in $rects) {
+			$x0 = $rc[0] + 2; $x1 = $rc[0] + $rc[2] - 2
+			$y0 = $rc[1] + 2; $y1 = $rc[1] + $rc[3] - 2
+			if ($x0 -lt 0 -or $y0 -lt 0 -or $x1 -gt $bmp.Width -or $y1 -gt $bmp.Height -or $x1 -le $x0 -or $y1 -le $y0) {
+				$out += ,$null; continue
+			}
+			$step = [Math]::Max(1, [int](($x1 - $x0) / 48))
+			$sr = 0.0; $sg = 0.0; $sb = 0.0; $n = 0
+			for ($py = $y0; $py -lt $y1; $py += $step) {
+				for ($px = $x0; $px -lt $x1; $px += $step) {
+					$i = $py * $stride + $px * 4   # BGRA
+					$sb += $bytes[$i]; $sg += $bytes[$i + 1]; $sr += $bytes[$i + 2]; $n++
+				}
+			}
+			$out += ,@(($sr / $n / 255.0), ($sg / $n / 255.0), ($sb / $n / 255.0))
+		}
+		return ,$out
+	} finally {
+		$bmp.Dispose()
+	}
+}
+function Luma($c) { return 0.2126 * $c[0] + 0.7152 * $c[1] + 0.0722 * $c[2] }
+
+# A survey's lines (`assetpicker tile ...` / `editor palette swatch ...`, mirrored
+# by logecho) past the first $before: each a name, the rect it was drawn in, whether
+# its image (not a placeholder) was drawn, and its file's stored mean r,g,b,a
+# ($null when the game found no file to read).
+function Read-SurveyLines([string]$head, [int]$before) {
+	$pat = "console: $head (\S+) rect=(-?\d+),(-?\d+),(\d+),(\d+) drawn=(\d) mean=(\S+)"
+	$out = @()
+	foreach ($l in @(@(Select-String -Path $log -Pattern $pat -ErrorAction SilentlyContinue) | Select-Object -Skip $before)) {
+		$g = $l.Matches[0].Groups
+		$mean = if ($g[7].Value -eq '-') { $null } else { @($g[7].Value.Split(',') | ForEach-Object { [double]$_ }) }
+		$out += [pscustomobject]@{ name = $g[1].Value; drawn = ($g[6].Value -eq '1'); mean = $mean
+			rect = @([int]$g[2].Value, [int]$g[3].Value, [int]$g[4].Value, [int]$g[5].Value) }
+	}
+	return $out   # unrolled: a caller collects it with @()
+}
+# The survey's arithmetic: what a correct (linear) draw of an image averages to
+# on screen is its STORED mean; an sRGB view decodes that to linear light first,
+# so a 0.2 image draws at 0.03 and a 0.5 one at 0.21. A tile within this much
+# luminance of its file passes, and the run must measure enough tiles bright
+# enough that a darkening could not hide under it.
+$thumbTolerance = 0.05
+$thumbBright = 0.2
+
+# A picker's status line (`assetpicker status` / `portrait picker status`,
+# matching $pattern), asked for now and waited out: the newest such line, or
+# $null when none came.
+function Read-PickerStatus([string]$cmd, [string]$pattern) {
+	$asked = Get-LogMatchCount $pattern
+	Run-Cmd $cmd
+	return @(Wait-NewLogLines $pattern $asked 1 10) | Select-Object -Last 1
+}
+# Every `name=<n>` of a status line, as a table; `visible=<first>+<count>` (the
+# portrait picker's) reads as the count.
+function Read-Fields($line) {
+	$f = @{}
+	foreach ($m in [regex]::Matches($line.Line, '(\w+)=(\d+)(?:\+(\d+))?')) {
+		$v = if ($m.Groups[3].Success) { $m.Groups[3].Value } else { $m.Groups[2].Value }
+		$f[$m.Groups[1].Value] = [int]$v
+	}
+	return $f
 }
 
 # The screens this sweeps, and how each is reached. Keyboard only: scripted
@@ -580,6 +686,12 @@ function Sweep-Screen($s) {
 
 $proc = $null
 $hwnd = [IntPtr]::Zero
+# What the THUMBNAILS checks collect during the run (judged after it); empty
+# until they ran, so a run that died before them fails them rather than throws.
+$pickerTiles = @(); $pickerMeans = $null; $pickerShot = ''; $pickerCapLine = $null
+$pickerStillLine = $null; $pickerHeapLine = $null; $heapForced = 0
+$paletteSwatches = @(); $paletteMeans = $null; $paletteShot = ''; $swatchHeadLine = $null
+$portraitCapLine = $null; $portraitStillLine = $null
 try {
 	Start-HarnessGame $exe $bin $log $LoadTimeoutSec
 	if ($SelfTest) { Write-Host "self-test: expecting exactly these to fail: $($selfTestExpected -join ', ')" }
@@ -645,6 +757,103 @@ try {
 	}
 	Run-Cmd 'sheet off'
 	Run-Cmd 'uimaterial off'
+
+	# THUMBNAILS (code-review C111, C158), judged below. The console is SHUT
+	# for every wait: an open console owns the frame, and a picker loads its
+	# tiles in its own Update. First the asset picker's texture grid under a cap
+	# FORCED to 8, below what is in view, scrolled half way so the screen it
+	# opened on must be evicted; then its status, after a further settle - and
+	# again after one more with the view standing still, when nothing more may
+	# have been evicted (a draw that marks tiles it does not show makes and drops
+	# the off-screen ones every frame, and only `evicted=` would say so).
+	Run-Cmd 'thumbcap 8'
+	Run-Cmd 'assetpicker textures'
+	Send-Key 0xC0; Start-Sleep -Milliseconds 3500; Open-Console
+	Run-Cmd 'assetpicker scroll 0.5'
+	Send-Key 0xC0; Start-Sleep -Milliseconds 3500; Open-Console
+	$capPattern = 'console: assetpicker open thumbs=\d+ srv=\d+ peak=\d+ visible=\d+ blank=\d+ missing=\d+ onscreen=\d+ cap=\d+ evicted=\d+ reloads=\d+ refused=\d+ heapline=\d+ heaptop=\d+'
+	$pickerCapLine = Read-PickerStatus 'assetpicker status' $capPattern
+	Send-Key 0xC0; Start-Sleep -Milliseconds 2000; Open-Console
+	$pickerStillLine = Read-PickerStatus 'assetpicker status' $capPattern
+	# ...then the cap back, and the same grid PHOTOGRAPHED: each tile wholly in
+	# view, set beside its file's stored mean.
+	Run-Cmd 'thumbcap off'
+	$tileHead = 'console: assetpicker survey: \d+ tiles'
+	$asked = Get-LogMatchCount $tileHead
+	$tilesBefore = @(Read-SurveyLines 'assetpicker tile' 0).Count
+	Run-Cmd 'assetpicker survey'
+	Wait-NewLogLines $tileHead $asked 1 10 | Out-Null
+	$pickerTiles = @(Read-SurveyLines 'assetpicker tile' $tilesBefore)
+	Send-Key 0xC0; Start-Sleep -Milliseconds 1500
+	$pickerShot = Join-Path $shotDir 'ingametest-assetpicker.png'
+	$pickerMeans = Measure-Shot $pickerShot @($pickerTiles | ForEach-Object { ,$_.rect })
+	Open-Console
+	# THE HEAP LINE (C111, its review): the same grid, settled, under a line
+	# FORCED 4 slots above what is live now, then scrolled back to the top - a
+	# screenful of tiles evicted under the forced cap, so more to load than the
+	# line leaves room for. It must stop AT the line and make the rest of the
+	# room from the screen it left, every tile in view loaded in the end.
+	$heapBefore = Read-PickerStatus 'assetpicker status' $capPattern
+	if ($heapBefore) {
+		$heapForced = (Read-Fields $heapBefore).srv + 4
+		Run-Cmd "thumbcap heap $heapForced"
+		Run-Cmd 'assetpicker scroll 0'
+		Send-Key 0xC0; Start-Sleep -Milliseconds 3500; Open-Console
+		$pickerHeapLine = Read-PickerStatus 'assetpicker status' $capPattern
+		Run-Cmd 'thumbcap heap off'
+	}
+	Run-Cmd 'assetpicker off'
+	# The PORTRAIT picker under the same forced cap, scrolled half way too, and
+	# read again with the view still.
+	Run-Cmd 'thumbcap 8'
+	Run-Cmd 'sheet 0'
+	Run-Cmd 'portrait picker 0'
+	Send-Key 0xC0; Start-Sleep -Milliseconds 3500; Open-Console
+	Run-Cmd 'portrait picker scroll 0.5'
+	Send-Key 0xC0; Start-Sleep -Milliseconds 3500; Open-Console
+	$portraitCapPattern = ('console: picker open shown=\d+ of \d+ filter=\S+ visible=\d+\+\d+ thumbs=\d+ srv=\d+ ' +
+		'peak=\d+ blank=\d+ missing=\d+ onscreen=\d+ cap=\d+ evicted=\d+ reloads=\d+ refused=\d+ heapline=\d+ heaptop=\d+')
+	$portraitCapLine = Read-PickerStatus 'portrait picker status' $portraitCapPattern
+	Send-Key 0xC0; Start-Sleep -Milliseconds 2000; Open-Console
+	$portraitStillLine = Read-PickerStatus 'portrait picker status' $portraitCapPattern
+	Run-Cmd 'portrait picker off'
+	Run-Cmd 'sheet off'
+	Run-Cmd 'thumbcap off'
+	# The editor PALETTE'S swatches: its Surfaces group with every section and
+	# sub-group open (`expand` - grouped rows sit in shut sub-groups otherwise)
+	# and no filter, photographed like the tiles, then shut again. The grouping
+	# and filter are saved settings, so they are put back as they were.
+	Run-Cmd 'editor'
+	$paletteWas = $null
+	$asked = Get-LogMatchCount 'console: editor palette: (stage|kind) (\S+) filter=''([^'']*)'''
+	Run-Cmd 'editor palette'
+	$was = @(Wait-NewLogLines 'console: editor palette: (stage|kind) (\S+) filter=''([^'']*)''' $asked 1 10) | Select-Object -Last 1
+	if ($was) { $paletteWas = $was.Matches[0].Groups }
+	Run-Cmd 'editor palette mode kind'
+	Run-Cmd 'editor palette group surfaces'
+	Run-Cmd 'editor palette filter'
+	Run-Cmd 'editor palette expand'
+	Send-Key 0xC0; Start-Sleep -Milliseconds 3500; Open-Console
+	$swatchHead = 'console: editor palette swatches: (\d+) drawn, dock (\S+)'
+	$asked = Get-LogMatchCount $swatchHead
+	$swatchesBefore = @(Read-SurveyLines 'editor palette swatch' 0).Count
+	Run-Cmd 'editor palette swatches'
+	$swatchHeadLine = @(Wait-NewLogLines $swatchHead $asked 1 10) | Select-Object -Last 1
+	$paletteSwatches = @(Read-SurveyLines 'editor palette swatch' $swatchesBefore)
+	Send-Key 0xC0; Start-Sleep -Milliseconds 1500
+	$paletteShot = Join-Path $shotDir 'ingametest-palette.png'
+	$paletteMeans = Measure-Shot $paletteShot @($paletteSwatches | ForEach-Object { ,$_.rect })
+	Open-Console
+	Run-Cmd 'editor palette collapse'
+	if ($paletteWas) {
+		Run-Cmd "editor palette mode $($paletteWas[1].Value)"
+		Run-Cmd "editor palette group $($paletteWas[2].Value)"
+		Run-Cmd "editor palette filter $($paletteWas[3].Value)"
+	}
+	# `editor off` leaves the map open in Player mode, where the next sweep's
+	# Esc would close it instead of pausing - so the map is shut too.
+	Run-Cmd 'editor off'
+	Run-Cmd 'mappage close'
 
 	foreach ($s in $screens) { Sweep-Screen $s }
 
@@ -914,6 +1123,120 @@ if ($drawnProblems.Count -eq 0) {
 	$drawnProblems | ForEach-Object { Write-Host "     $_" }
 	$global++
 }
+
+# THUMBNAILS ARE AS BRIGHT AS THEIR FILES (code-review C158). Each tile and swatch
+# the survey photographed is set beside its file's stored mean; an image drawn
+# through an sRGB view comes out far darker. Opaque images only (a cut-out's
+# alpha lets the panel through), and enough of them bright enough that a
+# darkening would show - a survey of three near-black sets proves nothing.
+function Judge-Brightness([string]$what, $items, $means, [int]$minCount, [string]$shot) {
+	$problems = @()
+	if ($null -eq $means) {
+		Write-Host "  [FAIL] ${what}: nothing was photographed (PrintWindow failed)" -ForegroundColor Red
+		return 1
+	}
+	$measured = 0; $bright = 0; $worst = 0.0
+	for ($i = 0; $i -lt @($items).Count; $i++) {
+		$it = $items[$i]
+		$seen = if ($i -lt @($means).Count) { $means[$i] } else { $null }
+		if (-not $it.drawn -or $null -eq $it.mean -or $it.mean[3] -lt 0.98) { continue }
+		if ($null -eq $seen) { $problems += "$($it.name): its rect $($it.rect -join ',') is outside the picture"; continue }
+		$measured++
+		$want = Luma $it.mean; $got = Luma $seen
+		if ($want -ge $thumbBright) { $bright++ }
+		$worst = [Math]::Max($worst, [Math]::Abs($got - $want))
+		if ([Math]::Abs($got - $want) -gt $thumbTolerance) {
+			$problems += "$($it.name) drew at luminance $([Math]::Round($got, 3)); its file averages $([Math]::Round($want, 3))"
+		}
+	}
+	if ($measured -lt $minCount) { $problems += "only $measured opaque, drawn images were measured (want $minCount)" }
+	if ($bright -lt 2) { $problems += "only $bright measured image(s) average $thumbBright or more - a darkening could hide" }
+	if ($problems.Count -eq 0) {
+		Write-Host "  [ok  ] $what drew as bright as their files ($measured measured, $bright bright, worst off by $([Math]::Round($worst, 3))): $shot"
+	} else {
+		Write-Host "  [FAIL] $what did not draw as bright as their files:" -ForegroundColor Red
+		$problems | ForEach-Object { Write-Host "     $_" }
+	}
+	return $problems.Count
+}
+if ((Judge-Brightness 'the asset picker''s texture tiles' $pickerTiles $pickerMeans 4 $pickerShot) -gt 0) { $global++ }
+$swatchDock = if ($swatchHeadLine) { $swatchHeadLine.Matches[0].Groups[2].Value } else { '?' }
+if ($swatchDock -ne 'open') {
+	Write-Host "  [FAIL] the editor palette's swatches were never surveyed (palette dock: $swatchDock)" -ForegroundColor Red
+	$global++
+} elseif ((Judge-Brightness 'the editor palette''s surface swatches' $paletteSwatches $paletteMeans 4 $paletteShot) -gt 0) {
+	$global++
+}
+
+# NO TILE IN VIEW IS EVICTED (code-review C111). Each picker under a cap FORCED
+# below what it shows (`thumbcap 8`), scrolled half way: the cap held (8) and is
+# below the count in view, eviction RAN (the screen it opened on was dropped -
+# else the cap proved nothing), and yet nothing in view is blank and no key was
+# loaded twice (a reload, with the view settled, is a tile evicted while shown).
+# Read AGAIN after a settle with the view still, nothing more was evicted: a
+# draw that marks tiles it does not show (the asset picker's, before its tiles
+# drew only in view) has the cache make and drop the off-screen ones each frame
+# - never reloaded (they held nothing) and never blank (they are not in view),
+# so `evicted=` climbing is the one sign. A tile whose load found NO image
+# (`missing=` - a portrait the worktree does not have, the bought pack being
+# gitignored) is not blank: its load ran and was kept like any other, so it is
+# only noted.
+function Judge-Cap([string]$what, $line, $still) {
+	if (-not $line -or -not $still) {
+		Write-Host "  [FAIL] ${what}: no status line under the forced cap (or none after the settle)" -ForegroundColor Red
+		return 1
+	}
+	$a = Read-Fields $line; $b = Read-Fields $still
+	$problems = @()
+	if ($b.cap -ne 8) { $problems += "the cap was $($b.cap), not the forced 8" }
+	if ($b.visible -le $b.cap) { $problems += "only $($b.visible) in view - the cap is not below it, so this proves nothing" }
+	if ($a.evicted -lt 1) { $problems += 'nothing was evicted - the cap proves nothing' }
+	foreach ($s in $a, $b) {
+		if ($s.blank -gt 0) { $problems += "$($s.blank) of the $($s.visible) in view have no image" }
+		if ($s.reloads -gt 0) { $problems += "$($s.reloads) reloads - tiles were evicted while they showed" }
+	}
+	if ($b.evicted -ne $a.evicted) {
+		$problems += "$($b.evicted - $a.evicted) more evicted with the view standing still ($($a.evicted) -> $($b.evicted)) - something marks tiles that are not on screen"
+	}
+	if ($b.missing -gt 0) {
+		Write-Host "  [note] ${what}: $($b.missing) of the $($b.visible) in view have no image installed (their loads ran and found none) - not blank; judged on the loads"
+	}
+	if ($problems.Count -eq 0) {
+		Write-Host "  [ok  ] ${what}: $($b.visible) in view under a cap of $($b.cap), $($b.evicted) evicted and no more with the view still, none of them showing (0 blank, 0 reloads)"
+		return 0
+	}
+	Write-Host "  [FAIL] ${what} evicted what it showed:" -ForegroundColor Red
+	$problems | ForEach-Object { Write-Host "     $_" }
+	return 1
+}
+$global += Judge-Cap 'the asset picker' $pickerCapLine $pickerStillLine
+$global += Judge-Cap 'the portrait picker' $portraitCapLine $portraitStillLine
+
+# THE HEAP LINE (C111, its review): the asset picker under a line forced 4 SRVs
+# above what was live, scrolled to a screen it had to load again. The line was
+# the one forced, the most live at any eviction never passed it, a load was
+# turned away (or the line was never reached and this proves nothing), and every
+# tile in view is loaded all the same - the room came from the screen it left.
+function Judge-Heap($line, [int]$forced) {
+	if (-not $line) {
+		Write-Host '  [FAIL] the heap line: no asset picker status under the forced line' -ForegroundColor Red
+		return 1
+	}
+	$f = Read-Fields $line
+	$problems = @()
+	if ($f.heapline -ne $forced) { $problems += "the line in force was $($f.heapline), not the forced $forced" }
+	if ($f.heaptop -gt $forced) { $problems += "$($f.heaptop) SRVs were live at an eviction - past the line of $forced" }
+	if ($f.refused -lt 1) { $problems += 'no load was turned away - the line was never reached, so this proves nothing' }
+	if ($f.blank -gt 0) { $problems += "$($f.blank) of the $($f.visible) in view never loaded - no room was made from what is off screen" }
+	if ($problems.Count -eq 0) {
+		Write-Host "  [ok  ] the heap line: the asset picker stopped at $forced SRVs (top $($f.heaptop), $($f.refused) loads turned away) and loaded all $($f.visible) in view by evicting off screen"
+		return 0
+	}
+	Write-Host '  [FAIL] the heap line did not hold:' -ForegroundColor Red
+	$problems | ForEach-Object { Write-Host "     $_" }
+	return 1
+}
+$global += Judge-Heap $pickerHeapLine $heapForced
 
 Write-Host ''
 $problems = $failed.Count + $global

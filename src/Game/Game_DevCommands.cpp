@@ -275,6 +275,7 @@ void Game::RegisterDevCommands() {
 								  "palette group <name>|filter [text]|groups\n"
 								  "palette items <catalog>\n"
 								  "palette use <id> [link]\n"
+								  "palette expand|collapse|swatches\n"
 								  "dock [left|right <px>]\n"
 								  "overview [world|dungeon|level]\n"
 								  "overview follow <key> [world|dungeon|level]\n"
@@ -2045,14 +2046,44 @@ bool Game::SaveFontCatalog() {
 // progress screen, when the player first starts a game.
 // ============================================================================
 
+void Game::PrintThumbSurveyLine(std::string_view head, const std::string& name,
+								const std::string& stem, const gfx::Rect& rect, bool drawn) {
+	const std::optional<Vec4> mean = stem.empty() ? std::nullopt : StoredMeanColor(stem);
+	m_console.Print(std::format(
+		"{} {} rect={},{},{},{} drawn={} mean={}", head, name, static_cast<int>(rect.x),
+		static_cast<int>(rect.y), static_cast<int>(rect.w), static_cast<int>(rect.h), drawn ? 1 : 0,
+		mean ? std::format("{:.3f},{:.3f},{:.3f},{:.3f}", mean->x, mean->y, mean->z, mean->w)
+			 : std::string("-")));
+}
+
 // `editor palette [mode stage|kind | group <name> | filter [text] | groups |
-// items <catalog>]`.
+// items <catalog> | expand | collapse | swatches]`.
 // Every change goes through the same MapEditor calls the bar and the filter box
 // make, then the line says what the accordion lists: the grouping, the picked
 // group, the filter, and each section showing with how many of its rows show.
 void Game::PrintPalette(const std::vector<std::string>& args) {
 	using G = MapEditor::Grouping;
 	auto modeName = [](G g) { return g == G::Kind ? "kind" : "stage"; };
+	// THE SWATCH BRIGHTNESS SURVEY (code-review C158): every texture swatch the
+	// palette drew last frame, where, and the stored mean of the set it came
+	// from - what a correct (linear) draw of it averages to. A harness
+	// photographs the window and sets the two side by side (InGameTest).
+	if (args.size() >= 2 && args[1] == "swatches") {
+		// The record is the LAST draw's: with the editor shut it is stale.
+		if (!m_mapView.IsOpen() || m_mapView.CurrentMode() != MapView::Mode::Editor) {
+			m_console.Refuse("editor palette swatches: the editor is not open");
+			return;
+		}
+		const std::span<const MapEditor::DrawnSwatch> drawn = m_mapEditor.DrawnSwatches();
+		m_console.Print(std::format("editor palette swatches: {} drawn, dock {}", drawn.size(),
+									m_settings.mapPaletteCollapsed ? "collapsed" : "open"));
+		for (const MapEditor::DrawnSwatch& s : drawn) {
+			const auto [set, stem] = m_world->SwatchSource(s.texture);
+			PrintThumbSurveyLine("editor palette swatch", set.empty() ? "?" : set, stem, s.rect,
+								 true);
+		}
+		return;
+	}
 	if (args.size() >= 2 && args[1] == "groups") {
 		for (const G g : {G::Stage, G::Kind})
 			for (int i = 0; i < MapEditor::GroupCount(g); ++i) {
@@ -2120,6 +2151,10 @@ void Game::PrintPalette(const std::vector<std::string>& args) {
 		m_mapEditor.SetActiveGroup(found);
 	} else if (args.size() >= 2 && args[1] == "filter") {
 		m_mapEditor.SetFilter(args.size() >= 3 ? args[2] : std::string());
+	} else if (args.size() >= 2 && args[1] == "expand") {
+		m_mapEditor.ExpandShown();
+	} else if (args.size() >= 2 && args[1] == "collapse") {
+		m_mapEditor.CollapseAll();
 	}
 	const G g = m_mapEditor.PaletteGrouping();
 	std::string line =

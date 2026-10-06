@@ -94,6 +94,7 @@ MapEditor::MapEditor(MapView& view, GameSettings& settings)
 	// whatever group the bar was left on shows something from the first frame.
 	m_catOpen[static_cast<size_t>(PaletteCat::Walls)] = true;
 	OpenSomethingInGroup();
+	m_drawnSwatches.reserve(kDrawnSwatchRoom); // recorded by the draw, never grown
 }
 
 const char* MapEditor::CategoryNameKey(PaletteCat cat) { return CatInfoFor(cat).nameKey; }
@@ -252,9 +253,9 @@ DungeonWorld::SurfaceSel SelFor(MapEditor::PaletteCat cat) {
 
 MapEditor::PaletteItem MapEditor::SurfaceItem(PaletteCat cat, const std::string& id) const {
 	// Display name + group from the surface catalog; the swatch is the entry's
-	// loaded albedo - the same one the map's cell fill draws - with the flat
-	// category colour as the not-loaded fallback (a browsed level's foreign
-	// palette, or a catalogue-view type this level does not use yet).
+	// linear thumbnail - the same one the map's cell fill draws - with the flat
+	// category colour as the fallback until it has loaded (asked for by the
+	// lookup itself, loaded by the next Update).
 	const DungeonWorld::SurfaceSel sel = SelFor(cat);
 	const CatalogEntry* e = m_world->SurfaceCatalog(sel).Find(id);
 	const Vec4& flat = cat == PaletteCat::Walls ? kWall
@@ -275,26 +276,6 @@ ui::Swatch MapEditor::SurfaceSwatch(PaletteCat cat, const std::string& id) const
 
 void MapEditor::LoadSurfaceSwatch(PaletteCat cat, const std::string& id) {
 	if (SurfaceCat(cat)) m_world->LoadSurfaceThumb(SelFor(cat), id);
-}
-
-void MapEditor::LoadShownSwatches(size_t max) {
-	// Only the Catalogue view lists types the level has not loaded; the level's
-	// own palette always has its real textures. Open surface sections only,
-	// and a few a frame (the asset picker's pacing: each is a disk read and an
-	// upload, and a screenful at once is a visible stall).
-	if (!m_settings.mapShowCatalog) return;
-	size_t loaded = 0;
-	// Only sections actually on screen: open AND in the group the bar shows.
-	const std::vector<PaletteCat> shown = CandidateSections();
-	for (const PaletteCat cat : {PaletteCat::Walls, PaletteCat::Floors, PaletteCat::Ceilings}) {
-		if (!m_catOpen[static_cast<size_t>(cat)]) continue;
-		if (std::find(shown.begin(), shown.end(), cat) == shown.end()) continue;
-		for (const CatalogEntry& e : m_world->SurfaceCatalog(SelFor(cat)).Entries()) {
-			if (loaded >= max) return;
-			if (CatalogBool(&e, "hidden", false)) continue;
-			if (m_world->LoadSurfaceThumb(SelFor(cat), e.id)) ++loaded;
-		}
-	}
 }
 
 void MapEditor::AddToPalette(PaletteCat cat, const std::string& id) {
@@ -377,6 +358,21 @@ bool MapEditor::Arm(PaletteCat cat, const std::string& id) {
 			return true;
 		}
 	return false;
+}
+
+void MapEditor::CollapseAll() {
+	m_catOpen.fill(false);
+	m_groupOpen.clear(); // groups default collapsed
+	m_paletteScroll = 0.0f;
+}
+
+void MapEditor::ExpandShown() {
+	for (const PaletteCat cat : GroupCategories(PaletteGrouping(), ActiveGroup())) {
+		m_catOpen[static_cast<size_t>(cat)] = true;
+		for (const PaletteItem& item : CategoryItems(cat))
+			if (!item.group.empty()) m_groupOpen[GroupKey(cat, item.group)] = true;
+	}
+	m_paletteScroll = 0.0f;
 }
 
 // --- palette controls row (filter + clear + collapse-all) --------------------
@@ -629,9 +625,7 @@ bool MapEditor::OnClick(float mx, float my, const gfx::Rect& panel) {
 		return true;
 	}
 	if (CollapseAllRect(panel).Contains(mx, my)) {
-		m_catOpen.fill(false);
-		m_groupOpen.clear(); // groups default collapsed
-		m_paletteScroll = 0.0f;
+		CollapseAll();
 		return true;
 	}
 	// The "Catalogue" checkbox: surfaces show the whole catalog vs the level's
@@ -1374,6 +1368,7 @@ void MapEditor::RenderBody(gfx::SpriteBatch& batch, const ui::Theme& theme,
 
 	RenderCategoryBar(batch, theme, panel);
 	m_rowTip.clear(); // the row drawing below sets it again if still hovered
+	m_drawnSwatches.clear(); // ...and the swatches it draws, for the survey
 
 	// Controls row (fixed above the scrolled accordion): filter box with
 	// placeholder/caret, [x] clear, [-] collapse-all.
@@ -1530,8 +1525,13 @@ void MapEditor::RenderBody(gfx::SpriteBatch& batch, const ui::Theme& theme,
 			// Grouped items indent one level past their sub-header.
 			const float indent = dpad * (r.group.empty() ? 3.0f : 5.0f);
 			const float sw = rc.h - dpad * 2;
-			ui::DrawSwatch(batch, {rc.x + indent, rc.y + dpad, sw, sw},
-						   items[r.index].Swatch());
+			const gfx::Rect swatchAt{rc.x + indent, rc.y + dpad, sw, sw};
+			ui::DrawSwatch(batch, swatchAt, items[r.index].Swatch());
+			// Recorded only when the scissor left it whole: a part-clipped one
+			// would be measured against the rows round it.
+			if (item.icon && m_drawnSwatches.size() < kDrawnSwatchRoom &&
+				swatchAt.y >= body.y && swatchAt.y + swatchAt.h <= body.y + body.h)
+				m_drawnSwatches.push_back({item.icon, swatchAt});
 			const float labelX = rc.x + indent + sw + dpad;
 			const int band = std::clamp(items[r.index].band, 0, power::kBands);
 			// The power band: five small pips at the row's end, `band` of them

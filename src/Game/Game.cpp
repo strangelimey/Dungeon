@@ -27,6 +27,7 @@
 #include <algorithm>
 #include <cctype>
 #include <chrono>
+#include <cmath>
 #include <cstdlib>
 #include <filesystem>
 #include <format>
@@ -835,8 +836,11 @@ void Game::LoadHitSplats() {
 }
 
 // Builds a tiny solid-colour RGBA texture (a flat placeholder icon). The mip
-// chain is generated on the spot (fine for a small runtime texture); sRGB so the
-// tint matches the linear CategoryTint colour seen on the floor mesh.
+// chain is generated on the spot (fine for a small runtime texture). The colour
+// is the LINEAR CategoryTint the floor mesh is tinted with, so it is ENCODED to
+// sRGB here and the texture loads linear, as everything the sprite batch draws
+// must (AssetUtil.h LoadTextureThumb). It used to store the linear value as it
+// was AND take an sRGB view, which darkened it twice (code-review C158).
 static std::unique_ptr<gfx::Texture> MakeSolidIcon(gfx::GraphicsDevice& device,
 												   const Vec4& color) {
 	constexpr u32 kSize = 16;
@@ -844,17 +848,22 @@ static std::unique_ptr<gfx::Texture> MakeSolidIcon(gfx::GraphicsDevice& device,
 	img.width = kSize;
 	img.height = kSize;
 	img.pixels.resize(static_cast<size_t>(kSize) * kSize * 4);
-	const auto enc = [](float c) {
+	const auto toByte = [](float c) {
 		return static_cast<u8>(std::clamp(c, 0.0f, 1.0f) * 255.0f + 0.5f);
 	};
-	const u8 rgba[4] = {enc(color.x), enc(color.y), enc(color.z), enc(color.w)};
+	const auto encode = [](float c) { // linear light -> the sRGB transfer curve
+		c = std::clamp(c, 0.0f, 1.0f);
+		return c <= 0.0031308f ? c * 12.92f : 1.055f * std::pow(c, 1.0f / 2.4f) - 0.055f;
+	};
+	const u8 rgba[4] = {toByte(encode(color.x)), toByte(encode(color.y)),
+						toByte(encode(color.z)), toByte(color.w)};
 	for (size_t p = 0; p < img.pixels.size(); p += 4) {
 		img.pixels[p + 0] = rgba[0];
 		img.pixels[p + 1] = rgba[1];
 		img.pixels[p + 2] = rgba[2];
 		img.pixels[p + 3] = rgba[3];
 	}
-	return std::make_unique<gfx::Texture>(device, img, /*srgb=*/true);
+	return std::make_unique<gfx::Texture>(device, img, /*srgb=*/false);
 }
 
 void Game::LoadItemIcons() {
@@ -1812,13 +1821,15 @@ void Game::UpdateGovernor(float dt) {
 bool Game::SteadyStateFrame() {
 	constexpr u32 kWarmupFrames = 120;
 	// An open portrait picker streams thumbnails in as it scrolls: loading, not a
-	// steady state (its opening frame is excused by Game::OpenPortraitPicker). The
-	// `mapicons survey` overlay is a dev readout drawn over everything, labels
-	// built per frame - a console session's terms, not gameplay.
+	// steady state (its opening frame is excused by Game::OpenPortraitPicker) -
+	// and so does the asset picker, which is an editor tool but can be opened
+	// over the level alone (`assetpicker`, as InGameTest's thumbnail checks do).
+	// The `mapicons survey` overlay is a dev readout drawn over everything,
+	// labels built per frame - a console session's terms, not gameplay.
 	const bool quiet = GuardedState() && !m_console.IsOpen() && !EvalRunning() &&
 					   !m_ui.PortraitPickerOpen() && !m_ui.PromptActive() &&
-					   !m_mapIconSurvey && !m_mapView.IsOpen() && !m_baking &&
-					   m_pendingLanguage.empty() && !m_pendingQuality;
+					   !m_assetPicker.IsOpen() && !m_mapIconSurvey && !m_mapView.IsOpen() &&
+					   !m_baking && m_pendingLanguage.empty() && !m_pendingQuality;
 	m_steadyFrames = quiet ? m_steadyFrames + 1 : 0;
 	return m_steadyFrames > kWarmupFrames;
 }
@@ -2420,6 +2431,11 @@ void Game::UpdateStates(float dt) {
 	}
 
 	// --- Playing -------------------------------------------------------------
+	// The surface swatches a draw asked for (the palette, a theme's member rows,
+	// the editor map's cell fill), a couple a frame - ahead of every dialog
+	// below, since each returns early and a type editor shows swatches too.
+	// Nothing to do, and no cost, unless a swatch was drawn and missing.
+	if (m_world) m_world->LoadWantedSwatches(2);
 	// An exit's question FREEZES THE WORLD while it is up, the way the pause
 	// menu does: nothing may walk up and hit a party that is being asked
 	// whether it wants to leave. Its Esc is a No, not the pause menu.

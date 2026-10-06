@@ -94,6 +94,11 @@ public:
 		size_t shown = 0, total = 0, thumbs = 0;
 		int race = 0, sex = 0, age = 0;
 		size_t firstVisible = 0, visible = 0;
+		// Tiles in view with no image YET (no entry, or its load not reached) -
+		// and apart from them, those whose load ran and found no image (a
+		// portrait not installed: the bought pack is gitignored).
+		size_t blank = 0, missing = 0;
+		ThumbCounts counts; // what the cache did since the picker opened
 	};
 	Status GetStatus() const;
 

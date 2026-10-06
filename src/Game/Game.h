@@ -399,6 +399,12 @@ private:
 	void FontCommand(const std::vector<std::string>& args);
 	// `editor palette ...` (the category bar, for the harness).
 	void PrintPalette(const std::vector<std::string>& args);
+	// One line of a thumbnail brightness survey (`assetpicker survey`, `editor
+	// palette swatches`; code-review C158): where an image was drawn (device px)
+	// and the stored mean of the file it was loaded from, which a correct draw
+	// averages to. A harness photographs the window and compares.
+	void PrintThumbSurveyLine(std::string_view head, const std::string& name,
+							  const std::string& stem, const gfx::Rect& rect, bool drawn);
 	// `editor dock ...` / `editor overview ...` (MapView_Docks.cpp).
 	void PrintDocks(const std::vector<std::string>& args);
 	bool SaveFontCatalog();

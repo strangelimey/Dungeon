@@ -300,14 +300,19 @@ void PortraitPicker::LoadVisibleThumbs(size_t max) {
 	if (!m_grid) return;
 	size_t first = 0, count = 0, loaded = 0;
 	m_grid->Visible(first, count);
-	for (size_t i = first; i < first + count && loaded < max; ++i) {
+	for (size_t i = first; i < first + count; ++i) {
 		const std::string& id = IdAt(i);
+		// EVERY tile in view is on screen this frame, loaded or not, so the
+		// eviction after this leaves it alone (code-review C111): the draw's mark
+		// is a frame old by the time Evict looks.
+		m_thumbs.Keep(id);
+		if (loaded >= max) continue;
 		auto* entry = m_thumbs.BeginLoad(id);
 		if (!entry) continue;
-		// Linear, as Game::SyncPortraits loads the full image, so a face looks
+		// Linear (LoadTextureThumb's default, as for everything the sprite batch
+		// draws), as Game::SyncPortraits loads the full image, so a face looks
 		// the same in the grid as in the party bar once picked.
-		entry->data.texture = LoadTextureThumb(m_device, paths::Asset("portraits\\" + id),
-											   kThumbPx, /*srgb=*/false);
+		entry->data.texture = LoadTextureThumb(m_device, paths::Asset("portraits\\" + id), kThumbPx);
 		++loaded;
 	}
 }
@@ -340,7 +345,13 @@ PortraitPicker::Status PortraitPicker::GetStatus() const {
 	s.race = m_race;
 	s.sex = m_sex;
 	s.age = m_age;
+	s.counts = m_thumbs.Counts();
 	if (m_grid) m_grid->Visible(s.firstVisible, s.visible);
+	for (size_t i = s.firstVisible; i < s.firstVisible + s.visible; ++i) {
+		const auto* entry = m_thumbs.Find(IdAt(i));
+		if (!entry || !entry->tried) ++s.blank;
+		else if (!entry->data.texture) ++s.missing;
+	}
 	return s;
 }
 

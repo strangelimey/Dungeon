@@ -50,6 +50,24 @@ it is those sweeps' status: `paused over worldmap - scene skipped`, `sheet over
 worldmap - scene skipped`, and the control, `sheet over playing - scene drawn`.
 It is one more reason this check runs WINDOWED: a headless run renders nothing.
 
+**`thumbnails`** - the asset picker's texture tiles and the editor palette's
+surface swatches draw as bright as their files (code-review C158): an image the
+sprite batch draws through an sRGB view comes out far darker, and every tile and
+swatch once did. `assetpicker survey` / `editor palette swatches` print where
+each image was drawn and its file's STORED mean; the run photographs the window
+(PrintWindow, by PID) and sets each one's drawn mean beside it (within 0.05
+luminance; at least 4 measured, 2 of them 0.2 or brighter so a darkening could
+not hide). And no tile ON SCREEN is evicted (C111): each picker runs under a cap
+FORCED to 8 (`thumbcap 8`), below what it shows, scrolled half way so eviction
+must run - nothing in view blank, no key loaded twice, something evicted (or the
+cap proved nothing), and NOTHING MORE evicted after a settle with the view still.
+A tile whose load found no image (`missing=`: a portrait the worktree lacks - the
+bought pack is gitignored, and that is a valid state) is a `[note]`, not a
+failure. And THE HEAP LINE holds: the asset picker under a line forced 4 SRVs
+above what is live (`thumbcap heap <n>`), scrolled to a screen it must load
+again, stops at the line (`heaptop=` never past it, `refused=` at least 1) and
+still loads every tile in view by evicting what is off screen.
+
 ## Reading a failure
 
 **`MISSING MODEL '<file>' (<field>) of type '<y>'`** or **`MISSING WORN MESH
@@ -101,6 +119,20 @@ and an unsized menu is 0x0, which the audit skips.
 
 **`<label>: found overlaps`** - a real layout defect. The findings name both
 widgets; `uitree dump <context>` in the dev console gives the pixel rects.
+
+**`<tiles|swatches> did not draw as bright as their files`** - a texture the
+sprite batch draws was loaded sRGB (`LoadTextureThumb`'s default is linear for
+that reason; AssetUtil.h). The pictures are under `build\<cfg>\bin\shots`
+(`ingametest-assetpicker.png`, `ingametest-palette.png`). **`... evicted what
+it showed`** - a `reloads=` or `blank=` past 0 under the forced cap: the owner
+no longer `Keep`s the tiles in view before `Evict` (ThumbCache.h). **`... more
+evicted with the view standing still`** - a draw marks tiles it does not show
+(the asset picker's tiles draw only `InView`), so the cache makes and drops the
+off-screen ones every frame, each time a GPU drain. **`the heap line did not
+hold`** - a load went past `ThumbCacheKnobs::kHeapLine` (`heaptop=` over the
+line: running the SRV heap out is an abort), or a starved cache made no room
+from off screen (`blank=` past 0: Evict no longer bounds the cap by the room
+under the line).
 
 The **settings page is not swept** - it needs a mouse click, and a scripted
 click against a moving layout is how a sweep starts silently auditing the wrong
