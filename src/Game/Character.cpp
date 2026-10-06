@@ -131,8 +131,9 @@ std::vector<Character> CreateDefaultParty() {
 		// Game::ApplyMemberColors — this seeds slots beyond its reach.
 		if (i < kMemberColorCount) member.portraitColor = kDefaultMemberColors[i];
 		// A member's first effect lands mid-fight; the list is made now, at its
-		// ceiling (fx::kMaxEffects). Game::ResetRoster copy-assigns over these
-		// members later, which keeps the storage they already hold.
+		// ceiling (fx::kMaxEffects). A COPY of a member keeps none of it (a copied
+		// vector has only the room its contents need), so Game::ResetRoster, which
+		// copies these into the roster, reserves again after it (code-review C228).
 		fx::ReserveEffects(member.effects);
 	}
 

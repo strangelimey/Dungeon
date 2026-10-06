@@ -2551,7 +2551,9 @@ void TabControl::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 
 // Grow the pool to the live count, then place and reveal exactly that many.
 // Runs before the tree lays the children out, so the bounds set here are the
-// ones they resolve with this frame.
+// ones they resolve with this frame. Growing BUILDS widgets, so a repeater whose
+// count can rise in play is Warm()ed to its ceiling when it is made (the party
+// bar's effect strip, code-review C219); here growth is the cold path.
 void Repeater::LayoutSelf(UIContext&) {
 	m_live = m_count ? m_count() : 0;
 	while (Children().size() < m_live) {

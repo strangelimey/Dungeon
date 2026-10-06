@@ -327,6 +327,12 @@ CharacterPanel::CharacterPanel(const gfx::Rect& rect,
 							 side, 1.0f};
 		});
 	m_effects->debugName = "EffectsArea";
+	// The WHOLE pool now, at the effect list's ceiling: a member's first ward,
+	// poison or light lands mid-fight, and the strip's growing to show it built
+	// an icon widget in that guarded frame - for each new high, and again after
+	// every HUD rebuild (code-review C219). The Minimal layout's cards are this
+	// panel too. A hidden icon costs nothing: the repeater reveals what it counts.
+	m_effects->Warm(fx::kMaxEffects);
 	m_stats = Add<StatsArea>(roster, member, barStyle, std::move(onBars));
 }
 

@@ -1135,6 +1135,13 @@ private:
 	// The party's Act count when the window opened (Party::ActCount): the
 	// verdict's moves= is the difference, -Walk's evidence that it moved.
 	unsigned m_allocTestActsAt = 0;
+	// Each member's effect count when the window opened, and the most it reached
+	// in an armed frame of it: the verdict's effectsrose= is the difference per
+	// member, AllocTest -Effects' evidence that the party bar's effect strips
+	// GREW inside the window (code-review C219, C228). Sampled at the top of each
+	// armed frame, so a rise the world made in the last one is read at the verdict.
+	std::array<size_t, party::kMaxMembers> m_allocTestFxAt{};
+	std::array<size_t, party::kMaxMembers> m_allocTestFxPeak{};
 	alloc::GuardStats m_allocTestStart;
 	// `allocpoke`: allocate deliberately, every frame, for this many seconds.
 	// It exists so the guard and tools\AllocTest.ps1 can be shown to FAIL — a

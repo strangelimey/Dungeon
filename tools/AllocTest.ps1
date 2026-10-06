@@ -15,6 +15,8 @@
 #   .\tools\AllocTest.ps1 -Cast              # a bolt in flight + an open spellbook
 #   .\tools\AllocTest.ps1 -Impact            # bolts landing, expiring, a blast, a crate alight
 #   .\tools\AllocTest.ps1 -Burst             # burst bolts on the party, a ward, a gust's repel
+#   .\tools\AllocTest.ps1 -Effects [-Minimal] # four party wards landing: every member's effect strip grows
+#   .\tools\AllocTest.ps1 -Effects -Party 'premade=0' -GrowRoster   # ...after a party of 1 grows to 4
 #   .\tools\AllocTest.ps1 -Swing             # the party swinging, and a severe fumble dropping a torch
 #   .\tools\AllocTest.ps1 -Hand              # the hand spells: light, douse, flare, fill, pebble
 #   .\tools\AllocTest.ps1 -Light             # the Sowilo lights: cast, stacked, grown, a flare's dazzle
@@ -184,11 +186,31 @@
 # about 13 of them). Both members of the bolts' lane carry a Wind Ward of ONE
 # charge, so the first bolt to connect is turned whoever it picks and a later
 # one goes off. NO WARM-UP, the -Melee rule: a session's first burst on the
-# party is paid in its first fight with a magus. The one thing grown before the
-# window is the party bar's effect strip, a known defect scheduled elsewhere
-# (code-review C219, batch 41 - see the setup). It refuses a PASS unless the
-# window's tally counts a burst on the party, a ward turn, and a repel that
-# weakened, one that turned and one that spent.
+# party is paid in its first fight with a magus - and nothing is grown before
+# the window, the party bar's effect strip included (it used to be, until -Effects
+# below could judge it). It refuses a PASS unless the window's tally counts a
+# burst on the party, a ward turn, and a repel that weakened, one that turned and
+# one that spent.
+#
+# -Effects IS AN EFFECT STRIP GROWING (code-review C219, C228). The party bar
+# shows one icon per effect a member carries, from a pool of widgets that GREW
+# the first time a member showed N effects - a widget built in an armed frame,
+# for each member's first ward, poison or light, and again after every HUD
+# rebuild; the sheet warmed its lists and the bar did not. Each panel now builds
+# its whole pool (fx::kMaxEffects) when it is made, the Minimal layout's cards
+# included. And a member's effect LIST is reserved at that ceiling when the
+# member is made, which a roster that GREW threw away (ResetRoster copied the
+# new members into place, and a copied vector keeps no capacity). No mode ever
+# put a member's effect in a window but -Burst, which grew the strips first to
+# keep this defect out of its own verdict. This goes to eval_arena (frozen), and
+# HOLDS a rotation of the four schools' party wards (`autocast hold`), the
+# casters casting them in turn, so the window's first armed frame releases it and
+# every member goes from no effect to four inside the window. It refuses a PASS
+# unless the verdict's `effectsrose=` shows every member's count rose there.
+# -Effects -Party 'premade=0' -GrowRoster starts with a party of ONE and then
+# `newparty default`, so the roster grows to four before the window, and refuses
+# a PASS unless member 4's count rose: its first ward lands in a list the grow
+# made. -Minimal runs it on the cards.
 #
 # -Swing IS THE PARTY'S OWN SWING (code-review C10). -Melee is a monster
 # swinging at the party; no mode made the PARTY swing, so PartyAttack and the
@@ -487,6 +509,14 @@ param(
 	# Measures SHOTS AT THE PARTY: a burst bolt going off on it, a ward turning
 	# one, a gust's repel weakening, turning and spending them. See the note above.
 	[switch]$Burst,
+	# Measures the party bar's EFFECT STRIPS growing: four party wards, held until
+	# the window opens, land on every member inside it. See the note above.
+	[switch]$Effects,
+	# With -Effects and -Party: once that party's game is up, `newparty default`
+	# starts another with the default four, so the roster GROWS before the window
+	# (code-review C228) and -Effects lands a ward on every grown member in it.
+	# Refused without -Effects. See the note above.
+	[switch]$GrowRoster,
 	# Measures the PARTY swinging, and a severe fumble dropping a part-burnt torch
 	# (code-review C10). See the note above.
 	[switch]$Swing,
@@ -620,11 +650,19 @@ $log = Join-Path $bin 'dungeon.log'
 # member of -Party.
 $memberCount = if ($Party) { @($Party -split '\|').Count } else { 4 }
 if ($memberCount -lt 1 -or $memberCount -gt 4) { throw "-Party names $memberCount members; a party has 1 to 4" }
+# -GrowRoster grows a SHORT created party to the default four; anything else
+# would grow nothing and measure what an ordinary run does. And only -Effects
+# puts an effect on the grown members inside the window and demands it there
+# (effectsrose=): without it no grown list is ever used, and the run would PASS
+# having judged nothing of C228 (-Burst lands effects too, on whoever its shots
+# reach, but demands only the shots).
+if ($GrowRoster -and (-not $Party -or $memberCount -ge 4)) { throw '-GrowRoster needs -Party with fewer than four members' }
+if ($GrowRoster -and -not $Effects) { throw '-GrowRoster needs -Effects: no other mode lands an effect on the grown members inside the window and demands it' }
 
 # -PartyPage starts no game, and every other mode needs one.
 if ($PartyPage) {
 	$withGame = @('Wounded', 'Melee', 'Cast', 'Impact', 'Hand', 'Light', 'Pause', 'Exit', 'Lever', 'Sheet', 'All',
-		'Panels', 'Minimal', 'Walk', 'Lights', 'Items', 'Packs', 'Throw', 'Glass', 'Party', 'Wear') |
+		'Panels', 'Minimal', 'Walk', 'Lights', 'Items', 'Packs', 'Throw', 'Glass', 'Party', 'Wear', 'Effects', 'GrowRoster') |
 		Where-Object { $PSBoundParameters.ContainsKey($_) }
 	if ($withGame) { throw "-PartyPage runs on the title screen with no game; it does not combine with -$($withGame -join ', -')" }
 }
@@ -1493,6 +1531,17 @@ try {
 		if ($Party -and -not (Select-String -Path $log -Pattern "console: new game with a party of $memberCount\b" -EA SilentlyContinue)) {
 			throw "newparty did not build the party of $memberCount (see dungeon.log)"
 		}
+		# -GrowRoster: the short party's game is up; now the default four's, so
+		# the roster GROWS in place (Game::ResetRoster's resized path) and the HUD
+		# is rebuilt for four. Its own line is the proof, as above.
+		if ($GrowRoster) {
+			Write-Host "  growing the roster: $memberCount -> 4 (newparty default)"
+			Start-NewGame $LoadTimeoutSec -PartySpec 'default' | Out-Null
+			if (-not (Select-String -Path $log -Pattern 'console: new game with the default party' -EA SilentlyContinue)) {
+				throw 'newparty default did not start the default four (see dungeon.log)'
+			}
+			$memberCount = 4
+		}
 		Send-Key $VK_CONSOLE; Start-Sleep -Milliseconds 500
 	}
 	# logecho off, and the console closed: each path below opens it for itself.
@@ -1981,20 +2030,6 @@ try {
 		Send-Text "tp $bpx $bpz"; Send-Key 0x0D
 		Send-Text 'face n'; Send-Key 0x0D
 		Assert-PartyAt $bpx $bpz
-		# THE PARTY BAR'S EFFECT STRIP IS PRE-GROWN, and that is a KNOWN DEFECT
-		# stood aside, not a warm-up: the strip builds an icon widget the first
-		# time a member shows N effects (code-review C219), so the window's first
-		# burn on Sera and Tilo allocated there, in the HUD, whatever brought the
-		# effect. C219 is batch 41's (Warm(fx::kMaxEffects), judged by its own
-		# -Effects mode), so until it lands every member shows two effects for a
-		# moment here - the most any shows in the window (a ward and a burn) - and
-		# `heal` clears them. DROP THIS once C219 is in.
-		foreach ($m in 0..3) {
-			Send-Text "effect burn $m 0.01 60"; Send-Key 0x0D
-			Send-Text "effect bleed $m 0.01 60"; Send-Key 0x0D
-		}
-		Start-Sleep -Milliseconds 800 # frames, so the HUD lays the icons out
-		Send-Text 'heal'; Send-Key 0x0D
 		# One charge each on the two members of slot 0's lane (front-left and
 		# rear-left): the first bolt to connect is turned whichever it picks, and
 		# of the next two at most one more can be.
@@ -2021,6 +2056,63 @@ try {
 			}
 		}
 		Write-Host "  party at $bpx,$bpz facing north, four bolt entries from $bpx,$bfz, held"
+		Send-Text 'logecho off'; Send-Key 0x0D
+		Send-Key 0xC0 # close the console again; alloctest reopens it below
+		Start-Sleep -Milliseconds 400
+	}
+
+	# -Effects: the four schools' party wards, held until the window opens, so
+	# every member's effect strip grows from nothing inside it (see the note at
+	# the top). The CASTERS cast them - the premade four's rear rank, Maren and
+	# Tilo, in turn: a party ward costs twice a ward's mana, past what Brand and
+	# Sera hold, so every cast of theirs failed (7 of 7). A party without a rear
+	# rank casts with whoever it has.
+	if ($Effects) {
+		Write-Host 'going to a frozen eval_arena: four party wards, held for the window'
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 500
+		Send-Text 'logecho on'; Send-Key 0x0D
+		Enter-FrozenArena
+		# HELD before the first entry goes in: the world runs with the console
+		# open, and an entry fires as soon as it is added.
+		Send-Text 'autocast off'; Send-Key 0x0D
+		Send-Text 'autocast hold'; Send-Key 0x0D
+		$wards = 'fireshield_party', 'waterveil_party', 'windward_party', 'stoneskin_party'
+		$schools = 'fire', 'water', 'air', 'earth'
+		$casters = @(0..($memberCount - 1) | Where-Object { $_ -ge 2 })
+		if ($casters.Count -eq 0) { $casters = @(0..($memberCount - 1)) }
+		for ($i = 0; $i -lt $wards.Count; $i++) {
+			$m = $casters[$i % $casters.Count]
+			# Trained in the ward's school, so a cast seldom fails its roll and all
+			# four land early in the window.
+			Send-Text "setskill $m $($schools[$i]) 10"; Send-Key 0x0D
+			Send-Text "autocast $m $($wards[$i]) 0.5"; Send-Key 0x0D
+		}
+		$castPattern = 'console:   member \d+ casts \S+: \d+ cast, \d+ failed'
+		$castBefore = @(Select-String -Path $log -Pattern $castPattern).Count
+		Send-Text 'autocast'; Send-Key 0x0D
+		$castRows = Wait-NewLogLines $castPattern $castBefore $wards.Count
+		if ($castRows.Count -ne $wards.Count) { throw "``autocast`` listed $($castRows.Count) entries, not $($wards.Count)" }
+		foreach ($r in $castRows) {
+			if ($r.Line -notmatch ': 0 cast, 0 failed') {
+				throw "an entry fired before the window: $($r.Line -replace '^.*console:\s+', '')"
+			}
+		}
+		# NOTHING ON ANYONE: `party` lists an `effects:` row under a member who
+		# carries one, and a count that starts above zero would let a strip grown
+		# before the window stand in for the growth this mode measures.
+		$memberPattern = 'console:   \[\d\] '
+		$rowsBefore = @(Select-String -Path $log -Pattern $memberPattern).Count
+		$fxBefore = @(Select-String -Path $log -Pattern 'console:       effects:').Count
+		Send-Text 'party'; Send-Key 0x0D
+		$rows = Wait-NewLogLines $memberPattern $rowsBefore $memberCount
+		if ($rows.Count -ne $memberCount) { throw "``party`` listed $($rows.Count) members, not $memberCount" }
+		Start-Sleep -Milliseconds 300
+		$fxRows = @(Select-String -Path $log -Pattern 'console:       effects:' | Select-Object -Skip $fxBefore)
+		if ($fxRows.Count -gt 0) {
+			throw "a member carries an effect before the window: $($fxRows[0].Line -replace '^.*console:\s+', '')"
+		}
+		Write-Host "  $($wards.Count) party wards over $memberCount member(s), held; nobody carries an effect"
 		Send-Text 'logecho off'; Send-Key 0x0D
 		Send-Key 0xC0 # close the console again; alloctest reopens it below
 		Start-Sleep -Milliseconds 400
@@ -2997,6 +3089,40 @@ try {
 		if ((Get-LastTallyField 'repelspent') -le 0) { $missing += 'no repel spent a bolt' }
 		if ($missing.Count -gt 0 -and $result -eq 'PASS') {
 			Write-Host "$($missing -join ', ') inside the window - the shots at the party were not measured" -ForegroundColor Yellow
+			$result = 'UNMEASURED'
+		}
+	}
+
+	# -Effects: every member's effect count must have RISEN inside the window
+	# (the verdict's effectsrose=, one entry per member, differenced from the
+	# window's first armed frame) - else no strip grew, and a held rotation that
+	# never fired, or wards that all fizzled, would report exactly like a clean
+	# run. Under -GrowRoster that includes member 4, whose list the grow made.
+	if ($Effects) {
+		# For the reader: what each entry of the rotation did by now (it runs on
+		# past the window, so these are not the window's counts).
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 500
+		Send-Text 'logecho on'; Send-Key 0x0D
+		Send-Text 'autocast hold'; Send-Key 0x0D
+		$castPattern = 'console:   member \d+ casts \S+: \d+ cast, \d+ failed'
+		$castBefore = @(Select-String -Path $log -Pattern $castPattern).Count
+		Send-Text 'autocast'; Send-Key 0x0D
+		foreach ($r in (Wait-NewLogLines $castPattern $castBefore 4)) {
+			Write-Host "  $($r.Line -replace '^.*console:\s+', '')"
+		}
+		Send-Text 'logecho off'; Send-Key 0x0D
+		Send-Key 0xC0
+		$rose = @()
+		if ($line -match '\beffectsrose=([0-9,]+)') { $rose = @($Matches[1] -split ',' | ForEach-Object { [int]$_ }) }
+		Write-Host "  effects risen per member inside the window: $(if ($rose.Count) { $rose -join ', ' } else { 'none read' })"
+		$missing = @()
+		if ($rose.Count -ne $memberCount) { $missing += "the verdict named $($rose.Count) members, not $memberCount" }
+		for ($i = 0; $i -lt $rose.Count; $i++) {
+			if ($rose[$i] -le 0) { $missing += "member $($i + 1) took no effect" }
+		}
+		if ($missing.Count -gt 0 -and $result -eq 'PASS') {
+			Write-Host "$($missing -join ', ') inside the window - the effect strips were not measured" -ForegroundColor Yellow
 			$result = 'UNMEASURED'
 		}
 	}

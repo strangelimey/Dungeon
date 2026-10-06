@@ -1032,6 +1032,13 @@ void Game::ResetRoster(const std::vector<Character>* party) {
 	} else {
 		for (size_t i = 0; i < m_characters.size(); ++i) m_characters[i] = fresh[i];
 	}
+	// EVERY member's effect list back at its ceiling, after BOTH paths. A member
+	// the resize COPY-CONSTRUCTED (a roster that GREW - a party of one, then the
+	// default four) holds a copied list with no room past its contents, and a
+	// later same-size reset copy-assigns into that and keeps it so. Its first
+	// burn or ward then grew the list in a guarded frame (code-review C228). A
+	// list that already has the room is left as it is.
+	for (Character& member : m_characters) fx::ReserveEffects(member.effects);
 	SyncPortraits();
 	// CreateDefaultParty seeds the derived maxima at k=1; re-derive under the
 	// project's live balance knobs (fresh members are at full, so top them up).
@@ -1935,7 +1942,12 @@ void Game::UpdateAllocTest(float dt, bool steady) {
 			if (h.frozenHeld) h.frozen = h.frozenHeld = false;
 			MoveAction last{};
 			m_allocTestActsAt = m_world->GetParty().ActCount(last);
+			for (size_t i = 0; i < m_characters.size() && i < m_allocTestFxAt.size(); ++i)
+				m_allocTestFxAt[i] = m_allocTestFxPeak[i] = m_characters[i].effects.size();
 		}
+		// The most effects each member carried in the window's frames (effectsrose=).
+		for (size_t i = 0; i < m_characters.size() && i < m_allocTestFxPeak.size(); ++i)
+			m_allocTestFxPeak[i] = std::max(m_allocTestFxPeak[i], m_characters[i].effects.size());
 		m_allocTestRemaining -= dt;
 		++m_allocTestFrames;
 	}
@@ -1961,16 +1973,25 @@ void Game::UpdateAllocTest(float dt, bool steady) {
 	// niches= are lever presses and the presses that flipped a niche, counted the
 	// same way: -Lever's proof that a press wired to no niche and a reveal were
 	// both checked (code-review C211).
+	// effectsrose= is, per member in roster order, how far past its count at the
+	// window's first armed frame its effect list rose in an armed frame of it:
+	// -Effects' proof that an effect strip grew inside the window (code-review
+	// C219, C228). An empty roster prints a bare `-`.
 	MoveAction lastMove{};
 	const unsigned moves =
 		m_world ? m_world->GetParty().ActCount(lastMove) - m_allocTestActsAt : 0u;
+	std::string rose;
+	for (size_t i = 0; i < m_characters.size() && i < m_allocTestFxPeak.size(); ++i)
+		rose += std::format("{}{}", i ? "," : "", m_allocTestFxPeak[i] - m_allocTestFxAt[i]);
 	const std::string line =
 		std::format("alloctest RESULT={} frames={} violations={} violating_frames={} "
-					"transitions={} moves={} prompts={} helps={} falls={} levers={} niches={}{}",
+					"transitions={} moves={} prompts={} helps={} falls={} levers={} niches={} "
+					"effectsrose={}{}",
 					timedOut ? "SKIP" : (violations == 0 ? "PASS" : "FAIL"),
 					m_allocTestFrames, violations, badFrames, m_allocTestTransitions, moves,
 					m_allocTestPrompts, m_allocTestHelps, m_allocTestFalls, m_allocTestLevers,
-					m_allocTestNiches, timedOut ? " reason=never_reached_a_steady_frame" : "");
+					m_allocTestNiches, rose.empty() ? "-" : rose,
+					timedOut ? " reason=never_reached_a_steady_frame" : "");
 	log::Info("{}", line);
 	m_console.Print(line);
 	// What the harness counted over exactly those frames (reset on the first).

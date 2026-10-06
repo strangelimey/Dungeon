@@ -754,12 +754,15 @@ Key conventions (memorize, they bite):
   overriding the stage it acts at (windward=deflect, stoneskin=mitigate,
   waterveil=absorb, fireshield=react); wards stacking across schools falls out
   of that. `fx::Apply` owns the stacking rule, and the CEILING: a list holds
-  `fx::kMaxEffects` (24), reserved when its owner is made, and a full one
-  EVICTS rather than grows. The most a member can carry in play (16: four
-  wards, three DoTs, two supply, a sight per school, a light per school but
-  earth) is counted beside the kind table in AllEffects.cpp from kSchoolCount
-  and resource::Supply, under a static_assert - A NEW KIND A MEMBER CAN CARRY
-  ADDS ITS TERM THERE, since a kind registered without one leaves it green.
+  `fx::kMaxEffects` (24), reserved when its owner is made - and a member again
+  after ResetRoster copies the roster in, since a copied list keeps no room
+  (code-review C228) - and a full one EVICTS rather than grows. The party bar's
+  icon strip is built to the same ceiling (C219). The most a member can carry
+  in play (16: four wards, three DoTs, two supply, a sight per school, a light
+  per school but earth) is counted beside the kind table in AllEffects.cpp
+  from kSchoolCount and resource::Supply, under a static_assert - A NEW KIND A
+  MEMBER CAN CARRY ADDS ITS TERM THERE, since a kind registered without one
+  leaves it green.
   The backstop needs no term: `EffectBook::Build` bounds EVERY registered kind
   by its stacking (Refresh 1, school kSchoolCount, stack unbounded; 19 today)
   and a class past the ceiling stops the load (DN_ASSERT), an effects.cat
@@ -3923,7 +3926,10 @@ and answers: docs/transparency-notes.md; each phase's AS BUILT is in the plan.
   ui::ScrollArea owns ALL scroll/thumb/clip behaviour — nothing else may
   re-implement it — and ui::Repeater builds children from a per-frame count with
   a grow-only pool (repeated children hold an INDEX and re-resolve, never a
-  pointer into the model). CAVEAT that bit once: a ScrollArea measures overflow
+  pointer into the model; growing BUILDS widgets, so a repeater whose count can
+  rise in play is `Warm()`ed to its ceiling when it is made - the party bar's
+  effect strip to fx::kMaxEffects, code-review C219, judged by `AllocTest.ps1
+  -Effects`). CAVEAT that bit once: a ScrollArea measures overflow
   from its OWN children's bounds, so rows behind a Repeater are invisible to it
   — size the repeater to the stacked height. Bounds may be COMPUTED in
   LayoutSelf rather than authored when a child is aspect- or font-locked (a

@@ -57,6 +57,18 @@ only the default):
   a world frame by `autocast bolt` (the console's frames are never measured). It
   refuses a PASS unless the window's tally counts each (`partybursts=`,
   `wardturns=`, `repelweakened=`, `repelturned=`, `repelspent=`)
+- `.\tools\AllocTest.ps1 -Effects` - the party bar's effect strips GROWING: the
+  four schools' party wards, held (`autocast hold`) until the window's first
+  armed frame, land on every member inside it, each strip going from no icon to
+  four. A panel builds its whole icon pool when it is made (code-review C219);
+  it used to build an icon the first time a member showed N effects, and again
+  after every HUD rebuild. It refuses a PASS unless the verdict's
+  `effectsrose=` shows every member's count rose in the window. `-Minimal` runs
+  it on the party cards; `-Party 'premade=0' -GrowRoster` starts with a party of
+  one and then `newparty default`, so the roster GROWS before the window - a
+  grown member's effect list is reserved again after the copy (code-review C228).
+  -GrowRoster is refused without -Effects, the one mode that uses those lists
+  inside the window and demands it
 - `.\tools\AllocTest.ps1 -Swing` - the PARTY swinging, which -Melee (a monster
   swinging at the party) never does: the party's swings held (`autoattack hold`)
   until the window opens, so the session's first one is measured, at a frozen
