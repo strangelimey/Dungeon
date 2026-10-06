@@ -434,6 +434,14 @@ public:
 	// hover highlight off this, so adding a wall-mounted kind is a catalog edit,
 	// not a code change.
 	bool BrushIsWallMounted() const;
+	// The face a wall-mounted brush takes at square (x, z) of the VIEWED level
+	// when nothing points at one - a script's `editor place` with no face. The
+	// first FREE solid face (N, E, S, W): a sconce's by DungeonMap::
+	// FreeSconceWall, a niche's or bore's by FreeNicheWall, a hung decoration's
+	// (nothing claims a face) the first solid one. False when there is none, so
+	// a default can only miss for want of a wall (code-review C449: it scanned
+	// the ACTIVE map and ignored taken faces, and every miss was a refusal).
+	bool DefaultWallFace(int x, int z, WallFace& out) const;
 	// Where the armed brush would land for this cell + picked face, and whether
 	// it may land at all. THE hover preview and THE commit both call this — see
 	// the header note in Placement.h about why there may be only one resolver.

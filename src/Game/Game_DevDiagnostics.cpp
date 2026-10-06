@@ -309,10 +309,18 @@ void Game::RegisterDiagnosticCommands() {
 											"captured stack(s) not logged (the stack set is "
 											"full; a repeating site counts each time)",
 											g.framesUncaptured, g.stacksTurnedAway));
-			m_console.Print(m_steadyFrames > 120
-								? "this frame: steady (armed)"
-								: std::format("this frame: settling ({} quiet frames)",
-											  m_steadyFrames));
+			// The quiet run before this command: the frame it runs in is never
+			// one (a command needs the console open or a script running), so its
+			// own count is always 0 - code-review C450.
+			if (m_lastQuietRun == 0)
+				m_console.Print("last quiet run: none yet");
+			else if (m_lastQuietRun > kGuardWarmupFrames)
+				m_console.Print(std::format("last quiet run: {} frames, armed for the last {}",
+											m_lastQuietRun, m_lastQuietRun - kGuardWarmupFrames));
+			else
+				m_console.Print(std::format("last quiet run: {} frames, ended inside the {}-frame "
+											"warm-up (never armed)",
+											m_lastQuietRun, kGuardWarmupFrames));
 			alloc::ThreadReport threads[alloc::kMaxThreads];
 			const int n = alloc::SnapshotAll(threads, alloc::kMaxThreads);
 			for (int i = 0; i < n; ++i)

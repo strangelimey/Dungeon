@@ -315,4 +315,17 @@ enum HudPanelIndex : size_t {
 };
 static_assert(std::size(kHudPanelFields) == kHudSheet + 1);
 
+// The panels' ids joined with ", " - every one, or only those that minimize -
+// for the `hudpanel` command's usage lines, so they follow the table (a typed
+// list once still named the removed `options` panel - code-review C448).
+inline std::string HudPanelIdList(bool minimizingOnly) {
+	std::string out;
+	for (const HudPanelField& field : kHudPanelFields) {
+		if (minimizingOnly && !field.glyph) continue;
+		if (!out.empty()) out += ", ";
+		out += field.id;
+	}
+	return out;
+}
+
 } // namespace dungeon::game

@@ -713,6 +713,14 @@ public:
 	int SweepTypeRefs(TypeRecords records, std::string_view id,
 					  const std::string* newId);
 
+	// First solid neighbour wall of (x,z) with no sconce on it yet (the 'T'-glyph
+	// mount rule, skipping occupied walls). False if the cell has no free wall.
+	// Public for the editor's default face (MapEditor::DefaultWallFace, C449),
+	// so a script's placement and a map load pick a face by one rule.
+	bool FreeSconceWall(int x, int z, Direction& out) const;
+	// First solid neighbour wall of (x,z) with no niche on it yet.
+	bool FreeNicheWall(int x, int z, Direction& out) const;
+
 private:
 	DungeonMap() = default; // FromText builds one and fills it in
 	void Parse(const std::vector<u8>& bytes, FixtureTypes fixtures,
@@ -721,11 +729,6 @@ private:
 	void ParseStairRecord(const std::string& record, const std::string& path);
 	void ParseVariantRecord(const std::string& record, const std::string& path);
 	void AddFireTurbidity(int x, int z, float amount);
-	// First solid neighbour wall of (x,z) with no sconce on it yet (the 'T'-glyph
-	// mount rule, skipping occupied walls). False if the cell has no free wall.
-	bool FreeSconceWall(int x, int z, Direction& out) const;
-	// First solid neighbour wall of (x,z) with no niche on it yet.
-	bool FreeNicheWall(int x, int z, Direction& out) const;
 
 	// Shared body of the palette appenders (one list per surface). A palette
 	// grows, so theme members it now holds are resolved again.

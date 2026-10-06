@@ -304,7 +304,11 @@
 # another panel's edge lands on it - any of them failing is a FAIL.
 # THE TRAY (ui-updates Phase 8) rides the same window: the Movement dock is
 # minimized by its Ctrl button and restored by its tray button, and the counts
-# `hudpanel list` prints must show the trip landed.
+# `hudpanel list` prints must show the trip landed. Two more checks after the
+# window: `allocguard` must name the quiet run the console ended, at least the
+# window's armed frames (code-review C450), and `hudpanel`'s own place, lock and
+# minimize must reach the Settings page's slider and lock box once a pause has
+# shown it, and the tray, without counting as clicks (C448) - each a FAIL.
 # -Items IS MOVING AN ITEM, which no run did (found by accident 2026-09-30, when
 # a -Panels click on the ui-panels branch landed on an inventory slot and a later
 # one on the floor). Two defects, both logged with call stacks: every pick, put
@@ -3252,6 +3256,12 @@ try {
 		Send-Key 0xC0
 		Start-Sleep -Milliseconds 500
 		Send-Text 'logecho on'; Send-Key 0x0D
+		# The quiet run this console ended - the window's warm-up, the window and
+		# the moments after it, nothing in between - for `allocguard`'s report of
+		# it (code-review C450: it printed the current count, always 0, since a
+		# command never runs in a quiet frame).
+		$quietBefore = @(Select-String -Path $log -Pattern 'console: last quiet run: ').Count
+		Send-Text 'allocguard'; Send-Key 0x0D
 		Send-Text 'hudpanel list'; Send-Key 0x0D
 		Wait-ConsoleDone
 		# Closed for the checks below: the reset button puts it home too, and at
@@ -3277,6 +3287,18 @@ try {
 		if ((-not $moved -or -not $scaled -or -not $invShown -or -not $tripped) -and $result -eq 'PASS') {
 			Write-Host 'a drag or the tray trip did not land, or the inventory was not open, inside the window - the panel path was not measured' -ForegroundColor Yellow
 			$result = 'UNMEASURED'
+		}
+
+		# `allocguard` names the quiet run the console ended: at least the window's
+		# armed frames, armed for all of them.
+		$quietRow = @(Select-String -Path $log -Pattern 'console: last quiet run: ' | Select-Object -Skip $quietBefore)
+		$quietText = if ($quietRow.Count -gt 0) { $quietRow[-1].Line -replace '^.*console: ', '' } else { '(no answer)' }
+		$windowFrames = if ($line -match '\bframes=(\d+)') { [int]$Matches[1] } else { 0 }
+		Write-Host "  allocguard: $quietText (window: $windowFrames armed frames)"
+		$quietArmed = if ($quietText -match 'armed for the last (\d+)') { [int]$Matches[1] } else { -1 }
+		if ($windowFrames -le 0 -or $quietArmed -lt $windowFrames) {
+			Write-Host '`allocguard` did not report the quiet run the console ended (C450)' -ForegroundColor Red
+			if ($result -eq 'PASS') { $result = 'FAIL' }
 		}
 
 		# The arranging rules, after the window: a Ctrl+click on the moved dock's
@@ -3325,6 +3347,64 @@ try {
 		} else {
 			Write-Host 'could not read the move dock''s rect - the reset button was not checked' -ForegroundColor Yellow
 			if ($result -eq 'PASS') { $result = 'UNMEASURED' }
+		}
+
+		# THE SETTINGS PAGE FOLLOWS `hudpanel` (code-review C448). The command
+		# used to write the settings and save, and nothing else, so the page's
+		# scale slider and lock box kept their old values. Through GameUI, an
+		# edit is caught up before the page can show (the pause menu's update),
+		# and a minimize reaches the tray without counting as a click. A pause
+		# FIRST, so nothing earlier (the reset above marks the page too) is left
+		# to catch the page up for the command.
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 500
+		Send-Text 'hudpanel reset'; Send-Key 0x0D
+		Send-Text 'hudpanel lock off'; Send-Key 0x0D
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 400
+		Send-Key 0x1B # the pause menu, and back out
+		Start-Sleep -Milliseconds 600
+		Send-Key 0x1B
+		Start-Sleep -Milliseconds 600
+		$handsBefore = Get-PanelRow 'hands'
+		$hudBefore = @(Select-String -Path $log -Pattern 'console: hud layout ')[-1].Line
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 500
+		Send-Text 'hudpanel hands 0.62 0.30 0.75'; Send-Key 0x0D
+		Send-Text 'hudpanel lock on'; Send-Key 0x0D
+		Send-Text 'hudpanel hide move'; Send-Key 0x0D
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 400
+		Send-Key 0x1B
+		Start-Sleep -Milliseconds 600
+		Send-Key 0x1B
+		Start-Sleep -Milliseconds 600
+		$handsAfter = Get-PanelRow 'hands'
+		$hudAfter = @(Select-String -Path $log -Pattern 'console: hud layout ')[-1].Line
+		$trayAfter = @(Select-String -Path $log -Pattern 'console:   tray ')[-1].Line
+		$moveAfter = @(Select-String -Path $log -Pattern 'console:   move ')[-1].Line
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 500
+		Send-Text 'hudpanel show move'; Send-Key 0x0D
+		Send-Text 'hudpanel lock off'; Send-Key 0x0D
+		Send-Text 'hudpanel reset'; Send-Key 0x0D
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 400
+		Write-Host "  before ``hudpanel``: $($handsBefore -replace '^.*console:   ', '')"
+		Write-Host "  after it and a pause: $($handsAfter -replace '^.*console:   ', '')"
+		Write-Host "  $($hudAfter -replace '^.*console: ', '')"
+		$clicks = { param($row) if ($row -match 'minimizes (\d+), restores (\d+)') { "$($Matches[1])/$($Matches[2])" } else { '?' } }
+		$c448 = @()
+		if ($handsBefore -notmatch 'scale 1\.00  opacity \S+  slider 1\.00' -or $hudBefore -notmatch 'unlocked, .*lock box off') {
+			$c448 += 'the control did not start at scale 1.00 with the lock off'
+		}
+		if ($handsAfter -notmatch 'scale 0\.75  opacity \S+  slider 0\.75') { $c448 += 'the Settings slider did not follow the new scale' }
+		if ($hudAfter -notmatch ', locked, .*lock box on') { $c448 += 'the Settings lock box did not follow the lock' }
+		if ($moveAfter -notmatch 'minimized' -or $trayAfter -notmatch 'tray +shown') { $c448 += 'the minimize did not reach the tray' }
+		if ((& $clicks $hudAfter) -ne (& $clicks $hudBefore)) { $c448 += 'the minimize counted as a click' }
+		if ($c448.Count -gt 0) {
+			Write-Host "``hudpanel`` went around the Settings page (C448): $($c448 -join '; ')" -ForegroundColor Red
+			if ($result -eq 'PASS') { $result = 'FAIL' }
 		}
 	}
 

@@ -223,6 +223,25 @@ public:
 	void ResetHudLayout();
 	// The HUD layout: 0 Standard, 1 Minimal (party cards). Rebuilds the HUD.
 	void SetHudLayout(int layout);
+	// The `hudpanel` dev command's edits, each down the path its control takes,
+	// so the Settings page and the tray follow (code-review C448): a place ends
+	// like a corner drag (OnHudPanelMoved - saved, the Settings slider marked to
+	// catch up before the page shows), a minimize flips the flag the panel and
+	// the tray read and saves it (NOT counted: PanelMinimizes / PanelRestores
+	// count clicks, a harness's evidence its clicks landed), and the lock is the
+	// Settings checkbox's own edit. `index` is a kHudPanelFields index; `scale`
+	// < 0 keeps the panel's. SetHudPanelHidden is false for a panel that does
+	// not minimize (no glyph).
+	void PlaceHudPanel(size_t index, float x, float y, float scale);
+	bool SetHudPanelHidden(size_t index, bool hidden);
+	void SetHudLocked(bool locked);
+	// What the Settings page's HUD controls read (null before it is built): a
+	// panel's scale slider, and the lock box - for the `hudpanel list` readout,
+	// which shows they followed an edit made elsewhere.
+	const ui::Slider* HudScaleSlider(size_t index) const {
+		return index < m_hudScaleSliders.size() ? m_hudScaleSliders[index] : nullptr;
+	}
+	const ui::Checkbox* HudLockBox() const { return m_hudLockBox; }
 	// The pointer shape the grips of panels [first, last) want this frame.
 	Window::Cursor PanelCursor(size_t first, size_t last) const;
 	// What this frame's HUD / sheet update asked the pointer to be, handed back
@@ -634,7 +653,8 @@ private:
 	// Scales the skin's frames and stone grain with the window, like the fonts.
 	void UpdateSkinScale();
 	// A floating HUD panel was dragged or resized (save + slider sync), and the
-	// sync on its own (the scale sliders follow a corner drag).
+	// sync on its own (the scale sliders follow a corner drag; the layout
+	// drop-down and the lock box follow `hudpanel`).
 	void OnHudPanelMoved();
 	// A panel was minimized into the tray, or restored from it (click + save).
 	void OnHudPanelHidden(bool restored);
@@ -1019,6 +1039,10 @@ private:
 	// Settings -> UI's per-panel scale sliders (kHudPanelFields order), kept so a
 	// corner drag can move them (SyncHudPanelSliders). Owned by m_settingsUi.
 	std::array<ui::Slider*, std::size(kHudPanelFields)> m_hudScaleSliders{};
+	// ...and the layout drop-down and the lock box, which `hudpanel` can change
+	// from outside the page too. Owned by m_settingsUi.
+	ui::DropDown* m_hudLayoutDrop = nullptr;
+	ui::Checkbox* m_hudLockBox = nullptr;
 	bool m_hudSlidersStale = false; // a drag moved a scale; sync before showing
 	unsigned m_panelMinimizes = 0, m_panelRestores = 0; // see PanelMinimizes
 	// What every member panel's name reads and calls (BuildHud fills it).

@@ -201,6 +201,18 @@
 #      no meshes is baked, as the new kind - the only AssetBaker any create
 #      starts. Every worn mesh in the pool is fingerprinted before and after
 #      (the bake waited out): none changes and none appears but the fresh set's.
+#  28. `editor place` TAKES THE VIEWED LEVEL'S FREE FACE (code-review C449): a
+#      wall kind placed with no face named hangs on the first FREE solid face
+#      of the level being VIEWED - on the active level past a face its own
+#      sconce holds, on a browsed level past the face its authored sconce holds
+#      and where the active level's square has no wall at all, a niche on one
+#      face then the other - and a square with no free face is refused. An
+#      `editor erase` there frees its face for the next default, since the
+#      command rebuilds the browsed snapshot after an erase as after a place.
+#      Read off the console's answers AND the saved records, which gain exactly
+#      the placements and nothing else; the old pick (the ACTIVE map's first
+#      solid face, taken or not) refused every one of them, and an erase that
+#      left the snapshot stale refused both placements after it.
 #  30. A WORLD SWITCH CARRIES NO QUESTION AND RUNS UNDER NO BAKE (code-review
 #      C115, C234; 28 and 29 are left for other work): an exit's question asked
 #      before `worlds load` is gone in the next world, taken down by the unload
@@ -2989,6 +3001,71 @@ check(len(worn_before) > 100 and not changed and not added,
       f"changed: {changed[:6]} added: {added[:6]}")
 check(FRESH <= set(worn_after), "...whose three tiers the bake did write",
       str(sorted(FRESH - set(worn_after))))
+
+# --- phase 28: `editor place` takes the viewed level's free face ------------------
+print("28 - `editor place` hangs a wall kind on the viewed level's first free face")
+PLACED = re.compile(r"editor place: (\S+) at (\d+),(\d+)(?: on (\w+))?$")
+
+
+def placed(lines):
+    """(id, x, z, face) of each `editor place:` answer - face None if it took none."""
+    return [(m.group(1), int(m.group(2)), int(m.group(3)), m.group(4))
+            for m in map(PLACED.match, lines) if m]
+
+
+def wall_records(stem, kind):
+    """The (type, x, z, facing) of each `fixture` or `niche` record of a saved
+    level that names a facing, as a sorted list (a repeat would show twice)."""
+    text = io.open(os.path.join(PROJ, "levels", stem + ".map"), encoding="utf-8").read()
+    return sorted((m.group(1), int(m.group(2)), int(m.group(3)), m.group(4))
+                  for m in re.finditer(rf"^{kind} (\S+) (\d+) (\d+) (north|east|south|west)\b", text, re.M))
+
+
+fresh()
+try:
+    before = {(stem, kind): wall_records(stem, kind)
+              for stem in ("crypt1", "eval_arena") for kind in ("fixture", "niche")}
+    # THE CONTROL: the squares are what the script takes them for - crypt1's
+    # own sconces on 5,1 and 4,3 hold their north faces, eval_arena has none.
+    check({("sconce", 5, 1, "north"), ("sconce", 4, 3, "north")} <= set(before[("crypt1", "fixture")])
+          and not before[("eval_arena", "fixture")],
+          "THE CONTROL: crypt1's sconces hold 5,1 north and 4,3 north; eval_arena has no fixture",
+          str(before))
+    log = run("editorplace.eval")
+    check(passed(log), "the script ran clean (its two refusals expected, nothing else refused)")
+    sec = console_sections(log)
+    check("end" in sec, "the script ran to its end")
+    for name, want, label in (
+            ("active", [("sconce", 1, 1, "north"), ("sconce", 1, 1, "west")],
+             "on the active level a sconce named north, then one with no face: north is taken, so west"),
+            ("taken", [("sconce", 5, 1, "south")],
+             "on crypt1, BROWSED, a sconce at 5,1 passes north (crypt1's own sconce) for south - "
+             "where the old pick took eval_arena's north rock, the very face that is taken"),
+            ("plain", [("sconce", 2, 7, "north")],
+             "on crypt1 a sconce at 2,7 takes north, where eval_arena's square has no wall to pick"),
+            ("niches", [("niche", 12, 5, "east"), ("niche", 12, 5, "west")],
+             "a niche at 12,5 takes east, a second west, and a third is refused"),
+            ("full", [], "a sconce at 4,3, whose one solid face holds a sconce, is refused"),
+            ("erased", [("niche", 12, 5, "east"), ("sconce", 5, 1, "north")],
+             "after `editor erase 13 5` a niche at 12,5 takes east again, and after "
+             "`editor erase 5 1` (crypt1's own sconce) a sconce there takes north - the "
+             "erase rebuilt the browsed snapshot the default face reads")):
+        check(placed(sec.get(name, [])) == want, label, str(sec.get(name, [])))
+    erased = [ln for ln in sec.get("erased", []) if ln.startswith("editor erase: ")]
+    check(erased == ["editor erase: 13,5", "editor erase: 5,1"],
+          "both erases answered as having erased something", str(sec.get("erased", [])))
+    after = {(stem, kind): wall_records(stem, kind)
+             for stem in ("crypt1", "eval_arena") for kind in ("fixture", "niche")}
+    for (stem, kind), add in ((("crypt1", "fixture"), [("sconce", 5, 1, "south"), ("sconce", 2, 7, "north")]),
+                              (("crypt1", "niche"), [("niche", 12, 5, "east"), ("niche", 12, 5, "west")]),
+                              (("eval_arena", "fixture"), [("sconce", 1, 1, "north"), ("sconce", 1, 1, "west")]),
+                              (("eval_arena", "niche"), [])):
+        check(after[(stem, kind)] == sorted(before[(stem, kind)] + add),
+              f"saved, {stem}'s {kind} records gain exactly the placements above",
+              f"before {before[(stem, kind)]} after {after[(stem, kind)]}")
+finally:
+    drop()
+
 
 # --- phase 30: a world switch carries no question and runs under no bake --------
 print("30 - a world switch: no question carries over, and none happens under a bake")

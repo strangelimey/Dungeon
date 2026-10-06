@@ -1279,43 +1279,53 @@ void Game::RegisterPartyCommands() {
 		[this](const std::vector<std::string>& args) {
 			if (args.empty() || args[0] == "list") {
 				// The arranging buttons' side, so a harness can aim at the
-				// top-right pair (minimize in the corner, reset beside it), and
-				// the clicks that minimized or restored a panel since launch.
+				// top-right pair (minimize in the corner, reset beside it), the
+				// clicks that minimized or restored a panel since launch, and what
+				// the Settings page's lock box reads - an edit made here must
+				// reach it (code-review C448).
 				const ui::FloatingPanel* move = m_ui.HudPanel(kHudMove);
+				const ui::Checkbox* lockBox = m_ui.HudLockBox();
 				m_console.Print(std::format(
-					"hud layout {}, {}, grip {:.0f}px, minimizes {}, restores {}",
+					"hud layout {}, {}, grip {:.0f}px, minimizes {}, restores {}, lock box {}",
 					m_settings.hudLayout == 1 ? "minimal" : "standard",
 					m_settings.hudLocked ? "locked" : "unlocked", move ? move->GripSide() : 0.0f,
-					m_ui.PanelMinimizes(), m_ui.PanelRestores()));
+					m_ui.PanelMinimizes(), m_ui.PanelRestores(),
+					!lockBox ? "unbuilt" : (lockBox->Checked() ? "on" : "off")));
 				for (size_t i = 0; i < std::size(kHudPanelFields); ++i) {
 					const HudPanelLook& look = m_settings.*(kHudPanelFields[i].look);
 					const ui::FloatingPanel* panel = m_ui.HudPanel(i);
 					const gfx::Rect r = panel ? panel->Pixel() : gfx::Rect{};
+					// `slider` is the Settings page's scale slider for the panel -
+					// the widget's own value, which catches up with `scale` before
+					// the page can show (the menu's and the pause menu's update).
+					const ui::Slider* slider = m_ui.HudScaleSlider(i);
 					m_console.Print(std::format(
-						"  {:<8} {}  px {:.0f},{:.0f} {:.0f}x{:.0f}  saved {}  scale {:.2f}  opacity {:.2f}{}",
+						"  {:<8} {}  px {:.0f},{:.0f} {:.0f}x{:.0f}  saved {}  scale {:.2f}  opacity {:.2f}"
+						"  slider {}{}",
 						kHudPanelFields[i].id,
 						!panel ? "unbuilt" : (panel->visible ? "shown " : "hidden"), r.x, r.y,
 						r.w, r.h,
 						look.x < 0.0f ? std::string("default")
 									  : std::format("{:.3f},{:.3f}", look.x, look.y),
-						look.scale, look.opacity, look.hidden ? "  minimized" : ""));
+						look.scale, look.opacity,
+						slider ? std::format("{:.2f}", slider->Value()) : std::string("-"),
+						look.hidden ? "  minimized" : ""));
 				}
 				return;
 			}
 			if (args[0] == "hide" || args[0] == "show") {
 				const bool hide = args[0] == "hide";
-				for (const HudPanelField& field : kHudPanelFields) {
+				for (size_t i = 0; i < std::size(kHudPanelFields); ++i) {
+					const HudPanelField& field = kHudPanelFields[i];
 					if (args.size() < 2 || args[1] != field.id) continue;
-					if (!field.glyph) {
+					if (!m_ui.SetHudPanelHidden(i, hide)) {
 						m_console.Refuse(std::format("{} does not minimize", field.id));
 						return;
 					}
-					(m_settings.*(field.look)).hidden = hide;
-					m_settings.Save();
 					m_console.Print(std::format("{} {}", field.id, hide ? "minimized" : "restored"));
 					return;
 				}
-				m_console.Refuse("usage: hudpanel hide|show <id> - party, status, move, hands, magic, cards");
+				m_console.Refuse("usage: hudpanel hide|show <id> - " + HudPanelIdList(true));
 				return;
 			}
 			if (args[0] == "reset") {
@@ -1333,28 +1343,27 @@ void Game::RegisterPartyCommands() {
 				return;
 			}
 			if (args[0] == "lock") {
-				m_settings.hudLocked = args.size() < 2 || args[1] != "off";
-				m_settings.Save();
+				m_ui.SetHudLocked(args.size() < 2 || args[1] != "off");
 				m_console.Print(m_settings.hudLocked ? "hud layout locked" : "hud layout unlocked");
 				return;
 			}
-			for (const HudPanelField& field : kHudPanelFields) {
+			for (size_t i = 0; i < std::size(kHudPanelFields); ++i) {
+				const HudPanelField& field = kHudPanelFields[i];
 				if (args[0] != field.id) continue;
 				if (args.size() < 3) {
 					m_console.Refuse("usage: hudpanel <id> <x> <y> [scale] (window fractions)");
 					return;
 				}
-				HudPanelLook& look = m_settings.*(field.look);
-				look.x = std::clamp(static_cast<float>(std::atof(args[1].c_str())), 0.0f, 1.0f);
-				look.y = std::clamp(static_cast<float>(std::atof(args[2].c_str())), 0.0f, 1.0f);
-				if (args.size() > 3)
-					look.scale = std::clamp(static_cast<float>(std::atof(args[3].c_str())), 0.5f, 1.5f);
-				m_settings.Save();
+				// Through GameUI, as a corner drag's end (C448): the Settings
+				// slider follows. A scale of 0 or below clamps to the least.
+				const auto num = [&](size_t a) { return static_cast<float>(std::atof(args[a].c_str())); };
+				m_ui.PlaceHudPanel(i, num(1), num(2), args.size() > 3 ? std::max(0.0f, num(3)) : -1.0f);
+				const HudPanelLook& look = m_settings.*(field.look);
 				m_console.Print(std::format("{} at {:.3f},{:.3f} scale {:.2f}", field.id, look.x,
 											look.y, look.scale));
 				return;
 			}
-			m_console.Refuse("no such panel - party, status, options, move, hands, magic, cards, inventory, tray, sheet");
+			m_console.Refuse("no such panel - " + HudPanelIdList(false));
 		});
 
 	// The party window (a card per member, on one tab - Game/PartyWindow.h),

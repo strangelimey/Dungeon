@@ -786,7 +786,7 @@ void GameUI::BuildSettings() {
 	// lives in another context, so this callback cannot pull its own widget
 	// out from under itself).
 	uf->Row<ui::Label>(ui::Len::Fixed(kSetLabel), loc::Tr("settings.hud_layout"))->dim = true;
-	uf->Row<ui::DropDown>(
+	m_hudLayoutDrop = uf->Row<ui::DropDown>(
 		ui::Len::Fixed(kSetCtrl),
 		std::vector<std::string>{loc::Tr("settings.layout_standard"),
 								 loc::Tr("settings.layout_minimal")},
@@ -794,12 +794,11 @@ void GameUI::BuildSettings() {
 			Click();
 			SetHudLayout(index);
 		});
-	uf->Row<ui::Checkbox>(
+	m_hudLockBox = uf->Row<ui::Checkbox>(
 		ui::Len::Fixed(kSetCtrl),
 		loc::Tr("settings.hud_lock"), m_settings.hudLocked, [this](bool on) {
 			Click();
-			m_settings.hudLocked = on;
-			m_settings.Save();
+			SetHudLocked(on);
 		});
 	auto* resetRow = uf->Row<ui::Stack>(ui::Len::Fixed(kSetCtrl), true);
 	resetRow->Row<ui::Button>(ui::Len::Fill(), loc::Tr("settings.hud_reset"), [this] {
@@ -2037,18 +2036,49 @@ void GameUI::SyncHudPanelSliders() {
 	for (size_t i = 0; i < m_hudScaleSliders.size(); ++i)
 		if (m_hudScaleSliders[i])
 			m_hudScaleSliders[i]->SetValue((m_settings.*(kHudPanelFields[i].look)).scale);
+	if (m_hudLayoutDrop) m_hudLayoutDrop->SetSelected(m_settings.hudLayout);
+	if (m_hudLockBox) m_hudLockBox->SetChecked(m_settings.hudLocked);
 }
 
 // Standard (0) or Minimal (1) - Settings -> UI "Layout", dev `hudpanel layout`.
 // Saved, and the HUD rebuilt in the new shape if a game has built one (before
 // that, the first BuildHud reads the setting). The rebuild is RebuildForRoster's:
-// it restores the movement help line, but the message log starts afresh.
+// it restores the movement help line, but the message log starts afresh. The
+// drop-down is marked to catch up: the command changes it from outside the page.
 void GameUI::SetHudLayout(int layout) {
 	layout = std::clamp(layout, 0, 1);
 	if (layout == m_settings.hudLayout) return;
 	m_settings.hudLayout = layout;
 	m_settings.Save();
+	m_hudSlidersStale = true;
 	RebuildForRoster();
+}
+
+// --- `hudpanel`'s edits (code-review C448) ---------------------------------------
+// It used to write m_settings and save, and nothing else: the Settings page kept
+// the old scale and lock until something rebuilt it, and a minimize skipped the
+// path a click takes. Each now ends where its control's edit ends.
+
+void GameUI::PlaceHudPanel(size_t index, float x, float y, float scale) {
+	if (index >= std::size(kHudPanelFields)) return;
+	HudPanelLook& look = m_settings.*(kHudPanelFields[index].look);
+	look.x = std::clamp(x, 0.0f, 1.0f);
+	look.y = std::clamp(y, 0.0f, 1.0f);
+	if (scale >= 0.0f) look.scale = std::clamp(scale, 0.5f, 1.5f); // the slider's range
+	OnHudPanelMoved();
+}
+
+bool GameUI::SetHudPanelHidden(size_t index, bool hidden) {
+	if (index >= std::size(kHudPanelFields) || !kHudPanelFields[index].glyph) return false;
+	(m_settings.*(kHudPanelFields[index].look)).hidden = hidden;
+	m_settings.Save();
+	return true;
+}
+
+void GameUI::SetHudLocked(bool locked) {
+	m_settings.hudLocked = locked;
+	m_settings.Save();
+	m_hudSlidersStale = true; // the box catches up when the command, not it, changed it
 }
 
 // Settings -> UI "Reset HUD layout", and the reset button on a Ctrl-hovered

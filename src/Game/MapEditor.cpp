@@ -732,6 +732,28 @@ Mount MapEditor::BrushMount() const {
 
 bool MapEditor::BrushIsWallMounted() const { return BrushMount() == Mount::Wall; }
 
+bool MapEditor::DefaultWallFace(int x, int z, WallFace& out) const {
+	// The level the brush EDITS (ApplyBrush below), so a browsed level's own
+	// walls and fixtures decide, not the active level's at the same square.
+	const DungeonMap& map = m_view.ViewedMap();
+	Direction wall = Direction::North;
+	bool found = false;
+	if (m_sel.cat == PaletteCat::Fixtures)
+		found = map.FreeSconceWall(x, z, wall);
+	else if (m_sel.cat == PaletteCat::WallFeatures)
+		found = map.FreeNicheWall(x, z, wall);
+	else
+		for (const Direction d : {Direction::North, Direction::East, Direction::South,
+								  Direction::West})
+			if (!map.IsWalkable(x + DirDX(d), z + DirDZ(d))) {
+				wall = d;
+				found = true;
+				break;
+			}
+	if (found) out = {x, z, wall, true};
+	return found;
+}
+
 Placement MapEditor::ResolveBrush(int cx, int cz, const WallFace& face, float fx,
 								  float fz) const {
 	Placement p = Resolve(m_view.ViewedMap(), BrushMount(), cx, cz, face, fx, fz);

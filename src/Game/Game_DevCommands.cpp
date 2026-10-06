@@ -651,7 +651,13 @@ void Game::RegisterDevCommands() {
 							   if (!place) {
 								   // The truth (C442): a square with nothing on it and
 								   // no surface override to reset erased nothing.
-								   if (m_mapEditor.EraseAt(x, z))
+								   const bool erased = m_mapEditor.EraseAt(x, z);
+								   // A browsed level's snapshot is rebuilt, as the
+								   // middle-click erase does (MapView::Update): the map
+								   // draws from it and the next place's default face
+								   // reads it, so a stale one kept the erased thing.
+								   m_mapView.RefreshBrowse();
+								   if (erased)
 									   m_console.Print(std::format("editor erase: {},{}", x, z));
 								   else
 									   m_console.Refuse(std::format(
@@ -668,10 +674,13 @@ void Game::RegisterDevCommands() {
 								   return;
 							   }
 							   // THE WALL a wall-mounted kind hangs on. A mouse names it by
-							   // pointing; a script names it here, or gets the first solid
-							   // face (N, E, S, W - the rule a map load uses for a 'T'
-							   // glyph). With no face at all a sconce brush refused every
-							   // time, and the command still said it had placed one.
+							   // pointing; a script names it here, or gets the VIEWED
+							   // level's first free face (N, E, S, W - the rule a map load
+							   // uses for a 'T' glyph; MapEditor::DefaultWallFace). With no
+							   // face at all a sconce brush refused every time, and the
+							   // command still said it had placed one; with the active
+							   // map's first solid face (C449) it refused on a browsed
+							   // level, or where that face was already taken.
 							   WallFace face;
 							   Direction wall = Direction::North;
 							   if (!m_mapEditor.BrushIsWallMounted()) {
@@ -679,15 +688,14 @@ void Game::RegisterDevCommands() {
 							   } else if (args.size() > 5 && ParseDirection(args[5], wall)) {
 								   face = {x, z, wall, true};
 							   } else {
-								   for (const Direction d : {Direction::North, Direction::East,
-															 Direction::South, Direction::West})
-									   if (!m_world->Map().IsWalkable(x + DirDX(d), z + DirDZ(d))) {
-										   face = {x, z, d, true};
-										   break;
-									   }
+								   m_mapEditor.DefaultWallFace(x, z, face); // none: refused below
 							   }
 							   const u64 rev0 = m_world->EditRevision();
 							   m_mapEditor.Paint(x, z, /*dragging*/ false, face);
+							   // A browsed level is drawn - and its next default face
+							   // read - from a snapshot, rebuilt after each paint as a
+							   // brush's own click does (MapView::Update).
+							   m_mapView.RefreshBrowse();
 							   // A PLACEMENT that changed nothing placed nothing - say so as
 							   // a refusal, so a script that meant to stage something fails
 							   // instead of measuring an empty square. A surface brush is
@@ -704,8 +712,11 @@ void Game::RegisterDevCommands() {
 									   args[2], x, z));
 								   return;
 							   }
-							   m_console.Print(std::format("editor place: {} at {},{}",
-														   args[2], x, z));
+							   // The face it hung on, when it took one: a script reads where
+							   // the default put it.
+							   m_console.Print(std::format("editor place: {} at {},{}{}", args[2], x, z,
+														   face.valid ? std::string(" on ") + DirToken(face.wall)
+																	  : std::string()));
 							   return;
 						   }
 						   // The open inspector's controls and keys, and the patrol

@@ -1843,7 +1843,6 @@ void Game::UpdateGovernor(float dt) {
 // starts with the prompt up. The frame that OPENS one is disarmed at the end
 // of Update, beside the transition rule, and the warm-up starts again after.
 bool Game::SteadyStateFrame() {
-	constexpr u32 kWarmupFrames = 120;
 	// An open portrait picker streams thumbnails in as it scrolls: loading, not a
 	// steady state (its opening frame is excused by Game::OpenPortraitPicker) -
 	// and so does the asset picker, which is an editor tool but can be opened
@@ -1854,8 +1853,9 @@ bool Game::SteadyStateFrame() {
 					   !m_ui.PortraitPickerOpen() && !m_ui.PromptActive() &&
 					   !m_assetPicker.IsOpen() && !m_mapIconSurvey && !m_mapView.IsOpen() &&
 					   !m_baking && m_pendingLanguage.empty() && !m_pendingQuality;
-	m_steadyFrames = quiet ? m_steadyFrames + 1 : 0;
-	return m_steadyFrames > kWarmupFrames;
+	if (quiet) ++m_steadyFrames;
+	else EndQuietRun();
+	return m_steadyFrames > kGuardWarmupFrames;
 }
 
 // The app states whose frames the rule covers at all: a level being played, or
@@ -1890,7 +1890,7 @@ bool Game::GuardedState() const {
 // real report "safe to ignore".
 void Game::OverlayOpenedThisFrame() {
 	alloc::ArmFrame(false);
-	m_steadyFrames = 0;
+	EndQuietRun();
 }
 
 const char* Game::StateName() const { return StateWord(m_state); }

@@ -1,0 +1,55 @@
+; editorplace.eval - `editor place` hangs a wall kind on the VIEWED level's
+; first FREE face (code-review C449). Judged by tools/EditorTest.py phase 28,
+; on its scratch world.
+;
+; With no face named, a wall-mounted brush took the first solid face of the
+; ACTIVE map at that square, taken or not, while the brush edits the level being
+; VIEWED - so on a browsed level, or where that face already held one, the
+; placement was refused. Now the face comes from the viewed map's
+; FreeSconceWall / FreeNicheWall (MapEditor::DefaultWallFace). eval_arena is
+; open floor from 1,1 to 26,22, so at every crypt1 square below but 5,1 the old
+; pick found no wall at all, and at 5,1 it found eval_arena's north rock - the
+; very face crypt1's own sconce holds.
+;
+;   --- active ---    eval_arena 1,1, a corner: a sconce named onto north, then
+;                     one with no face - north is taken, so west.
+;   --- taken ---     crypt1, browsed: a sconce at 5,1, whose first solid face
+;                     (north) holds crypt1's own sconce - south (east is open).
+;   --- plain ---     a sconce at 2,7: north, its first solid face, free.
+;   --- niches ---    a niche at 12,5 (rock east and west) three times: east,
+;                     west, then refused - no free face, never a taken one.
+;   --- full ---      a sconce at 4,3, whose one solid face holds crypt1's other
+;                     sconce: refused.
+;   --- erased ---    `editor erase` rebuilds the browsed snapshot too, as a
+;                     middle-click does: 13,5 (the rock east of 12,5) takes the
+;                     east niche, and a niche at 12,5 takes east again; 5,1 takes
+;                     its first sconce (crypt1's own, north), and a sconce there
+;                     takes north again. On a stale snapshot both faces of each
+;                     still read taken and both placements are refused.
+;   --- end ---       after savemap; the judge reads both levels' files.
+
+logecho on
+reset
+editor
+echo --- active ---
+editor place fixtures sconce 1 1 north
+editor place fixtures sconce 1 1
+levels view crypt1
+echo --- taken ---
+editor place fixtures sconce 5 1
+echo --- plain ---
+editor place fixtures sconce 2 7
+echo --- niches ---
+editor place wallfeatures niche 12 5
+editor place wallfeatures niche 12 5
+expect-refuse editor place wallfeatures niche 12 5
+echo --- full ---
+expect-refuse editor place fixtures sconce 4 3
+echo --- erased ---
+editor erase 13 5
+editor place wallfeatures niche 12 5
+editor erase 5 1
+editor place fixtures sconce 5 1
+levels view eval_arena
+savemap
+echo --- end ---

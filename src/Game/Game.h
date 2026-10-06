@@ -1074,9 +1074,21 @@ private:
 	void OpenEditorOnArrival();
 	void ApplyPendingWorld();
 	u32 m_framesRendered = 0;
-	// Consecutive frames that have been quietly Playing — the allocation guard's
-	// warm-up counter (see SteadyStateFrame).
+	// Consecutive frames that have been quietly Playing - the allocation guard's
+	// warm-up counter (see SteadyStateFrame) - and the quiet frames it must count
+	// before a frame is armed.
 	u32 m_steadyFrames = 0;
+	static constexpr u32 kGuardWarmupFrames = 120;
+	// How long the last quiet run lasted, kept when it ends (EndQuietRun). A
+	// command only runs with the console open or a script running, neither of
+	// them quiet, so `allocguard` reports THIS - the run the console or script
+	// ended - where it used to print the current count, always 0 (code-review
+	// C450).
+	u32 m_lastQuietRun = 0;
+	void EndQuietRun() {
+		if (m_steadyFrames > 0) m_lastQuietRun = m_steadyFrames;
+		m_steadyFrames = 0;
+	}
 	// `allocguard partypage on`: the idle party creation page counts as a
 	// guarded state (GuardedState) - AllocTest.ps1 -PartyPage's switch, and
 	// nothing else's. Off by default, not saved.

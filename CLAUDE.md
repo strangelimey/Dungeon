@@ -112,7 +112,9 @@ Key conventions (memorize, they bite):
   disarm - alloctest's first - is covered; 64 sites at most, then one "set is
   full" line and a count of the CAPTURES turned away - not of sites, since a
   repeating one counts each time). Dev: `alloctest [secs]` (one machine-readable
-  verdict line), `allocguard [status|strict on|off|partypage on|off|reset]`,
+  verdict line), `allocguard [status|strict on|off|partypage on|off|reset]`
+  (status names the LAST quiet run, the one the console or script ended - a
+  command never runs in a quiet frame, so the current count is always 0; C450),
   `allocpoke [secs|once]` (violate on purpose); `tools\AllocTest.ps1` is the
   re-runnable regression run (`-SelfTest` pokes once on the window's first armed
   frame and inverts the verdict, so the harness must catch a real violation AND
@@ -3441,7 +3443,12 @@ docs/ui-panels-notes.md / -plan.md. What exists, and the rules it rests on:
   column starts under the party bar's height at its scale, a dock's default top
   follows the SHOWN docks above it and Magic fills what they leave - a minimized dock closes up the column - Magic shows once a member
   knows a symbol). Dev `hudpanel [list] | <id> <x> <y> [scale] | hide|show <id>
-  | reset | lock on|off | layout standard|minimal`, `inventory [off]`.
+  | reset | lock on|off | layout standard|minimal`, `inventory [off]`. The
+  command edits THROUGH GameUI (PlaceHudPanel / SetHudPanelHidden /
+  SetHudLocked / SetHudLayout - code-review C448), never m_settings directly,
+  so the Settings page's sliders, lock box and layout drop-down catch up before
+  the page shows (`list` prints each `slider` and the `lock box`; checked by
+  AllocTest -Panels).
   THE CLOSED-PANELS TRAY (ui-updates Phase 8, Game/HudTray.h): a panel whose
   kHudPanelFields row names a `glyph` MINIMIZES - the docks by their header
   button, every one by a Ctrl button in its top-right corner (reset moved in
