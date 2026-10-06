@@ -122,6 +122,31 @@ raised that is yours, not a fix. Each line names the batch and its commit.
   anything off is a filter matter, not a texture swap. And the rune tablets,
   potions, rock and torches now load from baked images: check they look the
   same up close.
+- **Picker and swatch brightness** (batch 65, 932adb5a). The asset picker's
+  texture tiles, the editor palette's surface swatches (theme rows too) and the
+  editor map's cell fill under an armed Walls/Floors/Ceilings brush now draw as
+  bright as their files - they were much darker (an sRGB view decoding stored
+  bytes the sprite pass writes straight out). Open the picker on textures and a
+  surface section of the palette.
+- **The three bought daggers** (batch 66, b9d23436). french_dagger was drawn
+  INSIDE OUT (its glTF node mirrors) and viking_dagger / snake_dagger had skewed
+  normals (non-uniform node scales). viking_dagger is the starter `dagger`
+  Brand and Sera hold, so its hand icon and floor draw change too. Every other
+  picker tile is pixel-identical.
+- **An imported weapon's texture** (batch 86, 3c6bde6c). A weapon whose
+  single-primitive .gltf named a `texture` set drew white; the set now dresses
+  it. `modelfile weapons <id>` prints set= wears= drawn= for any item.
+- **The HUD effect strip** (batch 54, 2bf337dc). Each effect icon now sits in a
+  stone socket with a time sliver and a border in its school's colour. The
+  picture inside the socket's well is small (about 12 px at 900p). The Effects
+  tab's icons use the same helper and should look as before.
+- **The armor tooltip's avoidance row** (batch 54). Hover a piece of armor (or
+  the one in Brand's pack), ideally after `setskill 0 avoid 3`: the avoidance
+  row is back, "+8 (lvl 3)" unarmored and "-" armored, red when comparing
+  against an unarmored +8; the value columns widen to fit their cells.
+- **Skill names in their bar's colour** (batch 54). On the sheet's Skills tab
+  the status bar names a weapon skill in steel, a defence skill in bronze and a
+  reserve in its pool's colour, matching their bars (all were the accent).
 
 ## Decisions
 
@@ -254,6 +279,14 @@ raised that is yours, not a fix. Each line names the batch and its commit.
 - **`readfile <path>`** (batch 47, 049936cd). A new dev command (Diagnostics
   group) that PathsTest uses to read a file through the game's own UTF-8 path
   code. Keep it there, or name a different home for that check.
+- **Niche walls past four lever names** (batch 39, c9a53727). A chunk holds
+  pre-built walls for at most 4 lever names (16 looks); past that, or where the
+  looks fill different wall buckets, the load warns and a press there rebuilds
+  the old way, which the allocation guard reports (no excuse, per your answer).
+  Should the level checker flag it at authoring time instead?
+- **Translations to check** (batch 39). The dead-lever warning now says "no
+  door or niche": check de / es / it / ru ("Nische", "hornacina", "nicchia",
+  "ниши").
 
 ## Changes you will notice
 
@@ -380,6 +413,24 @@ raised that is yours, not a fix. Each line names the batch and its commit.
   cost the held torch's cube already paid. Slot 0 is documented as "the
   nearest shadow-casting light" (torch and Firelight compete by distance), not
   "the carried torch always wins"; the behaviour was already that.
+- **assets\maps is gone** (batch 94, 3c88329e). FetchTextures now builds its
+  list from every catalog's `texture` fields (the worlds', the library's, the
+  template's) and ends by carving the rune sets (`AssetBaker runes`); a name
+  nothing covers stops it before any bake. A fresh clone gets all 12 crypt sets.
+- **The template follows dungeon-demo** (batch 94). TemplateTest (quick tier)
+  holds assets\templates\default against a fresh BuildTemplate run, so after a
+  change to dungeon-demo's catalogs or project.ini, run `python
+  tools\BuildTemplate.py` and commit the template, or the quick tier fails.
+- **A world switch under a bake is refused** (batch 79, 3e879299), and a
+  question still up (an exit's "Leave the crypt?") goes with the game: a new
+  game, a load or a world switch takes it down unanswered, as it does the item
+  on the cursor. New dev commands `confirm` and `bake [status|wait]`.
+- **A lever press allocates nothing** (batch 39). A secret niche's reveal swaps
+  in walls built at load instead of rebuilding chunks in play. eval_arena gained
+  a levers' corner (a hidden niche at 3,22, its lever at 2,22, an unwired lever
+  at 1,22), out of every suite's way.
+- **Models load as .gltf or .glb** (batch 86), and a type whose model cannot
+  load is refused at its creation and its Save, with the reason.
 
 ## Follow-ups the batches found (not in the plan)
 
@@ -496,3 +547,21 @@ raised that is yours, not a fix. Each line names the batch and its commit.
 - **EditorTest phase 16 still writes the real style library** (batch 4),
   behind a backup that is now kill-safe. A `-library <dir>` switch would let it
   use a scratch copy like everything else (a C++ change).
+- **A general clip skip in Widget::Draw** (seen by batch 65). Widget::Update
+  skips a widget the clip removes, Widget::Draw does not; the asset picker now
+  skips its own tiles out of view, but a skip in the walk would save draw work
+  in every scroll area. It changes the UI library's draw rule, so not done.
+- **A huge window's thumbnail cap** (batch 65). The cap (twice what is on
+  screen) was run at 1600x900 only; a forced cap stands in for a 5K or
+  ultrawide window, which was not tried on real hardware.
+- **Renaming a type that has no `model`** (seen by batch 86) changes the file
+  its id falls back to, and is not refused; the same for a `texture` id
+  fallback. No dungeon-demo entry relies on either today.
+- **A multi-part .glb decoration not marked multimaterial** (batch 86) now
+  loads instead of aborting, but draws only its first part in its `texture`
+  set - until batch 8c retires `multimaterial`.
+- **Five fetched textures differ from the installed ones** (seen by batch 94):
+  burlap_1k / 2k, wood_planks_1k, mossy_rock_2k_n and runestone_n come out of a
+  fresh fetch unlike your June imports (older inputs or importer options).
+  pillar_2k and the wood_planks_clean / _old3 sets are installed but named by
+  nothing, so a fresh fetch leaves them out.
