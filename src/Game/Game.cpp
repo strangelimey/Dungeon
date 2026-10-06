@@ -1354,6 +1354,8 @@ bool Game::LoadGame(const std::string& path) {
 	// new-game value for it rather than the last session's).
 	ResetWorldState();
 	m_worldState = data->world;
+	// The save's lists came whole, without the room a new game gives them.
+	ReserveWorldState();
 	// Restore the cursor-held item (empty = nothing carried; ClearGameTransients
 	// emptied the cursor above).
 	if (!data->heldItem.empty()) {

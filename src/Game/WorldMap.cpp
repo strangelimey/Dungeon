@@ -56,40 +56,50 @@ namespace {
 // The shared shape of `quests` and `flags`: a small ordered id -> value list.
 // Ordered rather than a map so a save reads in the order things happened, which
 // is the only ordering a human reading one actually wants.
-const std::string* FindPair(
-	const std::vector<std::pair<std::string, std::string>>& list,
-	std::string_view key) {
+using PairList = SpareList<std::pair<std::string, std::string>>;
+
+const std::string* FindPair(const PairList& list, std::string_view key) {
 	for (const auto& [k, v] : list)
 		if (k == key) return &v;
 	return nullptr;
 }
-bool SetPair(std::vector<std::pair<std::string, std::string>>& list,
-			 std::string key, std::string value) {
+// Find first, then assign: nothing is constructed unless the key is new, and a
+// new key takes a spare entry (see SpareList).
+bool SetPair(PairList& list, std::string_view key, std::string_view value) {
 	for (auto& [k, v] : list)
 		if (k == key) {
 			if (v == value) return false; // already there; nothing to announce
-			v = std::move(value);
+			v.assign(value);
 			return true;
 		}
-	list.emplace_back(std::move(key), std::move(value));
+	auto& [k, v] = list.Append();
+	k.assign(key);
+	v.assign(value);
 	return true;
 }
 } // namespace
+
+void WorldState::Reserve(size_t questRoom, size_t flagRoom, size_t placeRoom,
+						 size_t capacity) {
+	quests.Reserve(questRoom, capacity);
+	flags.Reserve(flagRoom, capacity);
+	discovered.Reserve(placeRoom, capacity);
+}
 
 const std::string* WorldState::QuestStage(std::string_view id) const {
 	return FindPair(quests, id);
 }
 
-bool WorldState::SetQuestStage(std::string id, std::string stage) {
-	return SetPair(quests, std::move(id), std::move(stage));
+bool WorldState::SetQuestStage(std::string_view id, std::string_view stage) {
+	return SetPair(quests, id, stage);
 }
 
 const std::string* WorldState::Flag(std::string_view key) const {
 	return FindPair(flags, key);
 }
 
-bool WorldState::SetFlag(std::string key, std::string value) {
-	return SetPair(flags, std::move(key), std::move(value));
+bool WorldState::SetFlag(std::string_view key, std::string_view value) {
+	return SetPair(flags, key, value);
 }
 
 bool WorldState::FlagOn(std::string_view key) const {
@@ -99,22 +109,16 @@ bool WorldState::FlagOn(std::string_view key) const {
 
 bool WorldState::SetFlagOn(std::string_view key, bool on) {
 	if (FlagOn(key) == on) return false; // includes "off" on a flag never set
-	for (auto& [k, v] : flags)
-		if (k == key) {
-			v = on ? "1" : "0"; // fits the small-string buffer: no allocation
-			return true;
-		}
-	flags.emplace_back(std::string(key), on ? "1" : "0");
-	return true;
+	return SetPair(flags, key, on ? "1" : "0");
 }
 
 bool WorldState::Discovered(std::string_view id) const {
 	return std::find(discovered.begin(), discovered.end(), id) != discovered.end();
 }
 
-bool WorldState::Discover(std::string id) {
+bool WorldState::Discover(std::string_view id) {
 	if (Discovered(id)) return false;
-	discovered.push_back(std::move(id));
+	discovered.Append().assign(id);
 	return true;
 }
 

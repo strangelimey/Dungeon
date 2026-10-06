@@ -22,9 +22,10 @@
 // Light (a magical one, which no spell's fire takes - it costs mana).
 //
 // Everything here runs every frame, so it allocates nothing: the ids it renames
-// are assigned into the slots' own buffers (always to a shorter or equal-length
-// id in the shipped catalog, and a std::string keeps its capacity anyway), and
-// the kinds are all built at load (PreloadItemKinds).
+// are assigned into the slots' own buffers, which every slot is born with room
+// for (kItemIdCapacity, Game/Inventory.h) - a rename may LENGTHEN an id (torch ->
+// torch_lit), so it is that room, not the shipped ids' lengths, that keeps it
+// free - and the kinds are all built at load (PreloadItemKinds).
 // ============================================================================
 #include "Game/DungeonWorld.h"
 

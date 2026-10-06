@@ -162,7 +162,16 @@ subsystem:
   long-lived members that are cleared, never destroyed, and reserved up front,
   which makes them de-facto pools of their elements.
 - **Strings.** HUD label text is reformatted only when the underlying value
-  changes, never per frame.
+  changes, never per frame. An item id moves between the slots and the cursor
+  by SWAPPING buffers, and a lift or a rename assigns into one, so every string
+  an id moves through is born with `kItemIdCapacity` (31) of room and keeps it
+  through copies and moves (Game/Inventory.h; code-review C218 - a 21-character
+  potion id outgrew the 15-character small-string buffer this used to rest on).
+  The world state's quest, flag and discovery lists keep SPARE entries with room
+  past their live ones (`SpareList`, Game/WorldMap.h, sized from the catalogs at
+  every new game and load), so a lifted quest item or a `sets=` lever that adds
+  an entry constructs nothing (C212). `AllocTest.ps1 -Items -LongId` and `-Lever`
+  measure both.
 - **Geometry play can change - pre-built.** A lever revealing a secret niche is
   the one geometry change play makes, and it used to rebuild the chunks round
   the niche in the press's frame: a GPU drain, a region build and an upload

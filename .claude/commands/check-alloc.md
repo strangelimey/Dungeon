@@ -82,8 +82,13 @@ only the default):
   since the harness can only time its sends and a click in the warm-up checks
   nothing
 - `.\tools\AllocTest.ps1 -Lever` - eval_arena's levers' corner, inside the
-  window: a click on the lever at 1,22, wired to nothing, a step east and a
-  click on the one at 2,22, whose press reveals the secret niche at 3,22. A
+  window: crypt_token lifted off 1,21, put down, lifted and put down again (the
+  first lift moves the sunken_relic quest on and reveals crypt_back - new world
+  state; the second changes nothing), two turns to face the levers, a click on
+  the lever at 1,22 - wired to no niche, `sets=relic_lifted` by `flagwire` (a
+  new flag) - a step east and a click on the one at 2,22, whose press reveals
+  the secret niche at 3,22. The world state's lists keep spare entries with
+  room, sized from the catalogs, and the hooks read views (code-review C212). A
   press used to build a vector of the niches it touched, and a reveal rebuilt
   the walls round it in play (a drain, a build, an upload); the press now counts
   and the reveal swaps in walls pre-built at the load (code-review C211). It
@@ -93,7 +98,10 @@ only the default):
   bake's layout (`geomhash`) and moved, and both chunks the niche reaches have
   the revealed look on show with no press rebuilt in play (`niche looks`). The
   layout sees the niche's own chunk; the one east of it changes only a panel's
-  pin, so its swap is judged by the look `niche looks` says is on show
+  pin, so its swap is judged by the look `niche looks` says is on show. It also
+  refuses a PASS unless the window's tally counts two lifts and two puts of the
+  token, and fails as HOOKS unless afterwards the quest is at `heard`, crypt_back
+  is discovered and relic_lifted is on (each off before the window)
 - `.\tools\AllocTest.ps1 -Sheet` - the character sheet: hover (the status bar),
   every tab, a right-click opening the item details dialog, the use menu. It
   refuses a PASS unless `itemdetails status` counts an open made in the window
@@ -101,19 +109,33 @@ only the default):
   cursor -> pack through the party inventory window, in eval_arena. The
   measured item is a kind never dropped before the window (a kind's first drop
   is paid by every kind, so it is not warm-up). It refuses a PASS unless the
-  window's tally counts two drops and two lifts (`drops=`/`lifts=`). Before
+  window's tally counts a drop and a lift for EVERY cycle sent (`drops=`/
+  `lifts=`), so the first cycle cannot have beaten the window. Before
   the game it runs `itempose.eval` headless: no floor glow from a rune in a
   shut niche and, in an open one, a glow over the rune in the pocket; and
   `pickprobe` hits every click target where it is drawn (a failure is the
   result PICKS)
+- `.\tools\AllocTest.ps1 -Items -LongId` - an id LONGER than MSVC's 15-character
+  small-string buffer (code-review C218): inside the window the runes are
+  SWAPPED through the cursor into a third, free slot, and then
+  potion_antidote_minor (21 characters, laid ahead before the window) is lifted
+  off the floor and put back. Only the FIRST cycle measures: its swap leaves the
+  cursor holding a buffer no long id ever passed through, while the later ones
+  hand it buffers the setup or that first lift already grew. Every slot, the
+  cursor and the scratch ids are born with room for 31 (`kItemIdCapacity`). It
+  refuses a PASS unless the window's tally counts a lift and a drop for EVERY
+  cycle sent (only the potion touches the floor), which puts the first lift
+  inside the window, and the runes stand where the cycles that ran leave them
 - `.\tools\AllocTest.ps1 -Packs` - a 4-slot and an 8-slot bag swapped in the
   sheet's pack row, so a bag GROWS inside the window. It refuses a PASS unless
   `sheet status` counts two equips made during it (`equips=`)
-- `.\tools\AllocTest.ps1 -OnHitTypo` - the party swinging clubs at a frozen
-  skeleton, the club's `on_hit` naming no effect (`onhit club brun 3 6`, in
-  memory), so every landed blow WARNS inside the window - the warning must
-  excuse its own formatting. The swinging is held (`autoattack hold`) until the
-  window's first armed frame; it refuses a PASS unless a warning landed inside
+- `.\tools\AllocTest.ps1 -OnHitTypo` - the party swinging its starting daggers
+  at a frozen skeleton, the dagger's `on_hit` naming no effect (`onhit dagger
+  brun 3 6`, in memory), so every landed blow WARNS inside the window - the
+  warning must excuse its own formatting - and a severe fumble may knock a
+  dagger or the torch to the floor there, which copies nothing (code-review C10,
+  C212). The swinging is held (`autoattack hold`) until the window's first armed
+  frame; it refuses a PASS unless a warning landed inside
 
 Every mode also fails on an `AI pool grew:` line anywhere in `dungeon.log`. The
 AI's snapshot and walkability-grid pools are filled at level load to as many

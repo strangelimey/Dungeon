@@ -5,6 +5,7 @@
 
 #include "Assets/File.h"
 #include "Core/Log.h"
+#include "Game/Inventory.h" // kItemIdCapacity
 #include "Game/Serialize.h"
 
 #include <algorithm>
@@ -171,6 +172,16 @@ Project Project::Load(const std::string& folder) {
 
 	for (const CatalogSlot& slot : kCatalogs)
 		(p.*(slot.member)).Load(p.CatalogPath(slot.file));
+
+	// AN ITEM ID FITS THE ROOM ITS SLOTS ARE BORN WITH (kItemIdCapacity,
+	// code-review C218): that room is what lets an item move in play without
+	// allocating. A longer id still works - its first move grows a buffer, which
+	// the allocation guard reports - so it is a warning here, not a refusal.
+	for (const CatalogEntry* e : p.AllItems())
+		if (e->id.size() > kItemIdCapacity)
+			log::Warn("item id '{}' is {} characters; an item id over {} grows a buffer "
+					  "the first time it is moved in play - shorten it",
+					  e->id, e->id.size(), kItemIdCapacity);
 
 	log::Info("Loaded project '{}' ({}): {} levels, {} wall/{} floor/{} ceiling "
 			  "types, {} decorations, {} monsters",

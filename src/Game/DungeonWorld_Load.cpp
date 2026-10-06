@@ -1840,14 +1840,16 @@ bool DungeonWorld::DropItemAt(const std::string& typeId, float mx, float my,
 	return true;
 }
 
-bool DungeonWorld::DropItemOnSquare(const std::string& typeId, int x, int z) {
+bool DungeonWorld::DropItemOnSquare(const std::string& typeId, int x, int z, int quarter) {
 	// A `tp` or `face` earlier this frame has not reached the camera yet.
 	UpdateCamera();
-	// The square's centre on the floor, through the camera to a pixel. Any
-	// viewport size will do: ScreenRay inverts the very projection this applies,
-	// so the click lands on the same floor point whatever the window is.
+	// The square's centre (or a quarter's) on the floor, through the camera to a
+	// pixel. Any viewport size will do: ScreenRay inverts the very projection
+	// this applies, so the click lands on the same floor point whatever the
+	// window is.
 	constexpr float kW = 1600.0f, kH = 900.0f;
-	const Vec3 c = m_map.CellCenter(x, z);
+	const Vec3 c = quarter >= 0 && quarter < 4 ? SlotCenter(x, z, SizeClass::Medium, quarter)
+											   : m_map.CellCenter(x, z);
 	const Mat4 vp = m_camera.ViewProj();
 	const XMVECTOR clip =
 		XMVector4Transform(XMVectorSet(c.x, 0.0f, c.z, 1.0f), XMLoadFloat4x4(&vp));

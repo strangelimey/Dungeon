@@ -20,6 +20,7 @@
 #include "Game/Style.h"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <format>
 #include <random>
@@ -93,6 +94,8 @@ void Game::LoadWorldMap() {
 
 void Game::ResetWorldState() {
 	m_worldState = {};
+	// Quests and flags exist in a project with no world map too.
+	ReserveWorldState();
 	if (!m_worldMap) return;
 	m_worldState.x = m_worldMap->StartX();
 	m_worldState.z = m_worldMap->StartZ();
@@ -103,6 +106,42 @@ void Game::ResetWorldState() {
 	// onWorldMap stays FALSE: a new game still begins inside a dungeon until P4
 	// moves the opening. The party has a world position regardless — it is where
 	// it came in from.
+}
+
+void Game::ReserveWorldState() {
+	// An UPPER BOUND, counted generously: a quest or flag named by both its
+	// catalog and an item is counted twice, which costs a spare entry, where
+	// missing one costs an allocation in a guarded frame.
+	size_t quests = m_project.quests.Entries().size();
+	size_t flags = m_project.flags.Entries().size();
+	size_t places = m_worldMap ? m_worldMap->Locations().size() : 0;
+	// Every string as long as the longest id or value that can go into one (a
+	// stage name, an item's `flag = key=value`), never less than an item id's
+	// room - and std::string rounds it up anyway.
+	size_t longest = kItemIdCapacity;
+	const auto fit = [&longest](std::string_view s) { longest = std::max(longest, s.size()); };
+	for (const CatalogEntry& e : m_project.quests.Entries()) {
+		fit(e.id);
+		for (const std::string& stage : ParseTags(e.Get("stages", ""))) fit(stage);
+	}
+	for (const CatalogEntry& e : m_project.flags.Entries()) fit(e.id);
+	if (m_worldMap)
+		for (const WorldMap::Location& l : m_worldMap->Locations()) fit(l.id);
+	for (const CatalogEntry* e : m_project.AllItems()) {
+		if (const std::string* q = e->Find("quest"); q && !q->empty()) {
+			++quests;
+			fit(*q); // the whole "<id>:<stage>" bounds both halves
+		}
+		if (const std::string* f = e->Find("flag"); f && !f->empty()) {
+			++flags;
+			fit(*f);
+		}
+		if (const std::string* r = e->Find("reveals"); r && !r->empty()) {
+			++places;
+			fit(*r);
+		}
+	}
+	m_worldState.Reserve(quests, flags, places, longest);
 }
 
 bool Game::SaveWorld() {
@@ -478,10 +517,12 @@ void Game::OnItemFound(const std::string& itemId) {
 	// twice and an item still on the floor has changed nothing.
 	const CatalogEntry* e = m_project.FindItem(itemId);
 	if (!e) return;
-	// Each hook reads its field BY REFERENCE. A lift happens in a guarded frame
-	// and nearly every item has none of these fields, so the common case must
-	// cost nothing - Get returns a copy, and three of them allocated on every
-	// pick. (A hook that FIRES records new world state; that is its own event.)
+	// A LIFT HAPPENS IN A GUARDED FRAME, and it allocates nothing, whether a hook
+	// fires or not (code-review C212): each hook reads its field BY REFERENCE
+	// (Get returns a copy), splits it into VIEWS, and writes the world state
+	// through setters that find first and assign into room ReserveWorldState
+	// gave them; the message is a loc::Line. Nearly every item has none of these
+	// fields, and the one that has them is lifted again and again.
 	const auto field = [e](std::string_view key) -> const std::string& {
 		const std::string* v = e->Find(key);
 		return v ? *v : kNoItemHook;
@@ -491,13 +532,25 @@ void Game::OnItemFound(const std::string& itemId) {
 	// numbered, so inserting a stage cannot silently move everyone along.
 	const std::string& q = field("quest");
 	if (const size_t colon = q.find(':'); colon != std::string::npos) {
-		const std::string id = q.substr(0, colon), stage = q.substr(colon + 1);
+		const std::string_view id = std::string_view(q).substr(0, colon);
+		const std::string_view stage = std::string_view(q).substr(colon + 1);
 		if (m_worldState.SetQuestStage(id, stage)) {
 			const CatalogEntry* def = m_project.quests.Find(id);
+			// The stage's line, `text_<stage>`: its key built in a fixed buffer.
+			// A stage with none (or one too long to name) reads as itself.
+			std::string_view text = stage;
+			constexpr std::string_view kTextPrefix = "text_";
+			std::array<char, 64> key;
+			if (def && kTextPrefix.size() + stage.size() <= key.size()) {
+				std::copy(kTextPrefix.begin(), kTextPrefix.end(), key.begin());
+				std::copy(stage.begin(), stage.end(), key.begin() + kTextPrefix.size());
+				if (const std::string* t = def->Find(std::string_view(
+						key.data(), kTextPrefix.size() + stage.size())))
+					text = *t;
+			}
 			if (m_world->onMessage)
 				m_world->onMessage(loc::FormatLine(
-					"world.quest_stage", def ? def->Display() : id,
-					def ? def->Get("text_" + stage, stage) : stage));
+					"world.quest_stage", def ? def->DisplayView() : id, text));
 		}
 	} else if (!q.empty()) {
 		log::Warn("item '{}' has quest = '{}' — expected <id>:<stage>", itemId, q);
@@ -506,7 +559,8 @@ void Game::OnItemFound(const std::string& itemId) {
 	// "flag = <key>=<value>" — global state that is not a quest's progress.
 	const std::string& f = field("flag");
 	if (const size_t eq = f.find('='); eq != std::string::npos)
-		m_worldState.SetFlag(f.substr(0, eq), f.substr(eq + 1));
+		m_worldState.SetFlag(std::string_view(f).substr(0, eq),
+							 std::string_view(f).substr(eq + 1));
 	else if (!f.empty())
 		m_worldState.SetFlag(f, "1"); // a bare name is a flag that is simply set
 

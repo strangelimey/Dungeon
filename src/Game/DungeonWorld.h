@@ -1372,7 +1372,11 @@ public:
 	// at the centre of square (x,z) on the floor, projected through the camera
 	// as a pointer there would be, so it is refused by exactly what refuses a
 	// player's drop. The item comes from nowhere, as `throw <item>`'s does.
-	bool DropItemOnSquare(const std::string& typeId, int x, int z);
+	// `quarter` 0..3 (row * 2 + col, north-west first, SlotGrid.h) aims at that
+	// quarter's centre instead: at the square's centre all four quarters tie,
+	// and float noise picks one, where a harness that will click the item after
+	// needs to know which.
+	bool DropItemOnSquare(const std::string& typeId, int x, int z, int quarter = -1);
 	// THROWING (DungeonWorld_Throw.cpp): a member throws an item (catalog id)
 	// straight ahead down their quadrant lane - `member` < 0 = the party LEADER
 	// (the cursor's throw), else that roster slot (a hand's `throw` use). False =
@@ -5117,8 +5121,9 @@ private:
 	// through, and the per-frame passes.
 	HeldItem* m_cursorItem = nullptr;
 	ItemSlot m_cursorScratch;
-	// DropAtPartyFeet's id, assigned rather than constructed (a guarded frame).
-	std::string m_dropIdScratch;
+	// DropAtPartyFeet's id, assigned rather than constructed (a guarded frame),
+	// into an item's room (kItemIdCapacity).
+	std::string m_dropIdScratch = ItemIdBuffer();
 	// The glows HandPuff leaves, each fading over its `life` (UpdateLights adds
 	// the live ones). FIXED: a cast lands in a guarded frame; a fifth puff while
 	// four still glow takes the oldest's place.

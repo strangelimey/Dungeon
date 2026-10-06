@@ -65,9 +65,45 @@ inline Vec4 CategoryTint(std::string_view category) {
 // the cursor, the floor, a save (as `id#charge`, ItemToken).
 inline constexpr float kNoCharge = -1.0f;
 
+// THE ROOM AN ITEM ID IS GIVEN (code-review C218). Moving an item is a guarded-
+// frame event, and it allocates nothing only because every string an id moves
+// through - each slot, the cursor, a pack-row square, the scratch ids - is BORN
+// with this much room and keeps it: a pick, a put and a swap exchange buffers,
+// and a lift or a rename assigns into one. It used to rest on MSVC's 15-character
+// small-string buffer, which a 17-21 character potion id outgrew: lifting one
+// with such a buffer on the cursor allocated, in release too. A catalog id longer
+// than this still works (its first move grows a buffer) and is warned about at
+// project load (Project::Load).
+inline constexpr size_t kItemIdCapacity = 31;
+
+// An empty string with room for any item id (see kItemIdCapacity).
+inline std::string ItemIdBuffer() {
+	std::string s;
+	s.reserve(kItemIdCapacity);
+	return s;
+}
+
 struct ItemSlot {
-	std::string typeId; // catalog id; empty = the slot is free
+	std::string typeId = ItemIdBuffer(); // catalog id; empty = the slot is free
 	float charge = kNoCharge;
+
+	ItemSlot() = default;
+	// A copy or a move KEEPS the full room: the id is assigned into this slot's
+	// own buffer rather than handed over. A copied std::string is only as big as
+	// its text, and a moved one takes the source's buffer, which may be small.
+	ItemSlot(const ItemSlot& other) : charge(other.charge) { typeId.assign(other.typeId); }
+	ItemSlot(ItemSlot&& other) noexcept : charge(other.charge) { typeId.assign(other.typeId); }
+	ItemSlot& operator=(const ItemSlot& other) {
+		typeId.assign(other.typeId);
+		charge = other.charge;
+		return *this;
+	}
+	ItemSlot& operator=(ItemSlot&& other) noexcept {
+		typeId.assign(other.typeId);
+		charge = other.charge;
+		return *this;
+	}
+
 	bool Empty() const { return typeId.empty(); }
 	void Clear() {
 		typeId.clear();
@@ -108,9 +144,20 @@ inline void ItemFromToken(std::string_view token, ItemSlot& out) {
 // fits the small-string buffer (a 16-byte iterator proxy). So the string here
 // lives as long as the cursor does, empty = nothing held, and an exchange with
 // a slot SWAPS the two strings - a pick, a put and a swap are all one swap, and
-// moving buffers around allocates nothing in any build.
+// moving buffers around allocates nothing in any build. Every buffer in that
+// circulation has kItemIdCapacity of room, the cursor's own included, so a lift
+// (Set) of any catalog id fits whichever buffer the swaps left it holding.
 class HeldItem {
 public:
+	HeldItem() = default;
+	// The full room through a copy too (see ItemSlot).
+	HeldItem(const HeldItem& other) : m_charge(other.m_charge) { m_id.assign(other.m_id); }
+	HeldItem& operator=(const HeldItem& other) {
+		m_id.assign(other.m_id);
+		m_charge = other.m_charge;
+		return *this;
+	}
+
 	bool has_value() const { return !m_id.empty(); }
 	explicit operator bool() const { return has_value(); }
 	const std::string& operator*() const { return m_id; }
@@ -119,8 +166,8 @@ public:
 		m_charge = kNoCharge;
 	}
 	// Copies into the existing buffer (a floor pick, a loaded save): no
-	// allocation while the id fits what the buffer already holds. The charge
-	// comes with it (kNoCharge for an item that has none).
+	// allocation for any id within kItemIdCapacity. The charge comes with it
+	// (kNoCharge for an item that has none).
 	void Set(std::string_view id, float charge) {
 		m_id.assign(id);
 		m_charge = charge;
@@ -149,7 +196,7 @@ public:
 	std::string& Id() { return m_id; }
 
 private:
-	std::string m_id;
+	std::string m_id = ItemIdBuffer();
 	float m_charge = kNoCharge;
 };
 
@@ -192,8 +239,29 @@ private:
 // A carried container (backpack, ammo pouch, medicine pouch, ...) plus its own
 // contents. An empty typeId = an empty pack-row slot (no container).
 struct Pack {
-	std::string typeId; // pack catalog id; "" = empty pack slot
+	// Pack catalog id; "" = empty pack slot. With an item's room: the cursor
+	// swaps with it (HeldItem::SwapIdWith), and a small buffer swapped onto the
+	// cursor is what C218's lifts tripped over.
+	std::string typeId = ItemIdBuffer();
 	PackSlots contents; // items inside this pack
+
+	Pack() = default;
+	// The full room through a copy or a move, as ItemSlot keeps it.
+	Pack(const Pack& other) : contents(other.contents) { typeId.assign(other.typeId); }
+	Pack(Pack&& other) noexcept : contents(std::move(other.contents)) {
+		typeId.assign(other.typeId);
+	}
+	Pack& operator=(const Pack& other) {
+		typeId.assign(other.typeId);
+		contents = other.contents;
+		return *this;
+	}
+	Pack& operator=(Pack&& other) noexcept {
+		typeId.assign(other.typeId);
+		contents = std::move(other.contents);
+		return *this;
+	}
+
 	bool Empty() const { return typeId.empty(); }
 	// True if the pack holds any item (so it can't be swapped out / lost).
 	bool HasItems() const {

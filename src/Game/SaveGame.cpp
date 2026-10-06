@@ -520,12 +520,14 @@ std::optional<SaveData> ReadSave(const std::string& path) {
 		} else if (kw == "atlocation" && tok.size() >= 2) {
 			data.world.atLocation = std::string(tok[1]);
 		} else if (kw == "discovered") {
+			// Through the setters (the lists are SpareLists, WorldMap.h): a
+			// repeated id in a hand-edited save is read once.
 			for (size_t i = 1; i < tok.size(); ++i)
-				data.world.discovered.emplace_back(tok[i]);
+				data.world.Discover(tok[i]);
 		} else if (kw == "quest" && tok.size() >= 3) {
-			data.world.quests.emplace_back(std::string(tok[1]), DeTok(tok[2]));
+			data.world.SetQuestStage(tok[1], DeTok(tok[2]));
 		} else if (kw == "flag" && tok.size() >= 3) {
-			data.world.flags.emplace_back(std::string(tok[1]), DeTok(tok[2]));
+			data.world.SetFlag(tok[1], DeTok(tok[2]));
 		} else if (kw == "char" && tok.size() >= 8) {
 			SaveData::CharState& c = CharAt(data, member);
 			c.health = FloatOf(tok[2]);    c.maxHealth = FloatOf(tok[3]);

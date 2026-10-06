@@ -3235,8 +3235,15 @@ Michael's notes and answers: docs/ui-updates-notes.md; the plan: -plan.md.
   like one (has_value / * / reset) but its string lives as long as the cursor,
   empty = nothing held, and every pick, put and swap with a slot is ONE
   `SwapWith` - copying an id constructs a string, which the debug CRT allocates
-  for at any length. `Inventory::Stow(HeldItem&)` is the portrait quick-stow;
-  `TryPickItem` returns the kind's own id (a pointer). Every item KIND is built
+  for at any length. A swap moves BUFFERS and a lift or a rename assigns into
+  one, so every string an id moves through - each ItemSlot, the HeldItem, a
+  Pack's pack-row id, the drop scratch - is BORN with `kItemIdCapacity` (31) of
+  room and keeps it through copies and moves (code-review C218: it used to rest
+  on MSVC's 15-character small-string buffer, and lifting one of crypt1's 17-21
+  character potions with such a buffer on the cursor allocated, in release too).
+  Project::Load warns about an item id past 31. `Inventory::Stow(HeldItem&)` is
+  the portrait quick-stow; `TryPickItem` returns the kind's own id (a pointer).
+  Every item KIND is built
   at load (`DungeonWorld::PreloadItemKinds`) - runes used to be built on their
   first drop, 2 MB in a guarded frame - and a drop reuses a dead runtime drop's
   slot (`PlaceDrop`) inside load-time headroom (`ReserveDropRoom`). A bag's slots
@@ -3246,7 +3253,8 @@ Michael's notes and answers: docs/ui-updates-notes.md; the plan: -plan.md.
   -Items` (pack -> floor -> pack through the inventory window; dev `inventory
   [off|status]`; tally `drops=`/`lifts=`; before its game, itempose.eval - the
   item pose and the click picks; CheckAll's `alloc-items`), mutation-checked
-  both ways, and
+  both ways, `-Items -LongId` (the runes SWAPPED through the cursor into a free
+  slot, then a 21-character potion lifted off the floor and put back), and
   `-Packs` (a 4- and an 8-slot bag swapped in the pack row; `sheet status`
   prints the row and an `equips=` count), which FAILed on the vector first.
 
@@ -3697,7 +3705,13 @@ Judged by `tools\EditorTest.py` (phase 12 onward).
   on: a sealed door refuses the hand BEFORE its key is asked about, a lever will
   not move, a stair says the way is barred) and a world location's `flag=`.
   DungeonWorld borrows the store (SetFlagStore, like SetRoster); a wired button
-  still moves a waiting door, as it does a locked one. The three inspectors
+  still moves a waiting door, as it does a locked one. A lift or a press writes
+  the world state in a guarded frame, so it allocates nothing (code-review C212):
+  WorldState's quests / flags / discovered are SpareLists (WorldMap.h) - spare
+  entries with room past the live ones, sized from the catalogs by
+  Game::ReserveWorldState at every new game and load - its setters take views
+  and find first, and Game::OnItemFound reads its hooks as views; checked by
+  `AllocTest.ps1 -Lever` (crypt_token lifted twice, a `sets=` lever). The three inspectors
   share `FlagDropDown` (InstanceInspector.h). The checker (Validate_Flags.cpp):
   `flagwaits` (an error where the waiter stands - nothing sets it), `flagunknown`,
   `flagscope` (a dungeon's flag used in another), `flagunused`. The palette's

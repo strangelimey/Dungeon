@@ -44,8 +44,12 @@ bool CatalogColor(const CatalogEntry* e, std::string_view key, Vec4& out) {
 }
 
 std::string CatalogEntry::Display() const {
+	return std::string(DisplayView());
+}
+
+std::string_view CatalogEntry::DisplayView() const {
 	const std::string* v = Find("display");
-	return v && !v->empty() ? *v : id;
+	return v && !v->empty() ? std::string_view(*v) : std::string_view(id);
 }
 
 // --- tags --------------------------------------------------------------------

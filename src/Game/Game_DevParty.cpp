@@ -268,9 +268,11 @@ void Game::RegisterPartyCommands() {
 	// may rest there (code-review C74). A drop the world turns down is an ANSWER,
 	// not a broken line - printed, not refused - since asking about a square that
 	// must turn it down is the point; a real click there would throw instead.
+	// A QUARTER (0..3, north-west first) aims at that quarter's centre, for a
+	// harness that clicks the item afterwards (AllocTest -Lever's quest token).
 	m_console.Register({.name = "drop",
 						.group = CmdGroup::Characters,
-						.params = "<item> <x> <z>",
+						.params = "<item> <x> <z> [quarter]",
 						.summary = "drop an item on a square's floor as a click at its centre would"},
 					   [this](const std::vector<std::string>& args) {
 						   if (!Need(m_console, args, 3)) return;
@@ -282,8 +284,16 @@ void Game::RegisterPartyCommands() {
 							   m_console.Refuse(std::format("no item '{}'", args[0]));
 							   return;
 						   }
+						   int quarter = -1;
+						   if (args.size() > 3) {
+							   quarter = std::atoi(args[3].c_str());
+							   if (quarter < 0 || quarter > 3 || args[3].size() != 1) {
+								   m_console.Refuse("drop: a quarter is 0..3 (row * 2 + col, north-west first)");
+								   return;
+							   }
+						   }
 						   const int x = std::atoi(args[1].c_str()), z = std::atoi(args[2].c_str());
-						   const bool laid = m_world->DropItemOnSquare(args[0], x, z);
+						   const bool laid = m_world->DropItemOnSquare(args[0], x, z, quarter);
 						   m_console.Print(std::format("drop {} at {},{}: {}", args[0], x, z,
 													   laid ? "laid" : "refused"));
 					   });

@@ -20,11 +20,12 @@
 #   .\tools\AllocTest.ps1 -Light             # the Sowilo lights: cast, stacked, grown, a flare's dazzle
 #   .\tools\AllocTest.ps1 -Pause             # Esc to the pause menu and back
 #   .\tools\AllocTest.ps1 -Exit              # Help clicked, an exit stair's "Leave?" answered No, a pit fall
-#   .\tools\AllocTest.ps1 -Lever             # a lever wired to nothing, then one revealing a secret niche
+#   .\tools\AllocTest.ps1 -Lever             # a quest token lifted twice, a sets= lever, one revealing a secret niche
 #   .\tools\AllocTest.ps1 -Sheet             # the sheet: hover, tabs, item dialog
 #   .\tools\AllocTest.ps1 -Panels            # drag and resize the floating HUD
 #   .\tools\AllocTest.ps1 -Minimal [-Sheet]  # any mode, under the party-card layout
 #   .\tools\AllocTest.ps1 -Items             # pack -> cursor -> floor -> cursor -> pack; the item pose + picks
+#   .\tools\AllocTest.ps1 -Items -LongId     # runes swapped through the cursor, then a 21-character id lifted
 #   .\tools\AllocTest.ps1 -Packs             # swap a 4-slot and an 8-slot bag
 #   .\tools\AllocTest.ps1 -Throw             # lift a rock, throw it at a wall, again
 #   .\tools\AllocTest.ps1 -Throw -ThrowItem torch_lit   # ...a lit torch (its light and flame)
@@ -267,6 +268,22 @@
 # rebuilt in play - else the result is WALLS, a FAIL (a swap of the wrong look,
 # or none, allocates nothing either). The layout sees chunk 0,5's swap only:
 # in 1,5 the niche moves a panel's pin, not its triangle count.
+#   AND THE WORLD STATE A LIFT OR A PRESS WRITES (code-review C212). A lifted
+# item's quest / flag / reveal hooks split strings and copied a name, and the
+# world state's lists took a NEW entry by constructing strings - a quest moving
+# on, a place revealed, a lever's `sets=` flag - all in armed frames, none in any
+# window. The lists keep spare entries with room now (WorldMap.h SpareList,
+# sized from the catalogs) and the hooks read views. So before the window the
+# party, walked onto 1,22 from 1,21 (a step reveals 1,21, which a drop and a lift
+# need seen), faces NORTH with crypt_token (quest sunken_relic:heard, reveals
+# crypt_back) laid on 1,21 by `drop`, and the lever at 1,22 is wired
+# `sets=relic_lifted` by `flagwire` - it still flips no niche. Inside the window,
+# first: a click lifting the token (the quest's first stage and the reveal: new
+# entries), one putting it down, a second lift (which changes nothing - it used to
+# split its strings anyway) and a put; then E twice to face the levers. It refuses
+# a PASS unless the window's tally counts two lifts and two drops, and the result
+# is HOOKS, a FAIL, unless afterwards the quest stands at `heard`, crypt_back is
+# discovered and relic_lifted is on (each checked off beforehand).
 #
 # -Sheet IS THE CHARACTER SHEET'S TURN (docs/ui-updates-plan.md). The sheet is a
 # guarded state, and since ui-updates it does things every frame the pointer
@@ -330,8 +347,36 @@
 # window then moves the OTHER rune, so its FIRST drop is inside the window - a
 # first time for a KIND is paid again by every kind a player drops, so it is
 # not warm-up (the -Impact lesson). It refuses a PASS unless the window's tally
-# counts at least two drops and two lifts, which also puts the put-back between
-# them inside the window.
+# counts a drop and a lift for EVERY cycle sent (at least two), which puts the
+# first one - the measurement - and the put-back after it inside the window. Two
+# of three would not: the tally restarts on the window's first armed frame, and
+# on a slow or shared machine the 3 s wait before the first cycle does not clear
+# the guard's 120-frame warm-up, so the two later cycles alone made the count.
+# -Items -LongId IS AN ID LONGER THAN 15 CHARACTERS (code-review C218). A move
+# allocates nothing because the cursor and the slots swap BUFFERS and a lift
+# assigns into whichever one the cursor holds - which held only while that buffer
+# had room. A slot that never held a long id had MSVC's 15-character small-string
+# buffer, a put handed it to the cursor, and lifting one of crypt1's potions
+# (potion_antidote_minor is 21) then grew it in an armed frame, in release too;
+# -Items could not see it, moving 10-character runes. Every slot, the cursor, a
+# pack-row square and the scratch ids are now BORN with room for 31 characters
+# (Game/Inventory.h kItemIdCapacity) and keep it through copies and moves.
+# Before the window this puts the potion on the floor ahead, in the far-left
+# quarter -Items' runes use (`drop`), and keeps a third pack slot free beside the
+# two runes'. A cycle: the measured rune out of its slot, onto the warm rune's (a
+# SWAP - the warm rune comes up), into the free slot (a put), then a click on the
+# potion (the lift: 21 characters into whatever buffer the put left on the cursor)
+# and one putting it back down; the next cycle runs the runes back the other way.
+# ONLY THE FIRST CYCLE CAN FAIL: its put hands the cursor the cursor's own first
+# buffer, which no long id ever passed through. The setup's `give` grew the free
+# slot's buffer and the first lift grows the cursor's, so the second and third
+# puts hand back one of those two, which already has room (the kItemIdCapacity =
+# 15 mutation fails with ONE violation). No warm-up lift, then: the potion's first lift is the
+# measurement, and the run refuses a PASS unless the window's tally counts a lift
+# and a drop for EVERY cycle sent (only the potion touches the floor in this
+# mode), which puts that first lift inside the window, and unless the runes stand
+# where the cycles that ran leave them.
+#
 # BEFORE that game, -Items runs tools\EvalScripts\itempose.eval headless
 # (Test-ItemPose, code-review C180 / C359 / C258): a rune in a shut wall niche
 # throws no floor glow and in an open one glows in the pocket over it, and
@@ -365,9 +410,8 @@
 # weapon whose on_hit names no effect (a typo in weapons.cat) warned on every
 # landed blow and FAILED the guard for it, or aborted under `allocguard strict`.
 # The excuse now lives inside log::Write and its templates. This puts a frozen,
-# toughened skeleton beside the party, puts clubs in the front rank's hands
-# (a club's severe fumble drops nothing - see the setup) and gives the club a
-# proc naming 'brun' (`onhit`, in memory - weapons.cat is not touched), lets the
+# toughened skeleton beside the party and gives the front rank's starting dagger
+# a proc naming 'brun' (`onhit`, in memory - weapons.cat is not touched), lets the
 # party swing until the warning shows (a warm-up: the party's FIRST swing is not
 # what this mode measures), then HOLDS the swinging until alloctest's first
 # armed frame releases it. It refuses a PASS unless the warning was logged
@@ -497,6 +541,12 @@ param(
 	# never dropped before the window opens.
 	[string]$WarmItem = 'rune_air',
 	[string]$MeasureItem = 'rune_water',
+	# With -Items: the runes SWAP through the cursor into a free slot, and a
+	# long-id item is lifted off the floor and put back (code-review C218). See
+	# the note above.
+	[switch]$LongId,
+	# Over 15 characters, or the mode measures nothing (one of crypt1's potions).
+	[string]$LongItem = 'potion_antidote_minor',
 	# Swaps a small and a big bag in the pack row inside the window. See above.
 	[switch]$Packs,
 	# Lifts a rock off the floor and throws it at a wall, round and round,
@@ -516,8 +566,8 @@ param(
 	[switch]$Glass,
 	[string]$GlassCategory = 'items',
 	[string]$GlassKind = 'potion_health_greater', # glass AND a liquid (Phase 3)
-	# Swings CLUBS whose on_hit names no effect, inside the window (a club, not a
-	# dagger: a blade's severe fumble drops it, which is C212). See the note above.
+	# Swings the starting DAGGERS with an on_hit that names no effect, inside the
+	# window. See the note above.
 	[switch]$OnHitTypo,
 	# Starts with a CREATED party instead of the default four: a `newparty` spec
 	# (party creation, docs/party-creation-plan.md phase 2), e.g.
@@ -548,6 +598,11 @@ if ($RestReach) { $Rest = $true } # -RestReach is -Rest with the way left open
 # at a slow frame rate, and must both land well before the window closes.
 if (($Items -or $Throw -or $All -or $Impact -or $Exit -or $Lever) -and -not $PSBoundParameters.ContainsKey('Seconds')) { $Seconds = 20 }
 if ($ShadowSelfTest -and -not $Lights) { throw '-ShadowSelfTest mutates the shadow checks, which only -Lights runs' }
+if ($LongId -and -not $Items) { throw '-LongId changes what -Items moves; give -Items too' }
+if ($LongId -and $LongItem.Length -le 15) { throw "-LongItem '$LongItem' fits the 15-character small-string buffer, so it measures nothing" }
+# -Lever's window holds the token's four clicks, two turns and both presses, each
+# after the warm-up has cleared.
+if ($Lever -and -not $PSBoundParameters.ContainsKey('Seconds')) { $Seconds = 30 }
 $root = Split-Path -Parent $PSScriptRoot
 $bin = Join-Path $root "build\$Config\bin"
 
@@ -679,6 +734,20 @@ function Get-NicheLooks {
 	Wait-ConsoleDone
 	return @(Select-String -Path $log -Pattern $pattern -SimpleMatch | Select-Object -Skip $before |
 		ForEach-Object { $_.Line -replace '^.*console: ', '' })
+}
+
+# What crypt_token's hooks and the 1,22 lever write, read back (console open,
+# logecho on): the sunken_relic quest's row (`quest`), the crypt_back location's
+# (`discover`) and the relic_lifted flag's (`flag`). -Lever reads it on both
+# sides of its window.
+function Get-QuestHooks {
+	$quest = Get-ConsoleAnswer 'quest' 'console:   sunken_relic '
+	$place = Get-ConsoleAnswer 'discover' 'console: dungeon crypt_back at '
+	$flag = Get-ConsoleAnswer 'flag relic_lifted' 'console: flag relic_lifted '
+	return [pscustomobject]@{
+		Quest = $quest; Place = $place; Flag = $flag
+		Line = "$($quest.Trim()) | $place | $flag"
+	}
 }
 
 # `geomhash`: the walls' fingerprint of a fresh bake and the layout verdict
@@ -1691,25 +1760,23 @@ try {
 			}
 		}
 		if (-not $spawnedAt) { throw "no cell beside $px,$pz would take a skeleton" }
-		# CLUBS in the front rank's armed hands, not the starting daggers and torch:
-		# a severe fumble DROPS a blade or a torch (balance.cat's default severe
-		# table), and that drop still copies the item's id - code-review C212, a
-		# later batch's fix, which would fail this mode at random for a reason it
-		# does not measure. A club's severe fumble is `wild`; it drops nothing.
-		Send-Text 'equip club 0 1'; Send-Key 0x0D
-		Send-Text 'equip club 1 0'; Send-Key 0x0D
-		Send-Text 'equip club 1 1'; Send-Key 0x0D
+		# THE STARTING DAGGERS (Brand's right hand, Sera's left; Sera's torch swings
+		# too, with its own on_hit). A severe fumble may DROP one in the window
+		# (balance.cat's default severe table), and that is measured with the rest:
+		# the drop copies nothing since code-review C10 / C212. (This mode put clubs
+		# in their hands until then - a club's severe fumble drops nothing - to keep
+		# that copy, which was not what it measured, out of the window.)
 		# The typo: `burn` misspelt.
 		$typoId = 'brun'
-		Send-Text "onhit club $typoId 3 6"; Send-Key 0x0D
-		if (-not (Wait-LogMatch "console: onhit club: $typoId 3 6")) { throw 'the club did not take the typo''d on_hit' }
-		# WARM-UP until the warning shows: proof a landed club blow rolls the
+		Send-Text "onhit dagger $typoId 3 6"; Send-Key 0x0D
+		if (-not (Wait-LogMatch "console: onhit dagger: $typoId 3 6")) { throw 'the dagger did not take the typo''d on_hit' }
+		# WARM-UP until the warning shows: proof a landed dagger blow rolls the
 		# proc, and the party's first swing kept out of the window - that first
 		# time is batch 27's -Swing to measure, not this mode.
 		$typoPattern = "on-hit proc names effect '$typoId'"
 		Send-Text 'autoattack on'; Send-Key 0x0D
 		if ((Wait-NewLogLines $typoPattern 0 1 20).Count -eq 0) {
-			throw "the party swung for 20 s and no club blow warned about '$typoId'"
+			throw "the party swung for 20 s and no dagger blow warned about '$typoId'"
 		}
 		Send-Text 'autoattack hold'; Send-Key 0x0D
 		if (-not (Wait-LogMatch 'console: autoattack held until an alloctest window opens')) {
@@ -1718,7 +1785,7 @@ try {
 		# Every warning past this count is the window's: the swinging is off until
 		# its first armed frame, and the verdict line ends it.
 		$script:typoBefore = Get-LogMatchCount $typoPattern
-		Write-Host "  a skeleton at $spawnedAt, the club's on_hit '$typoId 3 6'; swinging held for the window"
+		Write-Host "  a skeleton at $spawnedAt, the dagger's on_hit '$typoId 3 6'; swinging held for the window"
 		Send-Text 'logecho off'; Send-Key 0x0D
 		Send-Key 0xC0 # close the console again; alloctest reopens it below
 		Start-Sleep -Milliseconds 400
@@ -2039,13 +2106,21 @@ try {
 	# no monster walks into the corner; a real load (Enter-FrozenArena's `goto`),
 	# so the walls a press swaps in were pre-built by the load itself.
 	if ($Lever) {
-		Write-Host "eval_arena's corner: a lever wired to nothing at 1,22, one at 2,22 revealing the niche at 3,22"
+		Write-Host "eval_arena's corner: crypt_token on 1,21, a sets= lever at 1,22, one at 2,22 revealing the niche at 3,22"
 		Send-Key 0xC0
 		Start-Sleep -Milliseconds 500
 		Send-Text 'logecho on'; Send-Key 0x0D
 		Enter-FrozenArena
-		Send-Text 'tp 1 22'; Send-Key 0x0D
+		# WALKED onto 1,22 from 1,21, not teleported: a step reveals the squares
+		# round it, and the token's square must be SEEN for a drop and a lift.
+		Send-Text 'tp 1 21'; Send-Key 0x0D
 		Send-Text 'face s'; Send-Key 0x0D
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 400
+		Send-Key 0x57 # W: one step forward, onto 1,22
+		Start-Sleep -Seconds 1
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 400
 		Assert-PartyAt 1 22 'south'
 		$looks = Get-NicheLooks
 		foreach ($l in $looks) { Write-Host "  $l" }
@@ -2072,6 +2147,31 @@ try {
 		[HarnessWin]::GetClientRect($hwnd, [ref]$rc) | Out-Null
 		$script:leverX = [int]($rc.Right * 0.5); $script:leverY = [int]($rc.Bottom * 0.45)
 		Write-Host "  party at 1,22 facing south; walls $($script:wallsBefore.Walls); the click at $($script:leverX),$($script:leverY)"
+		# THE WORLD STATE (code-review C212; see the note at the top). The lever
+		# at 1,22 sets relic_lifted (still wired to no niche); crypt_token lies on
+		# 1,21, the square the party will face first, laid by `drop` in its
+		# north-west quarter (0) - the far-left one, facing north - and read back.
+		# All three hooks must be untouched before the window.
+		$wire = Get-ConsoleAnswer 'flagwire 1 22 lever sets=relic_lifted' 'flagwire lever 1,22 '
+		if ($wire -notmatch 'sets=relic_lifted$') { throw "the lever at 1,22 was not wired to set relic_lifted: $wire" }
+		Send-Text 'face n'; Send-Key 0x0D
+		Assert-PartyAt 1 22
+		$laid = Get-ConsoleAnswer 'drop crypt_token 1 21 0' 'drop crypt_token at 1,21: '
+		if ($laid -notmatch ': laid$') { throw "crypt_token was not laid on 1,21: $laid" }
+		$lies = Get-ConsoleAnswer 'flooritems 1 21' 'flooritems 1,21: crypt_token '
+		if ($lies -notmatch 'crypt_token slot 0 ') { throw "crypt_token is not in 1,21's north-west quarter: $lies" }
+		$script:hooksBefore = Get-QuestHooks
+		if ($script:hooksBefore.Quest -notmatch 'not started' -or $script:hooksBefore.Place -match '\(discovered\)' -or
+			$script:hooksBefore.Flag -notmatch ' off ') {
+			throw "the token's hooks or the flag were set before the window: $($script:hooksBefore.Line)"
+		}
+		# The token's click: the floor point -Items works out (a 70 degree lens,
+		# the eye 1.55 m up), the far quarter of the square ahead and left of
+		# centre - the north-west quarter.
+		$ndc = (1.55 / 3.3) / [math]::Tan(35 * [math]::PI / 180)
+		$script:tokenX = [int]($rc.Right * 0.40)
+		$script:tokenY = [int]($rc.Bottom * (0.5 + $ndc / 2))
+		Write-Host "  facing north at crypt_token on 1,21 (the click at $($script:tokenX),$($script:tokenY)); the 1,22 lever sets relic_lifted"
 		Send-Text 'logecho off'; Send-Key 0x0D
 		Send-Key 0xC0 # close the console again; alloctest reopens it below
 		Start-Sleep -Milliseconds 400
@@ -2410,14 +2510,16 @@ try {
 		Send-Key 0xC0
 		Start-Sleep -Milliseconds 400
 		Assert-PartyAt 14 17
-		# Whoever has two free pack slots carries them: a Continued eval save can
-		# leave any member's pack full.
+		# Whoever has two free pack slots carries them (three for -LongId, whose
+		# runes swap into a third): a Continued eval save can leave any member's
+		# pack full.
+		$needFree = if ($LongId) { 3 } else { 2 }
 		$status = Get-InventoryStatus
 		$member = -1
 		for ($m = 0; $m -lt $memberCount -and $member -lt 0; $m++) {
-			if (@(Get-PackSlots $status $m | Where-Object { $_ -eq '-' }).Count -ge 2) { $member = $m }
+			if (@(Get-PackSlots $status $m | Where-Object { $_ -eq '-' }).Count -ge $needFree) { $member = $m }
 		}
-		if ($member -lt 0) { throw "no member has two free pack slots: $status" }
+		if ($member -lt 0) { throw "no member has $needFree free pack slots: $status" }
 		Send-Text "give $WarmItem $member"; Send-Key 0x0D
 		Send-Text "give $MeasureItem $member"; Send-Key 0x0D
 		Start-Sleep -Milliseconds 300
@@ -2425,6 +2527,12 @@ try {
 		$warmSlot = Get-PackSlot $status $member $WarmItem
 		$measureSlot = Get-PackSlot $status $member $MeasureItem
 		Write-Host "  member $member carries $WarmItem in slot $warmSlot, $MeasureItem in slot $measureSlot"
+		$freeSlot = -1
+		if ($LongId) {
+			$freeSlot = [array]::IndexOf((Get-PackSlots $status $member), '-')
+			if ($freeSlot -lt 0) { throw "member $member has no free slot left for the swap: $status" }
+			Write-Host "  slot $freeSlot is the free one the runes swap into"
+		}
 		$rc = New-Object HarnessWin+RECT
 		[HarnessWin]::GetClientRect($hwnd, [ref]$rc) | Out-Null
 		$script:clientW = [double]$rc.Right; $script:clientH = [double]$rc.Bottom
@@ -2440,6 +2548,7 @@ try {
 		Start-Sleep -Milliseconds 400
 		$script:warmPoint = Get-InventorySlotPoint $member $warmSlot
 		$script:measurePoint = Get-InventorySlotPoint $member $measureSlot
+		if ($LongId) { $script:freePoint = Get-InventorySlotPoint $member $freeSlot }
 		# THE FLOOR POINT, from the camera: a 70 degree vertical lens with the eye
 		# 1.55 m up (kEyeHeight), level. A pixel ndc units below the centre sees
 		# the floor at 1.55 / (ndc * tan 35) metres. 3.3 m is the FAR quarter of
@@ -2469,6 +2578,33 @@ try {
 				"slot $($script:warmPoint.X),$($script:warmPoint.Y), floor $($script:floorX),$($script:floorY)"
 		}
 		Write-Host "  warm-up round trip ok (floor point $($script:floorX),$($script:floorY))"
+		if ($LongId) {
+			# The long id on the floor, in the far-left quarter the floor point
+			# lifts from (the runes stay in the pack in this mode, so it is free):
+			# given into the free slot - the first free one - and carried down by
+			# the same two clicks a player would make. (`drop` aims at a square's
+			# centre, where all four quarters tie and float noise picks one.) The
+			# slot is free again afterwards.
+			Send-Text "give $LongItem $member"; Send-Key 0x0D
+			Start-Sleep -Milliseconds 300
+			$status = Get-InventoryStatus
+			if ((Get-PackSlot $status $member $LongItem) -ne $freeSlot) {
+				throw "the $LongItem did not go into slot ${freeSlot}: $status"
+			}
+			Send-Key 0xC0
+			Start-Sleep -Milliseconds 600
+			Send-Click $script:freePoint.X $script:freePoint.Y
+			Send-Click $script:floorX $script:floorY
+			Start-Sleep -Milliseconds 500
+			Send-Key 0xC0
+			Start-Sleep -Milliseconds 500
+			$status = Get-InventoryStatus
+			$drops = Get-TallyField 'drops'
+			if ($drops -ne 2 -or $status -notmatch 'held=none' -or (Get-PackSlots $status $member)[$freeSlot] -ne '-') {
+				throw "the $LongItem was not put down ahead (drops=$drops; $status)"
+			}
+			Write-Host "  $LongItem ($($LongItem.Length) characters) on the floor ahead, in the far-left quarter; slot $freeSlot free again"
+		}
 		Send-Text 'logecho off'; Send-Key 0x0D
 		Send-Key 0xC0 # close the console again; alloctest reopens it below
 		Start-Sleep -Milliseconds 400
@@ -2713,7 +2849,19 @@ try {
 	if ($Lever) {
 		Start-Sleep -Seconds 5
 		if (-not (Select-String -Path $log -Pattern 'alloctest RESULT=' -Quiet)) {
-			Send-Click $script:leverX $script:leverY # the lever at 1,22: wired to nothing
+			Send-Click $script:tokenX $script:tokenY # crypt_token lifted: the quest starts, crypt_back revealed
+			Start-Sleep -Milliseconds 700
+			Send-Click $script:tokenX $script:tokenY # put down again
+			Start-Sleep -Milliseconds 700
+			Send-Click $script:tokenX $script:tokenY # lifted again: nothing changes
+			Start-Sleep -Milliseconds 700
+			Send-Click $script:tokenX $script:tokenY # and put down
+			Start-Sleep -Milliseconds 700
+			Send-Key 0x45                            # E: turn right - east
+			Start-Sleep -Milliseconds 900
+			Send-Key 0x45                            # E: south, at the levers
+			Start-Sleep -Milliseconds 1500
+			Send-Click $script:leverX $script:leverY # the lever at 1,22: sets relic_lifted, no niche
 			Start-Sleep -Milliseconds 1500
 			Send-Key 0x41                            # A: strafe left - facing south, east - to 2,22
 			Start-Sleep -Milliseconds 1500
@@ -2784,12 +2932,25 @@ try {
 
 	# -Items: round trips with the measured item while the window runs. The
 	# window is still open from the warm-up; the first wait clears the console
-	# close plus the guard's 120-frame warm-up, so the first pick is armed.
+	# close plus the guard's 120-frame warm-up, so the first pick is armed - on a
+	# quiet machine. The after-window check demands a drop and a lift for every
+	# cycle counted here, so a first cycle that beat the window cannot PASS.
+	# -LongId instead: the runes swapped through the cursor into the free slot
+	# (and back, on even cycles), then the long id lifted and put down again.
+	$script:itemCycles = 0
 	if ($Items) {
 		for ($cycle = 1; $cycle -le 3; $cycle++) {
 			Start-Sleep -Seconds 3
 			if (Select-String -Path $log -Pattern 'alloctest RESULT=' -Quiet) { break }
-			Invoke-ItemRoundTrip $script:measurePoint
+			$script:itemCycles = $cycle
+			if (-not $LongId) { Invoke-ItemRoundTrip $script:measurePoint; continue }
+			$from = if ($cycle % 2) { $script:measurePoint } else { $script:freePoint }
+			$to = if ($cycle % 2) { $script:freePoint } else { $script:measurePoint }
+			Send-Click $from.X $from.Y                              # a rune up
+			Send-Click $script:warmPoint.X $script:warmPoint.Y      # swapped for the other
+			Send-Click $to.X $to.Y                                  # put (cycle 1: the cursor's first buffer up)
+			Send-Click $script:floorX $script:floorY                # the long id lifted into it
+			Send-Click $script:floorX $script:floorY                # and put down again
 		}
 	}
 
@@ -2819,7 +2980,7 @@ try {
 	# logs the harness tally, which the window's first ARMED frame restarted.
 	# (Asking `tally` afterwards used to count the console's frames, the
 	# guard's warm-up and whatever landed while the question was being typed.)
-	if ($Melee -or $Impact -or $Burst -or $Swing -or $Items -or $Throw -or $OnHitTypo -or $Exit) {
+	if ($Melee -or $Impact -or $Burst -or $Swing -or $Items -or $Throw -or $OnHitTypo -or $Exit -or $Lever) {
 		$script:lastTally = (Wait-ForLog 'alloctest window TALLY ' 10 'the window tally') -replace '^.*TALLY ', 'TALLY '
 		Write-Host "  in the window: $script:lastTally"
 	}
@@ -2849,7 +3010,7 @@ try {
 			Where-Object { $_.LineNumber -lt $verdictAt }).Count - $script:typoBefore
 		Write-Host "  typo'd on-hit warnings inside the window: $inside"
 		if ($inside -lt 1 -and $result -eq 'PASS') {
-			Write-Host 'no club blow warned inside the window - the warning was not measured' -ForegroundColor Yellow
+			Write-Host 'no dagger blow warned inside the window - the warning was not measured' -ForegroundColor Yellow
 			$result = 'UNMEASURED'
 		}
 	}
@@ -3115,17 +3276,38 @@ try {
 		$where = Get-ConsoleAnswer 'pos' ' facing '
 		$wallsAfter = Get-WallsPrint
 		$looks = Get-NicheLooks
+		$hooksAfter = Get-QuestHooks
 		Send-Text 'logecho off'; Send-Key 0x0D
 		Send-Key 0xC0
+		$lifts = Get-LastTallyField 'lifts'
+		$drops = Get-LastTallyField 'drops'
 		Write-Host "  in measured frames - lever presses / niche flips: $levers / $niches"
+		Write-Host "  in the window - crypt_token lifts / puts: $lifts / $drops"
 		Write-Host "  after the window: $where; $open; walls $($script:wallsBefore.Walls) -> $($wallsAfter.Walls); $($wallsAfter.Line)"
+		Write-Host "  world state: $($script:hooksBefore.Line)"
+		Write-Host "            -> $($hooksAfter.Line)"
 		foreach ($l in $looks) { Write-Host "  $l" }
 		$short = @()
 		if ($levers - $niches -lt 1) { $short += 'no press wired to no niche in a measured frame' }
 		if ($niches -lt 1) { $short += 'no niche revealed in a measured frame' }
+		if ($lifts -lt 2 -or $drops -lt 2) { $short += 'crypt_token was not lifted and put down twice in the window' }
 		if ($short.Count -gt 0 -and $result -eq 'PASS') {
-			Write-Host "$($short -join ', ') - the lever presses were not measured" -ForegroundColor Yellow
+			Write-Host "$($short -join ', ') - the lever presses and the token were not measured" -ForegroundColor Yellow
 			$result = 'UNMEASURED'
+		}
+		# The hooks' WRITES: a quest stage, a place and a flag each new to the
+		# lists. Done allocation-free and done WRONG would pass the guard, so it is
+		# a FAIL of its own (HOOKS) - but only once the token was lifted and the
+		# 1,22 lever pressed, or there is nothing to judge.
+		if ($lifts -ge 1 -and $levers - $niches -ge 1) {
+			$hooks = @()
+			if ($hooksAfter.Quest -notmatch "at 'heard'") { $hooks += 'the sunken_relic quest did not reach heard' }
+			if ($hooksAfter.Place -notmatch '\(discovered\)') { $hooks += 'crypt_back was not revealed' }
+			if ($hooksAfter.Flag -notmatch ' on ') { $hooks += 'relic_lifted is not on' }
+			if ($hooks.Count -gt 0) {
+				Write-Host "$($hooks -join ', ')" -ForegroundColor Red
+				if ($result -eq 'PASS' -or $result -eq 'UNMEASURED') { $result = 'HOOKS' }
+			}
 		}
 		$wrong = @()
 		if ($open -notmatch ': open$') { $wrong += 'the niche did not open' }
@@ -3161,20 +3343,48 @@ try {
 		}
 	}
 
-	# And for -Items: two drops and two lifts inside the window, which puts the
-	# first round trip's put-back between them inside it too. Fewer means a
-	# click missed or the window closed early, and the moves were not measured.
+	# And for -Items: a drop and a lift inside the window for EVERY cycle sent
+	# (at least two), which puts the first cycle - the measured kind's first
+	# drop, -LongId's only lift into an ungrown buffer - inside it, and the
+	# put-back after it. Two of three is not enough: the tally restarts on the
+	# window's first armed frame, so a first cycle that beat it (a loaded machine)
+	# left exactly two of each, from the cycles that measure nothing. Fewer means
+	# that, a missed click or a window that closed early.
 	if ($Items) {
-		# The party window was parked for the run; put the layout back.
+		# The party window was parked for the run; put the layout back. -LongId
+		# first reads where the runes stand: an odd number of cycles leaves the
+		# measured rune on the warm one's slot and the warm one in the free slot,
+		# an even number leaves them as they began.
 		Send-Key 0xC0
 		Start-Sleep -Milliseconds 500
+		$runesOk = $true
+		if ($LongId) {
+			Send-Text 'logecho on'; Send-Key 0x0D
+			$slots = Get-PackSlots (Get-InventoryStatus) $member
+			Send-Text 'logecho off'; Send-Key 0x0D
+			$odd = $script:itemCycles % 2 -eq 1
+			$want = @{ $measureSlot = $(if ($odd) { '-' } else { $MeasureItem })
+				$warmSlot = $(if ($odd) { $MeasureItem } else { $WarmItem })
+				$freeSlot = $(if ($odd) { $WarmItem } else { '-' }) }
+			foreach ($k in $want.Keys) { if ($slots[$k] -ne $want[$k]) { $runesOk = $false } }
+			Write-Host "  after $($script:itemCycles) swap cycles, slots $measureSlot/$warmSlot/${freeSlot}: $($slots[$measureSlot]) / $($slots[$warmSlot]) / $($slots[$freeSlot])"
+		}
 		Send-Text 'hudpanel reset'; Send-Key 0x0D
 		Send-Key 0xC0
 		$drops = Get-LastTallyField 'drops'
 		$lifts = Get-LastTallyField 'lifts'
-		Write-Host "  floor drops / lifts inside the window: $drops / $lifts"
-		if (($drops -lt 2 -or $lifts -lt 2) -and $result -eq 'PASS') {
-			Write-Host 'fewer than two round trips inside the window - the item moves were not measured' -ForegroundColor Yellow
+		$cycles = $script:itemCycles
+		Write-Host "  floor drops / lifts inside the window: $drops / $lifts, for $cycles cycles sent$(if ($LongId) { " (all the $LongItem's)" })"
+		if ($cycles -lt 2 -and $result -eq 'PASS') {
+			Write-Host "only $cycles cycle(s) sent before the window closed - the item moves were not measured" -ForegroundColor Yellow
+			$result = 'UNMEASURED'
+		}
+		if (($drops -lt $cycles -or $lifts -lt $cycles) -and $result -eq 'PASS') {
+			Write-Host "fewer drops or lifts inside the window than the $cycles cycles sent - a click missed, or the first cycle (the one that measures) beat the window" -ForegroundColor Yellow
+			$result = 'UNMEASURED'
+		}
+		if (-not $runesOk -and $result -eq 'PASS') {
+			Write-Host 'the runes are not where the swap cycles leave them - a swap through the cursor was missed' -ForegroundColor Yellow
 			$result = 'UNMEASURED'
 		}
 	}
@@ -3573,6 +3783,9 @@ try {
 		}
 		'WALLS' {
 			Write-Host 'FAIL - after the lever, the walls on show are not what the map holds (see above)' -ForegroundColor Red
+		}
+		'HOOKS' {
+			Write-Host 'FAIL - the lifted quest token or the sets= lever did not write the world state (see above)' -ForegroundColor Red
 		}
 		default {
 			Write-Host "$result - the game never reached a steady frame" -ForegroundColor Yellow

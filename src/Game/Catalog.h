@@ -38,6 +38,9 @@ struct CatalogEntry {
 
 	// Human-readable name (the "display" field, falling back to the id).
 	std::string Display() const;
+	// The same as a VIEW of the entry's own text, for a guarded frame (a quest
+	// moving on as an item is lifted): Display() returns a copy.
+	std::string_view DisplayView() const;
 	std::string Get(std::string_view key, std::string_view fallback = {}) const {
 		return serialize::Get(fields, key, fallback);
 	}

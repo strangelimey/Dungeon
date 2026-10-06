@@ -442,8 +442,16 @@ private:
 	void WireWorldSettingsDialog();
 	// Puts the world state where a NEW GAME starts it: the world map's own start
 	// cell, revealed, nothing discovered, no time elapsed. A project with no
-	// world leaves it blank.
+	// world leaves it blank. Ends with ReserveWorldState.
 	void ResetWorldState();
+	// Gives the world state's lists room for every entry the catalogs can make
+	// (WorldState::Reserve, code-review C212): a quest per quests.cat entry and
+	// per item quest hook, a flag per flags.cat entry and per item flag hook, a
+	// place per world-map location and per item `reveals`, each string as long
+	// as the longest id or value among them. So a quest moving on, a place
+	// revealed or a flag set in play constructs nothing. After every new game
+	// and every load (a load takes the save's lists whole, spares and all gone).
+	void ReserveWorldState();
 	// One step on the world map. False when the target is off the grid or
 	// impassable — the caller says so rather than the move silently not
 	// happening. A successful step advances world time by the cost of the
@@ -458,7 +466,8 @@ private:
 	// has. Returns the hours it lasted (0 = it never started).
 	float Camp();
 	// An item has been LIFTED. Applies its quest/flag/reveal hooks — the two
-	// content hooks the design asked for, plus the flag escape hatch.
+	// content hooks the design asked for, plus the flag escape hatch. A lift is
+	// a guarded-frame event: this allocates nothing, a hook that fires included.
 	void OnItemFound(const std::string& itemId);
 	// Reveals a world cell and its eight neighbours, discovering any location
 	// standing on them.

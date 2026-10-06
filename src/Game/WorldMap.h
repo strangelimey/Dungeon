@@ -62,6 +62,63 @@ inline FlagOp FlagOpFromKey(std::string_view key) {
 		 : key == "toggles" ? FlagOp::Toggle : FlagOp::None;
 }
 
+// A LIST THAT TAKES A NEW ENTRY WITHOUT CONSTRUCTING ONE (code-review C212). The
+// world state changes in guarded frames - a lifted item moves a quest on or
+// reveals a place, a lever sets a flag - and a std::vector of strings cannot
+// take a new entry there without allocating: emplace_back constructs strings,
+// which the debug CRT allocates for at any length. So this keeps SPARE entries
+// past its live count, their strings built already and given room (Reserve,
+// sized from the catalogs at every new game and load - Game::ReserveWorldState),
+// and a new entry takes the next spare and assigns into it. Past the spares it
+// grows like a vector - something no catalog accounts for - and the allocation
+// guard reports that.
+//
+// It reads like the vector it replaced over its LIVE entries (size / empty /
+// range-for). A copy carries the spares but not their room (a save's copy needs
+// none; a load re-reserves the state it took).
+template <class T>
+class SpareList {
+public:
+	size_t size() const { return m_count; }
+	bool empty() const { return m_count == 0; }
+	T* begin() { return m_items.data(); }
+	T* end() { return m_items.data() + m_count; }
+	const T* begin() const { return m_items.data(); }
+	const T* end() const { return m_items.data() + m_count; }
+	// How many new entries it can still take without constructing one.
+	size_t Spare() const { return m_items.size() - m_count; }
+
+	// The next entry, emptied: a spare's strings when one is left.
+	T& Append() {
+		if (m_count == m_items.size()) m_items.emplace_back();
+		T& e = m_items[m_count++];
+		Empty(e);
+		return e;
+	}
+	// Room for `spare` new entries past the live ones, and every string - live
+	// ones too, whose values a later set may lengthen - able to hold `capacity`
+	// characters. Never shrinks anything.
+	void Reserve(size_t spare, size_t capacity) {
+		if (m_items.size() < m_count + spare) m_items.resize(m_count + spare);
+		for (T& e : m_items) Room(e, capacity);
+	}
+
+private:
+	static void Empty(std::string& s) { s.clear(); }
+	static void Empty(std::pair<std::string, std::string>& p) {
+		p.first.clear();
+		p.second.clear();
+	}
+	static void Room(std::string& s, size_t n) { s.reserve(n); }
+	static void Room(std::pair<std::string, std::string>& p, size_t n) {
+		p.first.reserve(n);
+		p.second.reserve(n);
+	}
+
+	std::vector<T> m_items; // [0, m_count) live, the rest spare (empty, with room)
+	size_t m_count = 0;
+};
+
 // The DYNAMIC half of the world — the save-side twin of the WorldMap below,
 // and the same split every level already makes: the map is authored and never
 // changes, this is everything play does to it.
@@ -97,7 +154,10 @@ struct WorldState {
 	// found map or clue reveals a location without revealing the ground around
 	// it, and exploring reveals ground without necessarily naming what is on it
 	// (docs/world-map.md "Discovery").
-	std::vector<std::string> discovered;
+	//
+	// This and the two lists below are SpareLists: each takes a new entry in a
+	// guarded frame without allocating, given room by Reserve.
+	SpareList<std::string> discovered;
 	// WHERE EACH QUEST HAS GOT TO: quest id -> the STAGE it is at, by NAME.
 	//
 	// By name and not by index, for the reason a level's palette taught the
@@ -108,28 +168,38 @@ struct WorldState {
 	//
 	// A quest absent from this list has not started. That is why there is no
 	// "not started" stage to author and forget.
-	std::vector<std::pair<std::string, std::string>> quests;
+	SpareList<std::pair<std::string, std::string>> quests;
 
 	// Global flags: anything true of the GAME rather than of a place, that is
 	// not a quest's progress — a rumour heard, a door bribed. Opaque key/value
 	// on purpose: the things that do not deserve a quest's structure should
 	// not have to pretend to it.
-	std::vector<std::pair<std::string, std::string>> flags;
+	SpareList<std::pair<std::string, std::string>> flags;
+
+	// THE SETTERS FIND FIRST and take views, so a set that changes nothing
+	// constructs nothing (a re-lift of a quest item, a lever pressed again); a
+	// change assigns into the entry's own strings, and only a NEW entry takes a
+	// spare (SpareList). Allocation-free in play once Reserve has given the
+	// lists room for what the catalogs can make.
+	//
+	// Room for `quests` / `flags` / `places` new entries and every string able
+	// to hold `capacity` characters (Game::ReserveWorldState sizes it).
+	void Reserve(size_t quests, size_t flags, size_t places, size_t capacity);
 
 	// The stage a quest has reached, or null when it has not started.
 	const std::string* QuestStage(std::string_view id) const;
 	// Puts a quest at a stage. False when it was already there — callers
 	// announce a step forward, and announcing it twice is the bug this stops.
-	bool SetQuestStage(std::string id, std::string stage);
+	bool SetQuestStage(std::string_view id, std::string_view stage);
 	// A global flag's value, or null. Absent and empty are different: a flag
 	// set to "" was set.
 	const std::string* Flag(std::string_view key) const;
-	bool SetFlag(std::string key, std::string value);
+	bool SetFlag(std::string_view key, std::string_view value);
 	// THE ON/OFF VIEW an authored flag (flags.cat) is read and written through.
 	// On = set to anything but "0" (so a hand-authored `flag = seal=broken` on an
 	// item reads as on); off = absent or "0". Switching one off WRITES "0" rather
-	// than erasing it, so a save shows it was touched. No allocation once a flag
-	// exists: the doors and buttons that call this are pressed in play.
+	// than erasing it, so a save shows it was touched. The doors and buttons that
+	// call this are pressed in play: the SetFlag rule above.
 	bool FlagOn(std::string_view key) const;
 	// False when it was already in that state (the SetFlag rule).
 	bool SetFlagOn(std::string_view key, bool on);
@@ -137,7 +207,7 @@ struct WorldState {
 	bool Discovered(std::string_view id) const;
 	// Marks a location known. Returns false when it already was — callers
 	// announce a discovery, and announcing it twice is the bug this prevents.
-	bool Discover(std::string id);
+	bool Discover(std::string_view id);
 	bool Seen(int cx, int cz) const;
 	// Reveals a cell. Returns false when it was already revealed.
 	bool MarkSeen(int cx, int cz);
