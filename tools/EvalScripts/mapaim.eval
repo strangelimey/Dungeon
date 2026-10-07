@@ -1,0 +1,17 @@
+; mapaim.eval - where mapview.eval's pointer goes (code-review C373 / C374).
+; Judged by tools/EditorTest.py phase 41, on its scratch world.
+;
+; The editor opened on the harness level at zoom 1: `editor view` gives the
+; map's rectangle in window pixels and `editor button level` the Level button's
+; centre. The judge aims mapview.eval's wheel near the map's far corner (where
+; the old zoom drifted most) and its click on that button, both from here, so
+; neither depends on the window's size.
+
+logecho on
+reset
+timescale 0
+editor
+echo --- aim ---
+editor view
+editor button level
+echo --- end ---

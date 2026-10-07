@@ -310,6 +310,9 @@ private:
 		float ox = 0.0f, oy = 0.0f;
 	};
 	Transform ComputeTransform(const gfx::Rect& panel) const;
+	// The wheel's zoom about a window point: the map point under (mx,my) stays
+	// under it, and a zoom already at its limit moves nothing (code-review C373).
+	void ZoomAt(float mx, float my, float wheel, const gfx::Rect& panel);
 	// Pixel → cell. Returns false when the point is outside the grid bounds.
 	bool CellAt(float px, float py, const gfx::Rect& panel, int& outX,
 				int& outZ) const;
@@ -363,6 +366,24 @@ public:
 	// The pixel at fraction (fx, fz) of square (x, z), in `panel`'s pixel space.
 	Vec2 CellPoint(int x, int z, float fx, float fz, const gfx::Rect& panel) const;
 
+
+	// The view's zoom (1..10) and pan (a share of the grid area), and the MAP
+	// POINT under a window pixel, in squares with the fraction (off the map
+	// too) - what `editor view` prints, so a harness can hold a wheel zoom to
+	// keeping the point under the pointer (code-review C373).
+	float Zoom() const { return m_zoom; }
+	Vec2 Pan() const { return m_pan; }
+	void MapPointAt(float px, float py, const gfx::Rect& panel, float& fx, float& fz) const;
+	// The hovered chrome button by its dev name ("none", "level", "save", ...)
+	// and the hovered square (-1,-1 = none) - Update's reading, cleared when a
+	// click opens a dialog or a frame draws with no Update (C374) - and where a
+	// toolbar button of that name sits (its centre, window pixels); false when
+	// no visible, enabled button has it.
+	std::string_view HoverName() const;
+	int HoverX() const { return m_hoverX; }
+	int HoverZ() const { return m_hoverZ; }
+	bool ButtonCentre(std::string_view name, const gfx::Rect& panel, float& x, float& y) const;
+
 private:
 	// The grid-drawing area within the panel: the whole panel in Player mode,
 	// the panel minus BOTH docks in Editor mode. The transform and CellAt work
@@ -406,16 +427,20 @@ private:
 	// selection rings, inside the grid's scissor.
 	void RenderIssueBoxes(gfx::SpriteBatch& batch, const gfx::Rect& panel) const;
 	// The hovered boxed square's findings, word-wrapped, placed like the hand
-	// slot tooltips (below the square, above when that would run off). Only on
-	// a frame Update ran - a modal dialog stops Update, and the hovered square
-	// it last saw is stale under the dialog.
+	// slot tooltips (below the square, above when that would run off).
 	void RenderIssueTooltip(gfx::SpriteBatch& batch, const ui::Theme& theme,
 							const gfx::Rect& panel);
 	// The Check disc's badge: how many findings have NO square (a level or the
 	// world as a whole), red when any is an error. Clicking Check lists them.
 	void RenderCheckBadge(gfx::SpriteBatch& batch, const gfx::Rect& disc) const;
 	const std::vector<validate::Issue>* m_issues = nullptr; // Game's cache, borrowed
-	bool m_updatedSinceRender = false; // see RenderIssueTooltip
+	// THE ONE "did Update run" FLAG (code-review C374). Every hover field is
+	// Update's reading of the live pointer; a modal dialog stops Update while
+	// Render goes on, so a Render with no Update before it calls ClearHover and
+	// nothing stays lit or tooltipped under the dialog. (The issue tooltip and
+	// the dock grips each kept their own flag for this, and the toolbar had none.)
+	bool m_updatedSinceRender = false;
+	void ClearHover();
 	gfx::Rect LeftCollapseButton(const gfx::Rect& panel) const;
 	gfx::Rect RightCollapseButton(const gfx::Rect& panel) const;
 	bool LegendCollapsed() const; // the right dock's collapse flag
@@ -450,7 +475,6 @@ private:
 	Dock m_gripHover = Dock::None; // the edge under the pointer
 	float m_rightScroll = 0.0f;    // the right dock's scroll (px)
 	int m_rightHover = -1;         // the hovered overview LINK (its line index)
-	bool m_dockUpdated = false;    // Update ran since the last Render (hover fresh)
 	std::vector<OverviewLine> m_overview; // this frame's lines (Update builds them)
 
 	// --- level browsing (both modes) -----------------------------------------

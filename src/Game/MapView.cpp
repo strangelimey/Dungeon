@@ -28,25 +28,13 @@
 #include <algorithm>
 #include <cmath>
 #include <format>
+#include <utility>
 #include <vector>
 
 namespace dungeon::game {
 
 namespace {
 constexpr float kPi = 3.14159265f;
-
-// Tints a base cell color by a surface variant index so painted texture types
-// read distinctly on the map. variant < 1 (unpainted, or the base palette slot)
-// keeps the base; higher indices add a stable hue so brick/stone/mossy differ.
-Vec4 VariantTint(const Vec4& base, int variant) {
-	if (variant < 1) return base;
-	static const Vec4 hue[] = {
-		{0.00f, 0.00f, 0.00f, 0.0f}, {0.10f, 0.22f, 0.06f, 0.0f},
-		{0.06f, 0.12f, 0.26f, 0.0f}, {0.26f, 0.10f, 0.06f, 0.0f}};
-	const Vec4& h = hue[static_cast<size_t>(variant) % 4];
-	const auto cl = [](float v) { return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v); };
-	return {cl(base.x + h.x), cl(base.y + h.y), cl(base.z + h.z), base.w};
-}
 
 // Font px at the design window height (re-baked to track the real height).
 constexpr float kFontH = 18.0f;
@@ -319,6 +307,26 @@ MapView::Transform MapView::ComputeTransform(const gfx::Rect& panel) const {
 	return {cell, ox, oy};
 }
 
+void MapView::ZoomAt(float mx, float my, float wheel, const gfx::Rect& panel) {
+	// BEFORE AND AFTER through ComputeTransform, the one statement of the fit
+	// (WorldMapView's way). The old inline copy left out the editor's edge-handle
+	// margin, so every step slid the point under the pointer ~5% of its distance
+	// from the centre, and it rewrote the pan even at a clamped zoom - a wheel
+	// past 1 or 10 kept sliding the map (code-review C373). A zoom that does not
+	// change leaves the pan exactly as it was.
+	const Transform before = ComputeTransform(panel);
+	const float was = m_zoom;
+	m_zoom = std::clamp(m_zoom * std::pow(1.2f, wheel), 1.0f, 10.0f);
+	if (m_zoom == was) return; // at a limit: not even a rounding error's worth of pan
+	const Transform after = ComputeTransform(panel);
+	if (before.cell <= 0.0f || after.cell <= 0.0f) return;
+	const gfx::Rect g = GridArea(panel);
+	const float fx = (mx - before.ox) / before.cell; // the map point at the pointer
+	const float fz = (my - before.oy) / before.cell;
+	m_pan.x += (mx - (after.ox + fx * after.cell)) / g.w;
+	m_pan.y += (my - (after.oy + fz * after.cell)) / g.h;
+}
+
 float MapView::EdgeBand(const gfx::Rect& panel) const {
 	const gfx::Rect g = GridArea(panel);
 	return std::max(8.0f, std::min(g.w, g.h) * 0.025f);
@@ -329,6 +337,53 @@ gfx::Rect MapView::MapRect(const gfx::Rect& panel) const {
 	const DungeonMap& map = ViewedMap();
 	return {t.ox, t.oy, static_cast<float>(map.Width()) * t.cell,
 			static_cast<float>(map.Height()) * t.cell};
+}
+
+void MapView::MapPointAt(float px, float py, const gfx::Rect& panel, float& fx,
+						 float& fz) const {
+	const Transform t = ComputeTransform(panel);
+	fx = (px - t.ox) / t.cell;
+	fz = (py - t.oy) / t.cell;
+}
+
+namespace {
+// The chrome buttons' dev names, in MapView::HoverBtn order (`editor view`'s
+// hover= and `editor button`).
+constexpr const char* kHoverNames[] = {
+	"none", "levelup", "leveldown", "undo", "redo", "save", "source", "balance",
+	"level", "check", "generate", "newlevel", "levelpick", "playpause", "collapsel",
+	"collapser", "showworld", "newworld", "close",
+	"paint", "rect", "flood", "area", "pick", "corridor", "room",
+	"stamp", "region", "filllevel"};
+} // namespace
+
+std::string_view MapView::HoverName() const {
+	static_assert(std::size(kHoverNames) == static_cast<size_t>(HoverBtn::FillLevel) + 1,
+				  "a dev name for every chrome button");
+	return kHoverNames[static_cast<size_t>(m_hoverBtn)];
+}
+
+bool MapView::ButtonCentre(std::string_view name, const gfx::Rect& panel, float& x,
+						   float& y) const {
+	for (const ToolButton& b : ToolbarButtons(panel))
+		if (b.visible && b.enabled && kHoverNames[static_cast<size_t>(b.id)] == name) {
+			x = b.rect.x + b.rect.w * 0.5f;
+			y = b.rect.y + b.rect.h * 0.5f;
+			return true;
+		}
+	return false;
+}
+
+void MapView::ClearHover() {
+	m_hoverBtn = HoverBtn::None;
+	m_levelsHover = -1;
+	m_hoverX = m_hoverZ = -1;
+	m_hoverFace = {};
+	m_hoverPlace = {};
+	m_gripHover = Dock::None;
+	m_rightHover = -1;
+	m_edgeHover = 0; // the edge handle's bar (m_edgeDrag is a drag, not a hover)
+	if (m_editor) m_editor->ClearHover();
 }
 
 int MapView::EdgeAt(float mx, float my, const gfx::Rect& panel) const {
@@ -538,7 +593,7 @@ bool MapView::Update(const Input& input, const gfx::Rect& panel) {
 		m_panning = false;
 		return false;
 	}
-	m_updatedSinceRender = true; // the hover below is this frame's (see RenderIssueTooltip)
+	m_updatedSinceRender = true; // the hover below is this frame's (see ClearHover)
 
 	// Keep the icon/label font sized to the panel (re-bakes only when the
 	// rounded height actually changes, i.e. on window resize — not on zoom).
@@ -616,17 +671,8 @@ bool MapView::Update(const Input& input, const gfx::Rect& panel) {
 			}
 
 	// Wheel zooms about the cursor: keep the map point under the pointer fixed.
-	if (overGrid && input.WheelDelta() != 0.0f && map.Width() > 0) {
-		const Transform t0 = ComputeTransform(panel);
-		const float fx = (mx - t0.ox) / t0.cell; // map point (in cells) at cursor
-		const float fz = (my - t0.oy) / t0.cell;
-		m_zoom = std::clamp(m_zoom * std::pow(1.2f, input.WheelDelta()), 1.0f, 10.0f);
-		const float fit = std::min(grid.w / map.Width(), grid.h / map.Height());
-		const float cell = fit * m_zoom;
-		const float gridW = map.Width() * cell, gridH = map.Height() * cell;
-		m_pan.x = (mx - fx * cell - grid.x - (grid.w - gridW) * 0.5f) / grid.w;
-		m_pan.y = (my - fz * cell - grid.y - (grid.h - gridH) * 0.5f) / grid.h;
-	}
+	if (overGrid && input.WheelDelta() != 0.0f && map.Width() > 0)
+		ZoomAt(mx, my, input.WheelDelta(), panel);
 
 	// Wheel over the expanded left palette dock scrolls its accordion (editor).
 	if (editor && m_editor && !m_settings.mapPaletteCollapsed &&
@@ -677,6 +723,7 @@ bool MapView::Update(const Input& input, const gfx::Rect& panel) {
 		// has an overworld). It claims the click so the grid under it never
 		// also pans.
 		if (ShowWorldButton() && WorldButton(panel).Contains(mx, my)) {
+			m_hoverBtn = HoverBtn::None; // another view replaces this one
 			onShowWorld();
 			return true;
 		}
@@ -706,6 +753,10 @@ bool MapView::Update(const Input& input, const gfx::Rect& panel) {
 			for (const ToolButton& b : ToolbarButtons(panel)) {
 				if (!b.visible || !b.rect.Contains(mx, my)) continue;
 				if (!b.enabled) return true;
+				// Drop the hover BEFORE firing (C374, WorldMapView's rule): a
+				// button that opens a dialog takes the input with it, Update stops
+				// running, and its lit face and tooltip hung under the dialog.
+				m_hoverBtn = HoverBtn::None;
 				switch (b.id) {
 				case HoverBtn::Save:          if (onSave) onSave(false); break;
 				case HoverBtn::SaveSource:    if (onSave) onSave(true); break;
@@ -919,6 +970,9 @@ static_assert(static_cast<u64>(generate::kMaxSide) * generate::kMaxSide *
 void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 					 const gfx::Rect& panel) {
 	if (!m_open) return;
+	// No Update since the last draw (a modal dialog stops it): every hover it
+	// read is stale, so none of it lights or tooltips anything (C374).
+	if (!std::exchange(m_updatedSinceRender, false)) ClearHover();
 
 	const DungeonMap& map = ViewedMap();
 	const Transform t = ComputeTransform(panel);
@@ -1076,9 +1130,12 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 				fillCells[static_cast<size_t>(v)].push_back(cellRect(x, z));
 				continue;
 			}
+			// Player mode: the flat inks, nothing else (code-review C376 - a tint
+			// read off the raw variant value coloured only squares pinned to a
+			// palette index, so it showed editing history, not what is drawn).
 			const Vec4 col = editor ? (solid ? kEditorWall : kEditorFloor)
-							 : solid ? VariantTint(kWall, map.WallVariant(x, z))
-									 : VariantTint(kFloor, map.FloorVariant(x, z));
+							 : solid ? kWall
+									 : kFloor;
 			batch.DrawRect(cellRect(x, z), col);
 		}
 	for (size_t v = 0; v < fillCells.size(); ++v)

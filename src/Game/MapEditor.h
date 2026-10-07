@@ -391,6 +391,13 @@ public:
 	// Hover tracking for the controls row (called per Update with the live
 	// mouse — render styles by identity across the window/device px split).
 	void TrackMouse(float mx, float my, const gfx::Rect& panel);
+	// ...and forgets it: MapView calls this when a frame draws with no Update
+	// before it (a modal dialog took the input), so nothing stays lit under it.
+	void ClearHover() {
+		m_hotBar = -2;
+		m_hotCtrl = HotCtrl::None;
+		m_hoverItem = {PaletteCat::Count, -1};
+	}
 	bool KeyboardCaptured() const { return m_filterFocused; }
 	void DropFilterFocus() { m_filterFocused = false; } // grid click steals focus
 

@@ -333,7 +333,6 @@ void MapView::BuildRightRows(const gfx::Rect& panel, std::vector<DockRow>& out,
 // --- input --------------------------------------------------------------------------------
 
 bool MapView::UpdateDocks(const Input& input, float mx, float my, const gfx::Rect& panel) {
-	m_dockUpdated = true;
 	// An edge drag in progress owns every frame until the release: the edge
 	// follows the pointer (less where it was grabbed), and the release saves.
 	if (m_dockDrag != Dock::None) {
@@ -500,12 +499,8 @@ void MapView::RenderRightDock(gfx::SpriteBatch& batch, const ui::Theme& theme,
 
 void MapView::RenderDockGrips(gfx::SpriteBatch& batch, const ui::Theme& theme,
 							  const gfx::Rect& panel) {
-	// No Update since the last draw (a modal dialog stops it): the hover this
-	// remembers is stale, so let it go - and the resize arrow with it.
-	if (!std::exchange(m_dockUpdated, false)) {
-		m_gripHover = Dock::None;
-		m_rightHover = -1;
-	}
+	// (A stale grip hover - and the resize arrow with it - is already gone:
+	// Render clears every hover when no Update ran, MapView::ClearHover.)
 	for (const Dock d : {Dock::Left, Dock::Right}) {
 		if (m_gripHover != d && m_dockDrag != d) continue;
 		const gfx::Rect g = DockGrip(d, panel);

@@ -2500,7 +2500,18 @@ MapView::CellVisible (always true in Editor, else IsSeen). The transform is
 resolution-independent (pan = fraction of the grid area, zoom = unitless,
 fit-whole-map at zoom 1) and resolves against GridArea, so Update (window-
 pixel panel, matches mouse coords) and Render (device-pixel panel) agree;
-zoom is cursor-anchored. CellAt is the inverse pick. The left-dock palette has a
+zoom is cursor-anchored - `MapView::ZoomAt` takes ComputeTransform before and
+after (the editor's fit leaves an edge-handle margin, which an inline copy of the
+fit once left out, so each notch slid the map; code-review C373) and a notch at
+the 1 or 10 limit moves nothing. EVERY HOVER FIELD is Update's reading of the
+pointer, and a Render with no Update before it (a modal dialog stops Update)
+clears them all (`MapView::ClearHover`, the one `m_updatedSinceRender` flag; a
+NEW hover field joins that list - the edge handle's bar was missed once); a
+toolbar click drops the hover before it fires (C374). Dev `editor view [at <px>
+<py>]` prints zoom, pan, hover and the map point under a pixel, `editor button
+<name>` where a toolbar button sits, and `pressmouse move|left|right|middle|wheel`
+drives the real mouse path (EditorTest phase 41, run WINDOWED: only a drawn
+frame can show the Render-path clear, under a dialog the console opened). CellAt is the inverse pick. The left-dock palette has a
 fixed CONTROLS ROW at the top of its body (above the scrolled accordion): a
 FILTER text box + [x] clear + [-] collapse-all. Clicking the box focuses it
 (typed chars land there and MapEditor::KeyboardCaptured gates the game's
@@ -3968,8 +3979,8 @@ Judged by `tools\EditorTest.py` (phase 12 onward).
   SetCursorShape (WM_SETCURSOR over the client area, a direct SetCursor while a
   drag holds capture), set ONCE per frame in Game::Update from
   MapView::WantsResizeCursor. A dock's hover is only trusted on a frame Update
-  ran (m_dockUpdated, the RenderIssueTooltip rule), or a modal dialog would
-  leave the arrow stuck.
+  ran (MapView::ClearHover, which a Render with no Update before it calls), or
+  a modal dialog would leave the arrow stuck.
 - THE OVERVIEW (right dock, above the KEY; both are collapsible sections, and
   the dock scrolls): World / Dungeon / Level, summing DungeonWorld::Census -
   one row per project level, walked like Validate (live / stash / read-only,

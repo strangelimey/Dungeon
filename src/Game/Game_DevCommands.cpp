@@ -298,7 +298,8 @@ void Game::RegisterDevCommands() {
 								  "overview follow <key> [world|dungeon|level]\n"
 								  "disarm\n"
 								  "pause [on|off]\n"
-								  "view\n"
+								  "view [at <px> <py>]\n"
+								  "button <name>\n"
 								  "issues\n"
 								  "rev",
 						.summary = "open the map editor, or drive its brushes and gestures"},
@@ -348,16 +349,54 @@ void Game::RegisterDevCommands() {
 						   }
 						   // The edge drag: the new window in the viewed level's
 						   // current squares (x1/z1 exclusive), as one undo step.
+						   // Then the view itself (C373 / C374, appended): zoom, pan,
+						   // the hovered chrome button and square - and with `at
+						   // <px> <py>`, the map point under that window pixel, in
+						   // squares, which a wheel zoom there must keep.
 						   if (!args.empty() && args[0] == "view") {
+							   if (args.size() != 1 && (args.size() != 4 || args[1] != "at")) {
+								   m_console.RefuseUsage();
+								   return;
+							   }
 							   const gfx::Rect panel =
 								   MapPanel(static_cast<float>(m_window.Width()),
 											static_cast<float>(m_window.Height()));
 							   const gfx::Rect r = m_mapView.MapRect(panel);
 							   const DungeonMap& vm = m_mapView.ViewedMap();
-							   m_console.Print(std::format(
-								   "editor view: {} {}x{} map {:.0f},{:.0f} {:.0f}x{:.0f} band {:.0f}",
+							   std::string line = std::format(
+								   "editor view: {} {}x{} map {:.0f},{:.0f} {:.0f}x{:.0f} band {:.0f} "
+								   "zoom={:.4f} pan={:.6f},{:.6f} hover={} cell={},{}",
 								   m_mapView.ViewedLevel(), vm.Width(), vm.Height(), r.x, r.y,
-								   r.w, r.h, m_mapView.HandleBand(panel)));
+								   r.w, r.h, m_mapView.HandleBand(panel), m_mapView.Zoom(),
+								   m_mapView.Pan().x, m_mapView.Pan().y, m_mapView.HoverName(),
+								   m_mapView.HoverX(), m_mapView.HoverZ());
+							   if (args.size() == 4) {
+								   float fx = 0.0f, fz = 0.0f;
+								   m_mapView.MapPointAt(std::strtof(args[2].c_str(), nullptr),
+														std::strtof(args[3].c_str(), nullptr), panel,
+														fx, fz);
+								   line += std::format(" at={:.4f},{:.4f}", fx, fz);
+							   }
+							   m_console.Print(line);
+							   return;
+						   }
+						   // Where a toolbar or tool-strip button sits, by its dev
+						   // name (the hover= names), for a harness's pointer.
+						   if (!args.empty() && args[0] == "button") {
+							   if (!Need(m_console, args, 2)) return;
+							   const gfx::Rect panel =
+								   MapPanel(static_cast<float>(m_window.Width()),
+											static_cast<float>(m_window.Height()));
+							   float x = 0.0f, y = 0.0f;
+							   if (!m_mapView.IsOpen() ||
+								   m_mapView.CurrentMode() != MapView::Mode::Editor ||
+								   !m_mapView.ButtonCentre(args[1], panel, x, y)) {
+								   m_console.Refuse(std::format(
+									   "editor button: no '{}' on the editor's toolbar", args[1]));
+								   return;
+							   }
+							   m_console.Print(std::format("editor button {} at {:.0f} {:.0f}", args[1],
+														   x, y));
 							   return;
 						   }
 						   if (!args.empty() && args[0] == "resize") {

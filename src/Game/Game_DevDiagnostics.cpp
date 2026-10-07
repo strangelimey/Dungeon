@@ -200,6 +200,54 @@ void Game::RegisterDiagnosticCommands() {
 			input.OnKey(key, false);
 			m_console.Print("presskey: " + name);
 		});
+	// ...and the MOUSE, the same way: the pointer put at a window pixel (client
+	// coordinates, what WM_MOUSEMOVE carries), then a click (press and release
+	// in this frame) or a wheel of whole notches - so the frame's own Update
+	// hit-tests it, hovers it and acts on it. What a toolbar click leaves lit
+	// under the dialog it opens, or where a wheel zoom keeps the point under the
+	// pointer (code-review C373 / C374), is only seen through that path.
+	m_console.Register(
+		{.name = "pressmouse",
+		 .group = CmdGroup::Diagnostics,
+		 .params = "move <x> <y>\n"
+				   "left|right|middle <x> <y>\n"
+				   "wheel <x> <y> <notches>",
+		 .summary = "move the pointer, click or wheel this frame, as the mouse would"},
+		[this](const std::vector<std::string>& args) {
+			const bool wheel = !args.empty() && args[0] == "wheel";
+			if (args.size() != (wheel ? 4u : 3u)) {
+				m_console.RefuseUsage();
+				return;
+			}
+			const std::string& what = args[0];
+			const bool click = what == "left" || what == "right" || what == "middle";
+			if (!click && !wheel && what != "move") {
+				m_console.RefuseUsage();
+				return;
+			}
+			char* end = nullptr;
+			const float x = std::strtof(args[1].c_str(), &end);
+			const bool xOk = end && *end == '\0';
+			const float y = std::strtof(args[2].c_str(), &end);
+			const bool yOk = end && *end == '\0';
+			const float notches = wheel ? std::strtof(args[3].c_str(), &end) : 0.0f;
+			if (!xOk || !yOk || (wheel && (!end || *end != '\0' || notches == 0.0f))) {
+				m_console.RefuseUsage();
+				return;
+			}
+			Input& input = m_window.GetInput();
+			input.OnMouseMove(x, y);
+			if (click) {
+				const MouseButton b = what == "left"	? MouseButton::Left
+									  : what == "right" ? MouseButton::Right
+														: MouseButton::Middle;
+				input.OnMouseButton(b, true);
+				input.OnMouseButton(b, false);
+			}
+			if (wheel) input.OnWheel(notches);
+			m_console.Print(std::format("pressmouse: {} {} {}{}", what, args[1], args[2],
+										wheel ? " " + args[3] : std::string()));
+		});
 	// --- the one-pipeline check (Game/DamageLedger.h, docs/effects.md) --------
 	// The same three-command shape the allocation guard uses, for the same
 	// reason: a readout, an arming switch, and a way to make it FAIL on purpose.

@@ -1,0 +1,70 @@
+; mapview.eval - the editor map's wheel zoom and its toolbar hover (code-review
+; C373, C374). Judged by tools/EditorTest.py phase 41, on its scratch world,
+; with the pointer's pixels put in from mapaim.eval: ET_ZX ET_ZY near the map's
+; far corner, ET_LX ET_LY the Level button's centre.
+;
+; Every pointer here is the MOUSE (`pressmouse`): put at a window pixel, then
+; wheeled or clicked in the frame after the line, so the editor's own Update
+; hit-tests and acts on it - not a handler called by name.
+;
+;   --- zoom ---   one baseline at zoom 1, then a notch OUT there (already at
+;                  the limit), notches in (1, 1, 3), twenty more (clamped at
+;                  10), one more at 10, and thirty out (back to 1). Each
+;                  `editor view at` names the map point under the pointer,
+;                  which every zoom must keep; the two at a limit must not move
+;                  the pan at all (the old inline zoom left out the editor's
+;                  edge-handle margin, so each notch slid the point away from the
+;                  pointer, and a notch at a limit still rewrote the pan).
+;   --- hover ---  the pointer over the Level button lights it (hover=level,
+;                  the control), then a click there opens Level settings - and
+;                  under the dialog, with the editor's Update stopped, nothing
+;                  is left hovered (it stayed lit, its tooltip under the dim).
+;                  Esc closes the dialog.
+;   --- modal ---  the pointer over a square hovers it (cell=x,z, the
+;                  control), then Level settings opens by the CONSOLE - a path
+;                  with no click site to clear anything - and two frames later
+;                  the square is no longer hovered: a Render with no Update
+;                  before it dropped every hover (MapView::ClearHover). Only a
+;                  frame that DRAWS can show it, so the judge runs this script
+;                  with its window; headless, the square stays hovered.
+
+logecho on
+reset
+timescale 0
+editor
+echo --- zoom ---
+pressmouse move ET_ZX ET_ZY
+editor view at ET_ZX ET_ZY
+pressmouse wheel ET_ZX ET_ZY -1
+editor view at ET_ZX ET_ZY
+pressmouse wheel ET_ZX ET_ZY 1
+editor view at ET_ZX ET_ZY
+pressmouse wheel ET_ZX ET_ZY 1
+editor view at ET_ZX ET_ZY
+pressmouse wheel ET_ZX ET_ZY 3
+editor view at ET_ZX ET_ZY
+pressmouse wheel ET_ZX ET_ZY 20
+editor view at ET_ZX ET_ZY
+pressmouse wheel ET_ZX ET_ZY 1
+editor view at ET_ZX ET_ZY
+pressmouse wheel ET_ZX ET_ZY -30
+editor view at ET_ZX ET_ZY
+echo --- hover ---
+pressmouse move ET_LX ET_LY
+editor view
+pressmouse left ET_LX ET_LY
+editor levelsettings status
+editor view
+presskey esc
+editor levelsettings status
+echo --- modal ---
+pressmouse move ET_ZX ET_ZY
+editor view
+editor levelsettings open
+echo (a frame drawn under the dialog)
+echo (and another)
+editor view
+editor levelsettings status
+presskey esc
+editor levelsettings status
+echo --- end ---

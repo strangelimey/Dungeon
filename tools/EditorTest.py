@@ -305,6 +305,17 @@
 #      console is followed there - an exit's question goes up and holds the
 #      world, a stair down lands the party on crypt2 with the console still up
 #      (the console used to leave either latched).
+#  41. THE EDITOR MAP'S WHEEL AND TOOLBAR (code-review C373, C374), by the mouse
+#      (`pressmouse`, aimed from mapaim.eval's readings): a wheel zoom near the
+#      map's far corner keeps the map point under the pointer at every notch in
+#      and out (it slid ~5% of its distance from the centre each notch - the
+#      inline zoom left out the edge-handle margin), and a notch at zoom 1 or 10
+#      leaves the pan exactly as it was (it kept sliding the map); a click on the
+#      Level button opens Level settings with nothing left hovered under it (the
+#      button stayed lit, its tooltip under the dialog's dim), and under the
+#      same dialog opened by the CONSOLE a drawn frame leaves no square hovered
+#      (the Render-path ClearHover; run WITH the window, which a headless run
+#      never draws).
 #  50. A MODEL LOADS AS .gltf OR .glb (code-review C301): a weapon made from a
 #      model installed only as .gltf (an item's loader opened .glb) and a
 #      decoration from one only as .glb (a decoration's opened .gltf; no other
@@ -4453,6 +4464,111 @@ finally:
         io.open(SETTINGS, "wb").write(settings_before)
     elif os.path.isfile(SETTINGS):
         os.remove(SETTINGS)
+
+
+# --- phase 41: the editor map's wheel zoom and toolbar hover ---------------------
+print("41 - a wheel zoom keeps the point under the pointer, and a toolbar click leaves nothing lit")
+VIEWAT = re.compile(r"^editor view: \S+ \d+x\d+ map (-?\d+),(-?\d+) (\d+)x(\d+) band \d+ "
+                    r"zoom=([\d.]+) pan=(-?[\d.]+),(-?[\d.]+) hover=(\S+) cell=(-?\d+),(-?\d+)"
+                    r"(?: at=(-?[\d.]+),(-?[\d.]+))?$")
+BUTTON = re.compile(r"^editor button level at (-?\d+) (-?\d+)$")
+
+
+def views(lines):
+    """Every `editor view` reading in a section, as a dict."""
+    out = []
+    for m in map(VIEWAT.match, lines):
+        if m:
+            g = m.groups()
+            out.append({"map": tuple(int(v) for v in g[0:4]), "zoom": float(g[4]),
+                        "pan": (float(g[5]), float(g[6])), "hover": g[7],
+                        "cell": (int(g[8]), int(g[9])),
+                        "at": (float(g[10]), float(g[11])) if g[10] is not None else None})
+    return out
+
+
+fresh()
+try:
+    # Where to point, read off the game: the map's rectangle at zoom 1 and the
+    # Level button, so nothing here depends on the window's size. Both scripts
+    # run WITH THEIR WINDOW: the modal section's hover is dropped by a Render
+    # with no Update before it, and a headless run renders nothing.
+    log = run("mapaim.eval", headless=False)
+    check(passed(log), "the aiming script ran clean")
+    sec = console_sections(log)
+    v = views(sec.get("aim", []))
+    b = [m for m in map(BUTTON.match, sec.get("aim", [])) if m]
+    if len(v) != 1 or len(b) != 1:
+        check(False, "the map's rectangle and the Level button, read", str(sec.get("aim")))
+    else:
+        mx, my, mw, mh = v[0]["map"]
+        # Near the FAR corner, where the old zoom drifted most (it slid the point
+        # ~5% of its distance from the map's centre each notch).
+        zx, zy = mx + int(mw * 0.85), my + int(mh * 0.85)
+        lx, ly = b[0].groups()
+        log = run("mapview.eval", headless=False,
+                  words={"ET_ZX": str(zx), "ET_ZY": str(zy), "ET_LX": lx, "ET_LY": ly})
+        check(passed(log), "the script ran clean")
+        sec = console_sections(log)
+        check("end" in sec, "the script ran to its end")
+
+        z = views(sec.get("zoom", []))
+        if len(z) != 8 or any(r["at"] is None for r in z):
+            check(False, "eight readings of the map point under the pointer", str(z))
+        else:
+            zooms = [r["zoom"] for r in z]
+            check(zooms[0] == 1.0 and zooms[1] == 1.0 and 1.0 < zooms[2] < zooms[3] < zooms[4] < 10.0
+                  and zooms[5] == zooms[6] == 10.0 and zooms[7] == 1.0,
+                  "THE CONTROL: the wheel zoomed - 1, out at 1, in by notches, clamped at 10, back to 1",
+                  str(zooms))
+            a0 = z[0]["at"]
+            check(0.0 < a0[0] and 0.0 < a0[1], "THE CONTROL: the pointer is over the map", str(a0))
+            drift = max(max(abs(r["at"][0] - a0[0]), abs(r["at"][1] - a0[1])) for r in z)
+            check(drift < 0.005,
+                  "every zoom kept the map point under the pointer (it slid away each notch)",
+                  f"worst {drift:.4f} squares: " + " ".join(f"{r['at'][0]:.3f},{r['at'][1]:.3f}" for r in z))
+            check(z[1]["pan"] == z[0]["pan"],
+                  "a notch out at zoom 1 left the pan as it was (it pushed the map off-centre)",
+                  f"{z[0]['pan']} -> {z[1]['pan']}")
+            check(z[6]["pan"] == z[5]["pan"],
+                  "a notch in at zoom 10 left the pan as it was (it kept sliding the map)",
+                  f"{z[5]['pan']} -> {z[6]['pan']}")
+
+        h = views(sec.get("hover", []))
+        ls = [l for l in sec.get("hover", []) if l.startswith("editor levelsettings: ")]
+        if len(h) != 2 or len(ls) != 2:
+            check(False, "two hover readings and two dialog readings", str(sec.get("hover")))
+        else:
+            check(h[0]["hover"] == "level", "THE CONTROL: the pointer over the Level button lights it",
+                  h[0]["hover"])
+            check(ls[0].startswith("editor levelsettings: open") and ls[1] == "editor levelsettings: closed",
+                  "THE CONTROL: the click opened Level settings, and Esc closed it", str(ls))
+            check(h[1]["hover"] == "none" and h[1]["cell"] == (-1, -1),
+                  "under the dialog the click opened, nothing is hovered (the button stayed lit, "
+                  "its tooltip under the dim)", f"hover={h[1]['hover']} cell={h[1]['cell']}")
+
+        # A dialog opened by the CONSOLE has no click site to clear the hover:
+        # only the Render-path rule (a Render with no Update before it calls
+        # ClearHover) can drop the square under the pointer.
+        m = views(sec.get("modal", []))
+        ms = [l for l in sec.get("modal", []) if l.startswith("editor levelsettings: ")]
+        # Three dialog readings: the `open` itself, the status under it, and the
+        # status after Esc.
+        if len(m) != 2 or len(ms) != 3:
+            check(False, "two hover readings and three dialog readings round the console's open",
+                  str(sec.get("modal")))
+        else:
+            check(m[0]["cell"] != (-1, -1), "THE CONTROL: the pointer over the map hovers a square",
+                  f"cell={m[0]['cell']}")
+            check(all(l.startswith("editor levelsettings: open") for l in ms[:2])
+                  and ms[2] == "editor levelsettings: closed",
+                  "THE CONTROL: the console opened Level settings, it stayed open, and Esc closed it",
+                  str(ms))
+            check(m[1]["cell"] == (-1, -1) and m[1]["hover"] == "none",
+                  "under a dialog the console opened, a drawn frame left no square hovered "
+                  "(the Render-path ClearHover)", f"hover={m[1]['hover']} cell={m[1]['cell']}")
+finally:
+    drop()
 
 
 # --- phase 50: a model loads under whichever extension is installed --------------

@@ -85,8 +85,8 @@ void MapView::RenderIssueBoxes(gfx::SpriteBatch& batch, const gfx::Rect& panel) 
 
 void MapView::RenderIssueTooltip(gfx::SpriteBatch& batch, const ui::Theme& theme,
 								 const gfx::Rect& panel) {
-	const bool fresh = std::exchange(m_updatedSinceRender, false);
-	if (!fresh || m_mode != Mode::Editor || m_hoverX < 0 || !m_issues) return;
+	// (A stale hover is already gone: Render clears it when no Update ran.)
+	if (m_mode != Mode::Editor || m_hoverX < 0 || !m_issues) return;
 	std::vector<const Issue*> here;
 	IssuesAt(m_hoverX, m_hoverZ, here);
 	if (here.empty()) return;
