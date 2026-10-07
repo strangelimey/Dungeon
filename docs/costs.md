@@ -133,7 +133,11 @@ Hard to attribute per-project precisely; record known bills/top-ups here.
 
 | period | service | amount | notes |
 |---|---|---|---|
-| — | Claude Code (Claude / Anthropic) | ? | _fill from billing; the project is built collaboratively with Claude_ |
+| — | Claude Code (Claude / Anthropic) | Max plan, ? / month | _fill from billing; the project is built collaboratively with Claude_ |
+| ~2026-10-05 | Claude extra usage (credit) | **$196.48** | bought when the Max plan's weekly limit ran out during the code review (the code-review branch, docs/code-review-plan.md) |
+| 2026-10-07 | Claude extra usage (credit) | **$250.00** | code review, phase 0's last batches |
+| 2026-10-07 | Claude extra usage (credit) | ? | a further top-up the same day; amount not yet recorded |
+| 2026-10-07 | Claude extra usage, meter | **$505.44 used** | the usage page's extra-usage total for the period, all of it the code review. Extra usage bills at API rates (Opus 5.5: $4 / $20 per M in / out, $0.20 cached read); a lane batch (implement, two reviews, fix) averaged ~$28. The weekly allowance resets 2026-10-11 |
 | 2026-10-02 | Grok (xAI) | **$30/month** subscription | image generation: the title art (`assets/ui/title_bg.png`). Recurring, and not bought for this project alone |
 
 ---
@@ -150,16 +154,18 @@ One-off or recurring software bought for the project.
 
 ---
 
-## Totals (as of 2026-10-02)
+## Totals (as of 2026-10-07)
 - **Asset purchases:** textures.com **$39.00** (5,000-credit bundle; 3,425 left,
   ~$26.71 prepaid headroom); fab.com **$87.43 charged** (all five orders, tax
   incl.: Fantasy Assassin $2.18 + skeleton $7.65 + crawlers $16.39 + Skeleton
   Army Kit $21.87 + fixtures/torches $39.34; the CC-BY freebies cost $0);
   itch.io **$24.68** (Medieval RPG UI kit $2.70 + Wenrexa UI $3.99 + Magory
   portraits $7.99 + Corax portraits $10.00); other $0.
-- **AI / API:** Grok **$30/month** (recurring, not counted in the one-off
-  total below); Claude usage not yet recorded.
+- **AI / API:** Grok **$30/month** and the Claude Max plan (both recurring, not
+  counted in the one-off total below); Claude extra-usage credit **$446.48**
+  recorded ($196.48 + $250.00) plus a further top-up of unrecorded amount; the
+  meter reads $505.44 used.
 - **Dev tools / licenses:** $0 (all free so far).
-- **Cash out of pocket so far:** **$151.11** ($39.00 textures.com + $87.43
-  fab.com + $24.68 itch.io; fab amounts are actual charges from the Epic
-  purchases page).
+- **Cash out of pocket so far:** at least **$597.59** ($39.00 textures.com +
+  $87.43 fab.com + $24.68 itch.io + $446.48 Claude credit; fab amounts are
+  actual charges from the Epic purchases page), plus the unrecorded top-up.
