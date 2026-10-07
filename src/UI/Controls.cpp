@@ -426,8 +426,8 @@ void Button::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	// the rise are both seen, not just a flip between two faces.
 	const float depth = Depth();
 	const float sink = depth * std::max(1.0f, TextFont().Height() * 0.08f);
-	static const std::string kNoLabel;
-	DrawButtonFace(batch, TextFont(), px, faceIcon ? kNoLabel : text, ctx.GetTheme(),
+	DrawButtonFace(batch, TextFont(), px, faceIcon ? std::string_view{} : std::string_view{text},
+				   ctx.GetTheme(),
 				   m_hot && enabled, depth >= 0.5f || active, enabled, ctx.GetSkin(), sink);
 	if (faceIcon) {
 		// The icon in the label's place, in the label's colour, sinking with it.
@@ -467,7 +467,7 @@ gfx::Rect Button::InkRect() const {
 
 void DrawButtonFace(gfx::SpriteBatch& batch, const Font& font,
 					const gfx::Rect& rect,
-					const std::string& label, const Theme& theme, bool hot,
+					std::string_view label, const Theme& theme, bool hot,
 					bool held, bool enabled, const Skin* skin, float sink) {
 	if (skin && skin->button.texture) {
 		// Disabled dims the stone (the bevel keeps its edges); held sinks the
@@ -495,6 +495,34 @@ void DrawButtonFace(gfx::SpriteBatch& batch, const Font& font,
 	font.Draw(batch, label, rect.x + (rect.w - textW) * 0.5f,
 			  rect.y + (rect.h - font.Height()) * 0.5f + sink,
 			  enabled ? theme.text : theme.textDim);
+}
+
+FittedFace DrawFittedButtonFace(gfx::SpriteBatch& batch, const Font& font,
+								const gfx::Rect& rect, std::string_view label, float room,
+								const Theme& theme, bool hot, bool held, bool enabled,
+								const Skin* skin) {
+	// The face with no label, then the fitted label centred where
+	// DrawButtonFace would have put the whole one.
+	DrawButtonFace(batch, font, rect, {}, theme, hot, held, enabled, skin);
+	bool trimmed = false;
+	const std::string_view fit = FitText(font, label, room, &trimmed);
+	const float mark = trimmed ? font.MeasureWidth(kTrimMark) : 0.0f;
+	const float fitW = font.MeasureWidth(fit);
+	const float x = rect.x + (rect.w - (fitW + mark)) * 0.5f;
+	const float y = rect.y + (rect.h - font.Height()) * 0.5f;
+	const Vec4& ink = enabled ? theme.text : theme.textDim;
+	// What is painted is what is returned: a report quotes these very views.
+	FittedFace drawn;
+	if (trimmed) drawn.cut = std::max(0.0f, font.MeasureWidth(label) - room);
+	if (!trimmed || mark <= room) { // not even ".." fits: paint nothing (DrawFittedText's rule)
+		font.Draw(batch, fit, x, y, ink);
+		drawn.text = fit;
+		if (trimmed) {
+			font.Draw(batch, kTrimMark, x + fitW, y, ink);
+			drawn.mark = kTrimMark;
+		}
+	}
+	return drawn;
 }
 
 // --- Checkbox ------------------------------------------------------------
@@ -970,15 +998,12 @@ void DropDown::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	DrawDropDownExpander(batch, font, px, theme, m_open, m_hot);
 }
 
-const std::string& DropDown::Current() const {
-	// The empty case is a named string, NOT a "" literal: a ternary mixing
-	// std::string with const char* has common type std::string, so binding the
-	// reference COPIED the selected item — a heap allocation per dropdown per
-	// frame, in a draw path (found by the steady-state allocation guard).
-	static const std::string kNoSelection;
-	return (m_selected >= 0 && m_selected < static_cast<int>(items.size()))
-			   ? items[static_cast<size_t>(m_selected)]
-			   : kNoSelection;
+std::string_view DropDown::Current() const {
+	// A VIEW, so the empty case needs no named empty string (code-review C224):
+	// returning `const std::string&` from a ternary with a "" literal COPIED the
+	// selected item, a heap allocation per dropdown per frame in a draw path.
+	if (m_selected < 0 || m_selected >= static_cast<int>(items.size())) return {};
+	return items[static_cast<size_t>(m_selected)];
 }
 
 float DropDown::TextX() const { return Pixel().x + Rem(0.4f) + IconLead(Pixel().h); }

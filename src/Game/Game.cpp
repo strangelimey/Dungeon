@@ -1950,6 +1950,7 @@ void Game::UpdateAllocTest(float dt, bool steady) {
 			if (h.frozenHeld) h.frozen = h.frozenHeld = false;
 			MoveAction last{};
 			m_allocTestActsAt = m_world->GetParty().ActCount(last);
+			m_allocTestChainsAt = ui::inspect::ArmedChainDraws();
 			for (size_t i = 0; i < m_characters.size() && i < m_allocTestFxAt.size(); ++i)
 				m_allocTestFxAt[i] = m_allocTestFxPeak[i] = m_characters[i].effects.size();
 		}
@@ -1992,6 +1993,9 @@ void Game::UpdateAllocTest(float dt, bool steady) {
 	// displays= is the display list's re-reads in measured frames: -DisplayChange's
 	// proof that a WM_DISPLAYCHANGE's re-read and page rebuild were checked
 	// (code-review batch 69).
+	// uitree= is the `uitree` breadcrumbs built in armed frames of the window
+	// (ui::inspect::ArmedChainDraws): -UiTree's proof that the overlay's
+	// formatting ran where the guard was watching (code-review C223).
 	MoveAction lastMove{};
 	const unsigned moves =
 		m_world ? m_world->GetParty().ActCount(lastMove) - m_allocTestActsAt : 0u;
@@ -2001,12 +2005,13 @@ void Game::UpdateAllocTest(float dt, bool steady) {
 	const std::string line =
 		std::format("alloctest RESULT={} frames={} violations={} violating_frames={} "
 					"transitions={} moves={} prompts={} helps={} falls={} levers={} niches={} "
-					"spellrows={},{} effectsrose={} displays={}{}",
+					"spellrows={},{} effectsrose={} displays={} uitree={}{}",
 					timedOut ? "SKIP" : (violations == 0 ? "PASS" : "FAIL"),
 					m_allocTestFrames, violations, badFrames, m_allocTestTransitions, moves,
 					m_allocTestPrompts, m_allocTestHelps, m_allocTestFalls, m_allocTestLevers,
 					m_allocTestNiches, m_allocTestSheetSpells, m_allocTestCardSpells,
 					rose.empty() ? "-" : rose, m_allocTestDisplays,
+					m_allocTestFrames ? ui::inspect::ArmedChainDraws() - m_allocTestChainsAt : 0,
 					timedOut ? " reason=never_reached_a_steady_frame" : "");
 	log::Info("{}", line);
 	m_console.Print(line);

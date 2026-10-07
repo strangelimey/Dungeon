@@ -712,7 +712,10 @@ try:
     check(len(views) == 6, f"the script reported the view six times (got {len(views)})",
           " | ".join(views))
     if len(views) == 6:
-        check(views[0] == "world view: map page, mode editor, editing no, toolbar 0, fog on",
+        # (`words off, trimmed 0` were appended by code-review batch 43: the
+        # word-face switch is off, so no face is drawn as a word to cut.)
+        check(views[0] == "world view: map page, mode editor, editing no, toolbar 0, fog on, "
+              "words off, trimmed 0",
               "in a dungeon the map's world page stays play in Editor mode: no toolbar, "
               "the fog on", views[0])
         check(views[1] == "worldview click 7,6 left: road -> road, stroke none, dialogs none",
@@ -721,7 +724,7 @@ try:
               views[2].endswith("dialogs none"),
               "and a right-click on a doorway there opens no dialog", views[2])
         check(views[3] == "world view: travel screen, mode editor, editing yes, toolbar 6, "
-              "fog off",
+              "fog off, words off, trimmed 0",
               "the control: the travel screen in the same mode is the editor", views[3])
         check(views[4] == "worldview click 7,6 left: road -> moor, stroke open, dialogs none",
               "...where the same left click paints, its stroke left for the state to close",

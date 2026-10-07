@@ -378,8 +378,8 @@ protected:
 	void LayoutSelf(UIContext& ctx) override;
 
 private:
-	// The selected item's text ("" for none), a reference into `items`.
-	const std::string& Current() const;
+	// The selected item's text ("" for none), a view into `items`.
+	std::string_view Current() const;
 	// An open-list row's height: the face's, or iconRowScale x it with icons.
 	float RowH() const;
 	// The picture's square in a row `rowH` tall, and how far it pushes the text
@@ -1102,11 +1102,33 @@ gfx::Rect DrawFieldFace(const UIContext& ctx, gfx::SpriteBatch& batch, const gfx
 // so state still reads through the user's theme. Null skin = the flat look
 // (kept as debug mode); hand-drawn chrome callers pass their owner's skin.
 // `sink` (px) lowers the label, for a face caught mid-push (Button's animation).
+// The label is a VIEW, as Font::Draw's is: a caller passing a literal, a
+// loc::View or nothing builds no string (code-review C224 - a `const
+// std::string&` here made every "" and every loc::Tr a heap string a frame).
 void DrawButtonFace(gfx::SpriteBatch& batch, const Font& font,
 					const gfx::Rect& rect,
-					const std::string& label, const Theme& theme, bool hot,
+					std::string_view label, const Theme& theme, bool hot,
 					bool held = false, bool enabled = true,
 					const Skin* skin = nullptr, float sink = 0.0f);
+// The same face with its label FITTED to `room` px (FitText: the longest
+// prefix that leaves room for the ".." mark, cut at a whole UTF-8 character,
+// centred with the mark). For hand-drawn chrome whose label is written for a
+// tooltip and may not fit its face. Allocation-free. It returns what it
+// PAINTED, so an owner reporting a cut to the overlap audit
+// (inspect::NoteChromeTrim) quotes the face itself, never a second fit of its
+// own: `text` is the prefix drawn (the whole label when nothing was cut, empty
+// when not even the mark fitted), `mark` the trim mark drawn after it (empty
+// when none was), `cut` how far the whole label overran `room` (0 = whole).
+// Both views point into `label` / kTrimMark.
+struct FittedFace {
+	float cut = 0.0f;
+	std::string_view text;
+	std::string_view mark;
+};
+FittedFace DrawFittedButtonFace(gfx::SpriteBatch& batch, const Font& font,
+								const gfx::Rect& rect, std::string_view label, float room,
+								const Theme& theme, bool hot, bool held = false,
+								bool enabled = true, const Skin* skin = nullptr);
 
 // Draws a drop-down's EXPANDER at the right end of `rect`: the authored box
 // (ui::ControlIcons::dropDown, or its dropDownOpen twin while `open`), brightened

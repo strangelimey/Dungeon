@@ -964,8 +964,9 @@ void Game::RegisterWorldCommands() {
 		{.name = "worldview",
 		 .group = CmdGroup::World,
 		 .params = "\n"
-				   "click <x> <z> left|right",
-		 .summary = "report the world view as drawn, or click one of its cells"},
+				   "click <x> <z> left|right\n"
+				   "words on|off",
+		 .summary = "report the world view as drawn, click one of its cells, or draw its word faces"},
 		[this](const std::vector<std::string>& a) {
 			// The world view WHERE IT IS UP - the travel screen, or the player
 			// map's world page in a dungeon - read off the view itself, and
@@ -975,6 +976,19 @@ void Game::RegisterWorldCommands() {
 			// nor opens a dialog.
 			if (!m_worldMap) {
 				m_console.Refuse("no world map loaded");
+				return;
+			}
+			// WORD FACES: every button drawn as its no-art fallback, so the
+			// fitting of a long word (ru) can be seen and audited (code-review
+			// C224; InGameTest's sweep_worldwords). A display switch, set whether
+			// or not the view is up; the bare report says what it drew.
+			if (!a.empty() && a[0] == "words") {
+				if (a.size() < 2 || (a[1] != "on" && a[1] != "off")) {
+					m_console.RefuseUsage();
+					return;
+				}
+				m_worldMapView.SetWordFaces(a[1] == "on");
+				m_console.Print(std::format("world view: word faces {}", a[1]));
 				return;
 			}
 			const bool travel = m_state == AppState::WorldMap;
@@ -1050,11 +1064,14 @@ void Game::RegisterWorldCommands() {
 			const WorldMapView::Drawn& drawn = m_worldMapView.LastDrawn();
 			const bool drewThis = m_worldViewFrame != 0 && m_worldViewFrame == m_framesRendered &&
 								  drawn.overlay == !travel;
+			// `words` and `trimmed` are APPENDED (others parse the head): the
+			// word-face switch, and how many faces that frame had to cut.
 			m_console.Print(std::format(
-				"world view: {}, mode {}, editing {}, toolbar {}, fog {}",
+				"world view: {}, mode {}, editing {}, toolbar {}, fog {}, words {}, trimmed {}",
 				travel ? "travel screen" : "map page", editor ? "editor" : "play",
 				m_worldMapView.Editing() ? "yes" : "no", m_worldMapView.ToolCount(panel),
-				!drewThis ? "not drawn" : drawn.fogLifted ? "off" : "on"));
+				!drewThis ? "not drawn" : drawn.fogLifted ? "off" : "on",
+				m_worldMapView.WordFaces() ? "on" : "off", drewThis ? drawn.trimmed : 0));
 		});
 	m_console.Register(
 		{.name = "backdrop",

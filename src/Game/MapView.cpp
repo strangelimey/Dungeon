@@ -23,6 +23,7 @@
 #include "Game/MapColors.h"
 #include "Game/MapEditor.h"
 #include "UI/Controls.h" // ui::DrawBorder
+#include "UI/TreeInspector.h" // NoteChromeTrim, for the word faces
 
 #include <algorithm>
 #include <cmath>
@@ -1561,11 +1562,25 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 		// hover reads exactly like the dialog buttons (m_hoverBtn is tracked by
 		// Update in window pixels — identity, not coordinates, crosses the
 		// Update/Render pixel-space split).
-		auto face = [&](const gfx::Rect& r, const std::string& label,
+		// The label is a VIEW (a literal, a loc::View), so no face builds a
+		// string a frame (code-review C224).
+		auto face = [&](const gfx::Rect& r, std::string_view label,
 						HoverBtn id, bool enabled = true) {
 			ui::DrawButtonFace(batch, *m_font, r, label, theme,
 							   enabled && m_hoverBtn == id, /*held*/ false,
 							   enabled);
+		};
+		// A WORD FACE: a button whose art is missing falls back to its NAME,
+		// written for a tooltip and wider than the box. Fitted to the face less
+		// a pad (ui::FitText: cut at a whole UTF-8 character, ".." after it),
+		// and a cut reports what it PAINTED to an armed `uioverlap`, as
+		// WorldMapView's word faces do - nothing in a widget tree sees this chrome.
+		auto wordFace = [&](std::string_view where, const gfx::Rect& r,
+							std::string_view label, HoverBtn id, bool enabled = true) {
+			const ui::FittedFace f = ui::DrawFittedButtonFace(
+				batch, *m_font, r, label, r.w - dpad, theme, enabled && m_hoverBtn == id,
+				/*held*/ false, enabled);
+			if (f.cut > 0.0f) ui::inspect::NoteChromeTrim(where, f.text, f.mark, r, f.cut);
 		};
 		if (m_mode == Mode::Player) {
 			const std::string above = LevelNeighbor(-1), below = LevelNeighbor(+1);
@@ -1590,12 +1605,12 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 				arrow(CloseButton(panel), m_icoClose, "x", HoverBtn::Close);
 			// ...and the way to the world map, top-left ahead of the arrows: the
 			// globe box, named by a tip under it while hovered (the text face,
-			// name and all, when the art is missing).
+			// name fitted, when the art is missing).
 			if (ShowWorldButton()) {
 				const gfx::Rect wr = WorldButton(panel);
-				const std::string name = loc::Tr("map.btn.showworld");
+				const std::string_view name = loc::View("map.btn.showworld");
 				if (!m_icoBoxWorld) {
-					face(wr, name, HoverBtn::ShowWorld);
+					wordFace("world button", wr, name, HoverBtn::ShowWorld);
 				} else {
 					arrow(wr, m_icoBoxWorld, "", HoverBtn::ShowWorld);
 					if (m_hoverBtn == HoverBtn::ShowWorld) {
@@ -1654,11 +1669,9 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 					// than a disc — two icon-less buttons side by side drew their
 					// words straight over each other. Trim it to what the button
 					// can actually hold; the full name is still one hover away.
-					std::string fit = b.label;
-					while (fit.size() > 1 &&
-						   m_font->MeasureWidth(fit) > b.rect.w - dpad)
-						fit.pop_back();
-					face(b.rect, fit, b.id, b.enabled);
+					// Cut at a whole UTF-8 character (the old byte-at-a-time
+					// pop_back on a copy could split a Cyrillic letter).
+					wordFace("map toolbar", b.rect, b.label, b.id, b.enabled);
 				}
 			}
 

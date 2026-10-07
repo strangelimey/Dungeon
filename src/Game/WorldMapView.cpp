@@ -7,6 +7,7 @@
 #include "Game/AssetUtil.h" // ToolbarIcon — the shared disc cache
 #include "Game/MapColors.h"
 #include "UI/Controls.h" // DrawButtonFace, DrawBorder
+#include "UI/TreeInspector.h" // NoteChromeTrim, for the word faces
 
 #include <algorithm>
 #include <cmath>
@@ -61,24 +62,26 @@ std::vector<WorldMapView::ToolButton> WorldMapView::ToolbarButtons(
 	// Built right-to-left from the band's right edge, like the level editor's,
 	// so the two bands read as the same furniture one tier apart.
 	float right = tb.x + tb.w - pad * 2;
-	auto add = [&](Tool id, std::string label, const gfx::Texture* icon,
+	// A label is a VIEW of the language table (code-review C224), and a word
+	// face (SetWordFaces) is a button drawn as if its art were missing.
+	auto add = [&](Tool id, std::string_view label, const gfx::Texture* icon,
 				   bool enabled) {
 		right -= s;
-		btns.push_back({id, {right, tb.y + pad * 2, s, s}, std::move(label), icon,
-						enabled});
+		btns.push_back({id, {right, tb.y + pad * 2, s, s}, label,
+						m_wordFaces ? nullptr : icon, enabled});
 		right -= pad;
 	};
-	add(Tool::Save, loc::Tr("map.btn.save"), m_icoSave, true);
-	add(Tool::Redo, loc::Tr("map.btn.redo"), m_icoRedo,
+	add(Tool::Save, loc::View("map.btn.save"), m_icoSave, true);
+	add(Tool::Redo, loc::View("map.btn.redo"), m_icoRedo,
 		canUndo && canUndo(/*redo*/ true));
-	add(Tool::Undo, loc::Tr("map.btn.undo"), m_icoUndo,
+	add(Tool::Undo, loc::View("map.btn.undo"), m_icoUndo,
 		canUndo && canUndo(/*redo*/ false));
-	add(Tool::Settings, loc::Tr("map.btn.world"), m_icoSettings, true);
+	add(Tool::Settings, loc::View("map.btn.world"), m_icoSettings, true);
 	// Leftmost, and apart from the rest in meaning: every other disc acts on
 	// THIS world, and these two are about the others - making one, and the
 	// way to them.
-	add(Tool::NewWorld, loc::Tr("map.btn.newworld"), m_icoNewWorld, true);
-	add(Tool::Worlds, loc::Tr("map.btn.worlds"), m_icoWorlds, true);
+	add(Tool::NewWorld, loc::View("map.btn.newworld"), m_icoNewWorld, true);
+	add(Tool::Worlds, loc::View("map.btn.worlds"), m_icoWorlds, true);
 	return btns;
 }
 
@@ -329,6 +332,21 @@ void WorldMapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 	batch.SetScissor(nullptr);
 
 	if (!m_font) return;
+	// A WORD FACE: a button with no art (or with SetWordFaces), its label fitted
+	// to the face less a pad. A cut is counted for `worldview` and reported to
+	// an armed `uioverlap` - nothing in a widget tree can see this chrome, and a
+	// face that had to cut its word is a layout that did not fit (C224). The
+	// report quotes what the face PAINTED (its returned views), not a refit.
+	const float facePad = ToolPad(panel);
+	const auto drawWordFace = [&](std::string_view where, const gfx::Rect& r,
+								  std::string_view label, bool hot, bool enabled) {
+		const float room = r.w - facePad;
+		const ui::FittedFace f = ui::DrawFittedButtonFace(batch, *m_font, r, label, room, theme,
+														  hot, /*held*/ false, enabled);
+		if (f.cut <= 0.0f) return;
+		++m_drawn.trimmed;
+		ui::inspect::NoteChromeTrim(where, f.text, f.mark, r, f.cut);
+	};
 	// The overlay's way back to the dungeon map. Drawn before the band so the
 	// Editor's toolbar wins the corner if both were ever up at once — they
 	// cannot be (Editing() is false on the overlay, so it has no band), and a
@@ -336,7 +354,7 @@ void WorldMapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 	// The close box, top-right (the shared dialog icon, "x" without it).
 	if (ShowCloseButton()) {
 		const gfx::Rect r = CloseButton(panel);
-		if (!m_icoClose) {
+		if (!m_icoClose || m_wordFaces) {
 			ui::DrawButtonFace(batch, *m_font, r, "x", theme, m_hoverClose,
 							   /*held*/ false, /*enabled*/ true);
 		} else {
@@ -348,10 +366,11 @@ void WorldMapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 	// the art is missing.
 	if (ShowDungeonButton()) {
 		const gfx::Rect r = DungeonButton(panel);
-		const std::string name = loc::Tr("map.btn.showdungeon");
-		if (!m_icoBoxDungeon) {
-			ui::DrawButtonFace(batch, *m_font, r, name, theme, m_hoverDungeon,
-							   /*held*/ false, /*enabled*/ true);
+		const std::string_view name = loc::View("map.btn.showdungeon");
+		if (!m_icoBoxDungeon || m_wordFaces) {
+			// The word is far wider than the box in most languages: fitted,
+			// never split mid-character, and reported (code-review C224).
+			drawWordFace("dungeon button", r, name, m_hoverDungeon, true);
 		} else {
 			const float f = m_hoverDungeon ? 1.15f : 0.9f;
 			batch.DrawSprite(r, {0, 0, 1, 1}, *m_icoBoxDungeon, {f, f, f, 1.0f});
@@ -397,13 +416,12 @@ void WorldMapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 					{d, d}, 0.0f, {0.0f, 0.0f, 1.0f, 1.0f}, *b.icon, {f, f, f, 1.0f});
 			} else {
 				// No art: the LABEL is written for the tooltip and is far wider
-				// than a disc, so trim it to what the button can hold — the
-				// full name is still one hover away.
-				std::string fit = b.label;
-				while (fit.size() > 1 && m_font->MeasureWidth(fit) > b.rect.w - pad)
-					fit.pop_back();
-				ui::DrawButtonFace(batch, *m_font, b.rect, fit, theme, hot,
-								   /*held*/ false, b.enabled);
+				// than a disc, so trim it to what the button can hold - the
+				// full name is still one hover away. FitText, which cuts at a
+				// whole UTF-8 character and marks the cut: the old byte-at-a-
+				// time pop_back on a copy split a Cyrillic letter in half
+				// (code-review C224).
+				drawWordFace("toolbar", b.rect, b.label, hot, b.enabled);
 			}
 		}
 		if (tip) { // the hovered tool's name, just under the band

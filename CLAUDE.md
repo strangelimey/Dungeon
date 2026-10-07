@@ -4242,7 +4242,9 @@ and answers: docs/transparency-notes.md; each phase's AS BUILT is in the plan.
   (Game/DialogLayout.h); tab-page rows from game::TabStack. IF YOU ARE WRITING A
   Y COORDINATE OR STEPPING A CURSOR, the layout is about to drift.
   Dev console `uitree` outlines the whole tree by depth and names the chain
-  under the cursor; `uitree dump <hud|menu|settings|pause|saves|sheet|confirm>`
+  under the cursor (a reporter: it excuses its own allocations, code-review
+  C223, checked by `AllocTest.ps1 -UiTree`, the overlay on and the pointer on
+  the HUD in the window); `uitree dump <hud|menu|settings|pause|saves|sheet|confirm>`
   prints it with pixel rects. `uioverlap [label]` AUDITS the rule: it arms a
   two-frame pass over every context that renders — no per-caller wiring, so
   whichever dialog is open is covered — and reports both SIBLINGS whose ink
@@ -4265,7 +4267,16 @@ and answers: docs/transparency-notes.md; each phase's AS BUILT is in the plan.
   so it reports through Widget::TextOverrun and the audit lists it as a third
   finding, "trims its text by Npx" (mutation-checked on ButtonInspector's old
   side-by-side flag row, the case the overlap check could not see). The palette
-  and overview docks fit their names through the same helper.
+  and overview docks fit their names through the same helper, and a hand-drawn
+  button face through ui::DrawFittedButtonFace (DrawButtonFace's label is a
+  string_view, so no caller builds a string for it - C224). Chrome drawn
+  outside every tree has no widget for the audit to ask, so it reports a cut
+  ITSELF, `inspect::NoteChromeTrim`, quoting the prefix and mark the face
+  PAINTED (DrawFittedButtonFace returns them as a ui::FittedFace - never a
+  second FitText of the reporter's own): the world map's word faces
+  (`worldview words on` draws every button as its no-art fallback), which
+  InGameTest's `sweep_worldwords` audits under ru.lang and requires to report,
+  and the level map's (its globe and an icon-less toolbar tool).
   The audit gates on empty INK, not an empty Pixel(), or that zero-height
   row would be skipped outright - which is how both slipped a sweep once
   (editor-updates 11c2144, NewWorldDialog). `overlapOk` opts the deliberately

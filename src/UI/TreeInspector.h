@@ -15,10 +15,12 @@
 // ============================================================================
 #pragma once
 
+#include "Core/Types.h"
 #include "Graphics/SpriteBatch.h"
 
 #include <functional>
 #include <string>
+#include <string_view>
 
 namespace dungeon::ui {
 
@@ -31,6 +33,11 @@ namespace inspect {
 // the console command flips it and every context obeys next frame).
 bool Enabled();
 void SetEnabled(bool on);
+// How many hovered-chain breadcrumbs Draw has built in a frame the allocation
+// guard ARMED (alloc::FrameArmed), since launch. The overlay is a reporter and
+// excuses itself (code-review C223); this is AllocTest -UiTree's proof that the
+// breadcrumb - the part that formats - was built inside its window.
+u64 ArmedChainDraws();
 
 // Draws the outlines + hovered chain for one context's tree. UIContext::Render
 // calls this last, after the overlay pass, so it sits above everything.
@@ -78,6 +85,19 @@ void RunOverlapAudit(UIContext& ctx);
 // Closes the armed window and prints the verdict. Called once per frame from
 // the game's render path — no UIContext can know it was the frame's last.
 void EndOverlapAuditFrame();
+
+// HAND-DRAWN CHROME'S TRIMS (code-review C224). A view drawn outside every
+// UIContext (the world and level maps' toolbars and buttons) has no widget for
+// the walk above to ask, so a face it had to cut reports itself here, from its
+// draw: `where` names the face, `shown` and `mark` are the prefix and the trim
+// mark it PAINTED (ui::FittedFace's text and mark, as DrawFittedButtonFace
+// returns them - nothing is added or recomputed here, so a face that drew no
+// mark, or split a character, is quoted exactly as drawn), `rect` its face and
+// `cut` how far the whole label ran past its room, in px. A finding of the
+// armed window like a widget's trim. No-op unless armed, so a draw may call it
+// every frame.
+void NoteChromeTrim(std::string_view where, std::string_view shown, std::string_view mark,
+					const gfx::Rect& rect, float cut);
 
 } // namespace inspect
 } // namespace dungeon::ui

@@ -39,6 +39,7 @@
 #   .\tools\AllocTest.ps1 -Lights -ShadowSelfTest   # ...those checks handed a stale cache
 #   .\tools\AllocTest.ps1 -OnHitTypo         # swings with a typo'd on_hit: its warning
 #   .\tools\AllocTest.ps1 -PartyPage         # the party creation page, idle, on the title
+#   .\tools\AllocTest.ps1 -UiTree            # the uitree overlay on, console shut, pointer on the HUD
 #   .\tools\AllocTest.ps1 -Config release    # needs -DDN_TRACK_ALLOCS=ON
 #
 # THE RULE HAS NO EXCEPTIONS: an allocation in a settled frame is a bug, and
@@ -640,6 +641,9 @@ param(
 	# Measures the party creation page standing IDLE on the title screen, with
 	# no game started. See the note above.
 	[switch]$PartyPage,
+	# The `uitree` overlay on with the console shut and the pointer on the HUD
+	# (code-review C223): the overlay is a reporter and must excuse itself.
+	[switch]$UiTree,
 	# Checks the CHECKER: makes the game allocate ONCE, on the window's first
 	# armed frame (`allocpoke once`), and passes only if the run comes back FAIL
 	# AND dungeon.log names that allocation's call site - the first armed frame
@@ -700,7 +704,8 @@ if ($AllSpells -and $memberCount -lt 2) { throw '-AllSpells teaches member 1 and
 # -PartyPage starts no game, and every other mode needs one.
 if ($PartyPage) {
 	$withGame = @('Wounded', 'Melee', 'Cast', 'Impact', 'Hand', 'Light', 'Pause', 'DisplayChange', 'Exit', 'Lever', 'Sheet', 'All',
-		'Panels', 'Minimal', 'Walk', 'Lights', 'Items', 'Packs', 'Throw', 'Glass', 'Party', 'Wear', 'Effects', 'GrowRoster') |
+		'Panels', 'Minimal', 'Walk', 'Lights', 'Items', 'Packs', 'Throw', 'Glass', 'Party', 'Wear', 'Effects', 'GrowRoster',
+		'UiTree') |
 		Where-Object { $PSBoundParameters.ContainsKey($_) }
 	if ($withGame) { throw "-PartyPage runs on the title screen with no game; it does not combine with -$($withGame -join ', -')" }
 }
@@ -2922,6 +2927,27 @@ try {
 		Start-Sleep -Milliseconds 400
 	}
 
+	# -UiTree: the `uitree` overlay on, the console shut and the pointer resting
+	# on the Movement dock's middle, so every frame of the window outlines the
+	# HUD and builds the hovered chain's breadcrumb - a vector and a formatted
+	# line per link. A dev reporter, which excuses itself (code-review C223);
+	# before that it was a violation on every frame, and an abort under
+	# `allocguard strict on`. The verdict's uitree= says the breadcrumb was built
+	# in measured frames.
+	if ($UiTree) {
+		Write-Host 'turning the uitree overlay on and resting the pointer on the Movement dock'
+		$moveRect = Get-PanelRow 'move'
+		if ($moveRect -notmatch 'px (-?\d+),(-?\d+) (\d+)x(\d+)') { throw "no move dock rect: $moveRect" }
+		$script:treeX = [int]$Matches[1] + [int]([int]$Matches[3] / 2)
+		$script:treeY = [int]$Matches[2] + [int]([int]$Matches[4] / 2)
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 500
+		Send-Text 'uitree on'; Send-Key 0x0D
+		Send-Key 0xC0 # close the console again; alloctest reopens it below
+		Start-Sleep -Milliseconds 400
+		Send-Mouse $script:treeX $script:treeY
+	}
+
 	# THE SELF-TEST POKES ONCE, on the window's first armed frame - the first
 	# armed frame after a disarm, which captured no stacks until code-review C214,
 	# so a violation there was counted and its call site never logged. An
@@ -3418,6 +3444,18 @@ try {
 		Write-Host "  key moves inside the window: $moves"
 		if ($moves -lt 4 -and $result -eq 'PASS') {
 			Write-Host 'fewer than four key moves landed - the pad presses were not measured' -ForegroundColor Yellow
+			$result = 'UNMEASURED'
+		}
+	}
+
+	# And for -UiTree: no breadcrumb built in a measured frame means the overlay
+	# drew nothing under the pointer (it missed the HUD, or `uitree` never came
+	# on), and what the mode exists to measure was not measured.
+	if ($UiTree) {
+		$chains = if ($line -match '\buitree=(\d+)') { [int]$Matches[1] } else { 0 }
+		Write-Host "  uitree breadcrumbs built in measured frames: $chains (pointer at $($script:treeX),$($script:treeY))"
+		if ($chains -lt 30 -and $result -eq 'PASS') {
+			Write-Host 'fewer than 30 breadcrumbs in measured frames - the uitree overlay was not measured' -ForegroundColor Yellow
 			$result = 'UNMEASURED'
 		}
 	}

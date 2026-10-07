@@ -1244,6 +1244,10 @@ private:
 	// The party's Act count when the window opened (Party::ActCount): the
 	// verdict's moves= is the difference, -Walk's evidence that it moved.
 	unsigned m_allocTestActsAt = 0;
+	// ui::inspect::ArmedChainDraws when the window opened: the verdict's uitree=
+	// is the difference, AllocTest -UiTree's evidence that the `uitree`
+	// breadcrumb was built in measured frames (code-review C223).
+	u64 m_allocTestChainsAt = 0;
 	// Each member's effect count when the window opened, and the most it reached
 	// in an armed frame of it: the verdict's effectsrose= is the difference per
 	// member, AllocTest -Effects' evidence that the party bar's effect strips

@@ -84,6 +84,11 @@
 #   state    the app state the header names (menu, playing, paused, sheet,
 #            worldmap) - a party wiped mid-sweep audits the title from then on
 #   audit    the audit's own summary after the header (clean, or its findings)
+#   trims    ONE row, sweep_worldwords, is the exception to "clean": the world
+#            map's word faces in Russian must be cut, so its audit must REPORT
+#            those cuts - only chrome trims, at least one and no more than the
+#            faces the view says it cut, each quoting whole UTF-8 characters
+#            and the ".." (code-review C224)
 #
 # and the run ends by requiring `state` to be playing or worldmap. Logecho stays
 # ON for the whole sweep, since the status lines are console output; the verdict
@@ -93,12 +98,13 @@
 #   .\tools\InGameTest.ps1
 #   .\tools\InGameTest.ps1 -SelfTest     # see below; exit 0 = the checker works
 #
-# -SELFTEST is a real sweep with the real labels and TWO named faults injected,
-# and it passes only if exactly those two checks fail and everything else passes
-# (SpellTest's rule, code-review C419): sweep_gencomplexity's open step asks for
-# a tab the dialog does not have, which is REFUSED, so its status line never
-# lands; and sweep_worlds is opened but never audited, so its label is missing
-# while its longer sibling sweep_worldsettings is present.
+# -SELFTEST is a real sweep with the real labels and THREE named faults injected,
+# and it passes only if exactly those three checks fail and everything else
+# passes (SpellTest's rule, code-review C419): sweep_gencomplexity's open step
+# asks for a tab the dialog does not have, which is REFUSED, so its status line
+# never lands; sweep_worlds is opened but never audited, so its label is missing
+# while its longer sibling sweep_worldsettings is present; and sweep_worldwords
+# turns its word faces off again before the audit, which then finds no trim.
 #
 # ASCII ONLY: PS 5.1 reads a BOM-less .ps1 as ANSI.
 # ============================================================================
@@ -106,8 +112,8 @@
 param(
 	[ValidateSet('debug', 'release')][string]$Config = 'debug',
 	[int]$LoadTimeoutSec = 240,
-	# Checks the CHECKER: two faults injected into a real sweep (above), and
-	# exactly those two checks must fail.
+	# Checks the CHECKER: three faults injected into a real sweep (above), and
+	# exactly those three checks must fail.
 	[switch]$SelfTest
 )
 
@@ -589,6 +595,29 @@ $screens = @(
 	   open = { Run-Cmd 'worldmap on'; Run-Cmd 'worlds new wt_sweep'; Run-Cmd 'worlds dialog delete wt_sweep' }
 	   close = { Run-Cmd 'worlds dialog off'; Run-Cmd 'worlds delete wt_sweep wt_sweep'; Run-Cmd 'worldmap off' }
 	   status = @((Answer "worlds dialog open: .* deleting 'wt_sweep'")) },
+	# THE WORLD MAP'S WORD FACES IN RUSSIAN (code-review C224). Its toolbar is
+	# hand-drawn chrome, outside every widget tree, and a button whose art is
+	# missing shows its label on the face - a word written for a tooltip, far
+	# wider than a disc. `worldview words on` draws every button that way; under
+	# ru.lang each label must be FITTED (cut at a whole UTF-8 character, ".."
+	# after it - the old byte-at-a-time trim could split a Cyrillic letter) and
+	# each cut REPORTED to the audit. So this row's audit must find trims (the
+	# `trims` check below) where every other row's must be clean. Its status is
+	# the switch and `worldview` seeing the editor's band drawn with word faces;
+	# its `trimmed` count is the trims check's ceiling. The language goes back to
+	# what settings.ini held at launch (a typed `lang` is saved).
+	@{ label = 'sweep_worldwords'; state = 'worldmap'; viaConsole = $true; trims = $true
+	   open = { Run-Cmd 'lang ru'; Run-Cmd 'worldmap on'; Run-Cmd 'worldedit on'; Run-Cmd 'worldview words on' }
+	   close = { Run-Cmd 'worldview words off'; Run-Cmd 'worldedit off'; Run-Cmd 'worldmap off'
+				 Run-Cmd "lang $langAtLaunch" }
+	   probe = @('worldview')
+	   status = @((Answer 'world view: word faces on\s*$'),
+				  (Answer 'world view: travel screen, mode editor, editing yes, toolbar 6, fog \w+, words \w+, trimmed \d+\s*$'))
+	   # The -SelfTest fault: the faces switched on and straight off again, so the
+	   # screen opens as before but nothing is cut - a clean audit this row must
+	   # call a failure.
+	   selfTestOpen = { Run-Cmd 'lang ru'; Run-Cmd 'worldmap on'; Run-Cmd 'worldedit on'
+						Run-Cmd 'worldview words on'; Run-Cmd 'worldview words off' } },
 	# A DUNGEON's delete confirmation (W10), inside the type editor. The demo's
 	# own dungeons are both refused (the opening, the party), so it makes an
 	# empty one of its own and deletes it on the way out, through the same rule.
@@ -703,7 +732,16 @@ $titleScreens = @(
 	   status = @((Logged 'portrait picker: open for .* \(party creation\)')) }
 )
 # The checks -SelfTest expects to fail, and no others (see the header).
-$selfTestExpected = @('sweep_gencomplexity: status', 'sweep_worlds: label')
+$selfTestExpected = @('sweep_gencomplexity: status', 'sweep_worlds: label', 'sweep_worldwords: trims')
+
+# The language settings.ini held at launch, which sweep_worldwords puts back
+# after its `lang ru` (a typed `lang` is saved). English when none is set.
+$langAtLaunch = 'en'
+$settingsIni = Join-Path $bin 'settings.ini'
+if (Test-Path $settingsIni) {
+	$langLine = @(Select-String -Path $settingsIni -Pattern '^language=(\S+)\s*$') | Select-Object -Last 1
+	if ($langLine) { $langAtLaunch = $langLine.Matches[0].Groups[1].Value }
+}
 
 # levelcheck's MUTATIONS (code-review C441), run after the real check on every
 # run: each plants one fault in what the check reads - never in the files - and
@@ -1034,6 +1072,9 @@ try {
 
 # --- the verdict, read from the log -----------------------------------------
 $lines = @(if (Test-Path $log) { Get-Content $log })
+# The same lines decoded as UTF-8, invalid bytes as U+FFFD (sweep_worldwords'
+# trims check). Line for line with $lines: both split on CR LF / LF.
+$utf8Lines = @(if (Test-Path $log) { [System.IO.File]::ReadAllLines($log, (New-Object System.Text.UTF8Encoding($false))) })
 $failed = New-Object System.Collections.Generic.List[string]   # "<label>: <check>"
 $global = 0
 
@@ -1176,12 +1217,47 @@ foreach ($s in @($titleScreens) + @($screens)) {
 	if (-not $sum) {
 		Fail-Check $s.label 'audit' 'the audit never reported after its header'
 		$ok = $false
+	} elseif ($s.trims) {
+		# TRIMS (sweep_worldwords): the findings must be chrome trims and nothing
+		# else, at least one and no more than the faces `worldview` said that
+		# frame cut, each quoting the drawn text with its "..". The quote is what
+		# the face PAINTED (ui::FittedFace's text and mark; NoteChromeTrim adds
+		# nothing), so a face that drew no mark fails here. Read again as
+		# UTF-8 (Get-Content took the log as ANSI): a face cut part-way through a
+		# character quotes a broken byte, which decodes as U+FFFD.
+		$cut = 0
+		$probe = @($before -match '^\[info \] console: world view: travel screen, .*, trimmed (\d+)\s*$') | Select-Object -Last 1
+		if ($probe -and $probe -match 'trimmed (\d+)\s*$') { $cut = [int]$Matches[1] }
+		$bad = @(); $trimLines = 0
+		for ($i = $h.at + 1; $i -lt $next; $i++) {
+			if ($lines[$i] -notmatch '^\[info \]   \S') { continue }
+			$u = if ($i -lt $utf8Lines.Count) { $utf8Lines[$i] } else { '' }
+			if ($u -notmatch '^\[info \]   chrome > .* trims its text by \d+px to fit: "(.*)"$') {
+				$bad += "not a chrome trim: $($lines[$i])"; continue
+			}
+			$shown = $Matches[1]
+			$trimLines++
+			if (-not $shown.EndsWith('..')) { $bad += "no '..' after the cut: $u" }
+			if ($shown.Contains([string][char]0xFFFD)) { $bad += "a character split by the cut: $u" }
+		}
+		if ($trimLines -lt 1) { $bad += "no trim reported (the view said it cut $cut face(s))" }
+		elseif ($trimLines -gt $cut) { $bad += "$trimLines trims reported, but the view said it cut only $cut face(s)" }
+		if ($bad.Count -gt 0) {
+			Fail-Check $s.label 'trims' 'the word faces were not cut and reported as they should be:'
+			$bad | ForEach-Object { Write-Host "     $_" }
+			$ok = $false
+		} else {
+			Write-Host "  [ok  ] $($s.label): $trimLines chrome trims reported ($cut faces cut), every one whole characters and '..'"
+		}
 	} elseif ($sum -notmatch 'uioverlap: clean') {
 		Fail-Check $s.label 'findings' "found overlaps:"
 		$after -match '^\[info \]   \S' | ForEach-Object { Write-Host "     $_" }
 		$ok = $false
 	}
-	if ($ok) { Write-Host "  [ok  ] swept $($s.label) ($($h.state), status logged, clean)" }
+	if ($ok) {
+		$audit = if ($s.trims) { 'trims reported' } else { 'clean' }
+		Write-Host "  [ok  ] swept $($s.label) ($($h.state), status logged, $audit)"
+	}
 }
 
 # Where the sweep ended.
@@ -1588,7 +1664,7 @@ if ($SelfTest) {
 	if ($global -gt 0) { Write-Host '  self-test: a run-wide check failed - the run itself is broken' -ForegroundColor Red }
 	$asExpected = $unexpected.Count -eq 0 -and $uncaught.Count -eq 0 -and $global -eq 0
 	if ($asExpected) {
-		Write-Host 'SELF-TEST PASSED - exactly the injected faults failed: a refused open step and a missing label' -ForegroundColor Green
+		Write-Host 'SELF-TEST PASSED - exactly the injected faults failed: a refused open step, a missing label and an uncut word face' -ForegroundColor Green
 	} else {
 		Write-Host 'SELF-TEST FAILED - the checks did not fail exactly where the faults were injected' -ForegroundColor Red
 	}

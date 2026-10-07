@@ -114,11 +114,20 @@ public:
 	// it lifted the fog (drew every cell, discovered or not). The `worldview`
 	// command reads it, so a page that drew the whole world reads as "fog off"
 	// whatever Editing() says it should have drawn (code-review C79).
+	// `trimmed` counts the word faces that frame had to cut to fit (the ".."
+	// faces it also reports to an armed `uioverlap`, code-review C224).
 	struct Drawn {
 		bool overlay = false;
 		bool fogLifted = false;
+		int trimmed = 0;
 	};
 	const Drawn& LastDrawn() const { return m_drawn; }
+	// WORD FACES: draw every button as its no-art fallback (the label on a
+	// face) even where the icon is installed. A dev switch (`worldview words
+	// on`), so the fallback a missing icon falls to - and its fitting, in a
+	// language whose words are long - can be seen and audited.
+	void SetWordFaces(bool on) { m_wordFaces = on; }
+	bool WordFaces() const { return m_wordFaces; }
 	// That button. Null (or not an overlay) hides it.
 	std::function<void()> onShowDungeon;
 	// The overlay's close box, top-right - on MapView's close box pixels, so
@@ -192,7 +201,9 @@ private:
 	struct ToolButton {
 		Tool id = Tool::None;
 		gfx::Rect rect{};
-		std::string label; // the tooltip, and the face when the art is missing
+		// The tooltip, and the face when the art is missing: a view into the
+		// loaded language table (loc::View), so the list holds no strings.
+		std::string_view label;
 		const gfx::Texture* icon = nullptr;
 		bool enabled = true;
 	};
@@ -219,6 +230,7 @@ private:
 								   // matches by IDENTITY, never by coordinate
 	bool m_overlay = false;     // drawn as the player's map, not the travel screen
 	Drawn m_drawn;              // what the last Render drew (LastDrawn)
+	bool m_wordFaces = false;   // dev: every button as its word face (SetWordFaces)
 	bool m_hoverDungeon = false; // that button's hover, tracked the same way
 	bool m_hoverClose = false;   // and the close box's
 

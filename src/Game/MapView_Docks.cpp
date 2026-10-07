@@ -67,14 +67,6 @@ std::array<KeySym, kKeyRows> KeyTable(const ui::Theme& theme) {
 }
 
 constexpr const char* kScopeKeys[] = {"map.ov.world", "map.ov.dungeon", "map.ov.level"};
-
-// Text trimmed to a width, ".." marking the cut (ui::FitText: never part-way
-// through a UTF-8 character). A copy, since DrawButtonFace takes a string.
-std::string Fit(const ui::Font& font, const std::string& text, float room) {
-	bool trimmed = false;
-	const std::string_view fit = ui::FitText(font, text, room, &trimmed);
-	return trimmed ? std::string(fit) + std::string(ui::kTrimMark) : text;
-}
 } // namespace
 
 // --- widths ------------------------------------------------------------------------
@@ -446,16 +438,18 @@ void MapView::RenderRightDock(gfx::SpriteBatch& batch, const ui::Theme& theme,
 			break;
 		}
 		case DockRow::Kind::Scope: {
-			const std::string label = Fit(font, loc::Tr(kScopeKeys[r.index]), rc.w - 4.0f);
-			ui::DrawButtonFace(batch, font, rc, label, theme, false,
-							   static_cast<int>(Scope()) == r.index);
+			// Fitted in place (ui::FitText: ".." at a whole UTF-8 character),
+			// no copy - DrawButtonFace's label is a view (code-review C224).
+			ui::DrawFittedButtonFace(batch, font, rc, loc::View(kScopeKeys[r.index]),
+									 rc.w - 4.0f, theme, false,
+									 static_cast<int>(Scope()) == r.index);
 			break;
 		}
 		case DockRow::Kind::Line: {
 			const OverviewLine& l = m_overview[static_cast<size_t>(r.index)];
 			if (l.title) {
-				font.Draw(batch, Fit(font, l.label, rc.w - pad), rc.x + pad * 0.5f, ty,
-						  theme.accent);
+				ui::DrawFittedText(batch, font, l.label, rc.x + pad * 0.5f, ty, rc.w - pad,
+								   theme.accent);
 				break;
 			}
 			const bool link = !l.link.empty();
@@ -479,8 +473,8 @@ void MapView::RenderRightDock(gfx::SpriteBatch& batch, const ui::Theme& theme,
 			// Label left, value right (a link's value in the accent).
 			const float vw = font.MeasureWidth(l.value);
 			const float vx = rc.x + rc.w - pad * 0.5f - vw;
-			font.Draw(batch, Fit(font, l.label, vx - rc.x - pad * 1.5f), rc.x + pad * 0.5f, ty,
-					  link ? theme.text : theme.textDim);
+			ui::DrawFittedText(batch, font, l.label, rc.x + pad * 0.5f, ty,
+							   vx - rc.x - pad * 1.5f, link ? theme.text : theme.textDim);
 			font.Draw(batch, l.value, vx, ty, link ? theme.accent : theme.text);
 			break;
 		}

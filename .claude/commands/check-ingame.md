@@ -8,8 +8,9 @@ Audits that need a running game, sharing one launch (a few minutes).
 
 - no argument → `.\tools\CheckAll.ps1 -Only ingame`
 - `selftest` → `.\tools\CheckAll.ps1 -Only ingame -SelfTest` (a real sweep with
-  two named faults - a refused open step, a missing label - and exactly those
-  two checks must fail)
+  three named faults - a refused open step, a missing label, the world map's
+  word faces switched off before their audit - and exactly those three checks
+  must fail)
 
 ## What it is guarding
 
@@ -45,7 +46,11 @@ the sheet and the party window, the party creation page and its picker, the
 generator and new-world dialogs, the pause menu and the sheet over the world map,
 short parties of three and one, and a hand box's use menu with its Combat /
 Magic groups in a 720p window (code-review C382) - each under its own
-`sweep_<name>` label (InGameTest.ps1 lists them).
+`sweep_<name>` label (InGameTest.ps1 lists them). One row's audit must NOT be
+clean: `sweep_worldwords` draws the world map's buttons as their no-art word
+faces (`worldview words on`) under ru.lang, and that hand-drawn chrome reports
+each face it cut (`inspect::NoteChromeTrim`, code-review C224) - only such trims,
+at least one, each quoting whole UTF-8 characters and the "..".
 
 **`backdrop`** - the pause menu and the sheet opened from the WORLD MAP draw the
 world map behind them and skip the 3D pass; they used to draw the parked dungeon
@@ -128,6 +133,12 @@ status pattern`), since it would otherwise be judged on its label alone. For
 groups or more, a submenu with rows, a box with an area, a window under 900
 high): the HUD sizes an open menu only while the console and the map are shut,
 and an unsized menu is 0x0, which the audit skips.
+
+**`sweep_worldwords: the word faces were not cut and reported`** - no trim came
+back (the faces drew whole, or a cut went unreported), a finding other than a
+chrome trim landed, or a quoted face holds U+FFFD: it was cut part-way through a
+UTF-8 character, the old byte-at-a-time trim's defect (WorldMapView must fit
+through ui::FitText).
 
 **`<label>: found overlaps`** - a real layout defect. The findings name both
 widgets; `uitree dump <context>` in the dev console gives the pixel rects.

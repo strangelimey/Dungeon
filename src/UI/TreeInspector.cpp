@@ -7,6 +7,8 @@
 #include "UI/UIContext.h"
 #include "UI/Widget.h"
 
+#include "Core/AllocTrack.h"
+
 #include <algorithm>
 #include <format>
 #include <set>
@@ -18,6 +20,8 @@ namespace dungeon::ui::inspect {
 namespace {
 
 bool g_enabled = false;
+// Breadcrumbs drawn in an ARMED frame (ArmedChainDraws).
+u64 g_armedChains = 0;
 
 // One tint per nesting level, cycled — sibling boxes at the same depth read as
 // a set, and a child's box reads as a different level from its parent's.
@@ -101,6 +105,7 @@ void DumpNode(const Widget& widget, size_t depth,
 
 bool Enabled() { return g_enabled; }
 void SetEnabled(bool on) { g_enabled = on; }
+u64 ArmedChainDraws() { return g_armedChains; }
 
 std::string Name(const Widget& widget) {
 	if (widget.debugName) return widget.debugName;
@@ -113,6 +118,12 @@ std::string Name(const Widget& widget) {
 
 void Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
 	if (!g_enabled) return;
+	// A REPORTER, so it excuses itself (CLAUDE.md, the allocation rule): the
+	// breadcrumb below builds a vector and formats a line per link every frame,
+	// and SteadyStateFrame does not know the overlay is on - with `uitree on`,
+	// the console shut and the pointer over the HUD, those were counted as
+	// violations, and `allocguard strict on` aborted (code-review C223).
+	alloc::Excused reporting;
 	Widget& root = ctx.Root();
 	DrawOutlines(root, batch, 0);
 
@@ -121,6 +132,7 @@ void Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
 	std::vector<Widget*> chain;
 	BuildChain(root, ctx.MouseX(), ctx.MouseY(), chain);
 	if (chain.empty()) return;
+	if (alloc::FrameArmed()) ++g_armedChains; // ArmedChainDraws
 
 	// Wash + a solid border over each link, so the nesting reads as boxes
 	// inside boxes rather than one highlighted rect.
@@ -289,6 +301,16 @@ void EndOverlapAuditFrame() {
 									 g_auditSeen.size()));
 	g_auditOut = nullptr;
 	g_auditSeen.clear();
+}
+
+void NoteChromeTrim(std::string_view where, std::string_view shown, std::string_view mark,
+					const gfx::Rect& rect, float cut) {
+	// The widget walk's slack: a rounding hair of trim is not a cut anyone reads.
+	if (g_auditFrames <= 0 || !g_auditOut || cut <= 2.0f) return;
+	alloc::Excused reporting; // the audit's own line, as Draw above
+	std::string line = std::format("  chrome > {} [{}] trims its text by {:.0f}px to fit: \"{}{}\"",
+								   where, RectText(rect), cut, shown, mark);
+	if (g_auditSeen.insert(line).second) g_auditOut(line);
 }
 
 } // namespace dungeon::ui::inspect
