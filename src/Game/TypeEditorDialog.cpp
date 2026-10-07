@@ -7,6 +7,7 @@
 #include "Core/Log.h"
 #include "Core/Paths.h"
 #include "Game/AssetUtil.h"
+#include "Game/Catalog.h" // SplitIds
 #include "Game/DialogLayout.h"
 #include "Game/Style.h" // the WeightedRefs list format
 #include "UI/Controls.h"
@@ -132,7 +133,8 @@ void TypeEditorDialog::BuildStageRows(ui::Stack& page, const FieldSpec& spec) {
 	// Each row addresses its stage by INDEX and re-reads the list on every
 	// change: an id is being typed one key at a time, so a captured id would be
 	// stale by the second keystroke.
-	auto stages = [this, s] { return SplitOptions(ValueOf(*s)); };
+	// Split as the checker and the game split it (SplitIds, C331).
+	auto stages = [this, s] { return SplitIds(ValueOf(*s)); };
 	auto join = [](const std::vector<std::string>& v) {
 		std::string out;
 		for (const std::string& w : v) out += (out.empty() ? "" : " ") + w;

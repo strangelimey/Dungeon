@@ -710,12 +710,16 @@ private:
 	// The squares of `stem` that something OTHER than a stair lands the party
 	// on: the game's opening (project start_x/z) and every world-map doorway
 	// with an authored entryx/z. A regenerate keeps them open like stairs.
+	// Which level each lands on is Project::OpeningLevel / DoorwayLevel, the
+	// one arrival rule (Game/Arrival.h).
 	std::vector<std::pair<int, int>> ArrivalsOn(const std::string& stem) const;
 	// Build the level text (palette from `donor`, `stairs` carried across
-	// verbatim), parse it, and hand it to the world.
+	// verbatim with their flags, `mood` the level's atmosphere / uistone
+	// records), parse it, and hand it to the world.
 	bool BuildAndInstall(const std::string& stem, const generate::Params& params,
 						 const std::vector<std::string>& tags,
-						 const DungeonMap& donor, std::span<const StairLink> stairs);
+						 const DungeonMap& donor, std::span<const StairLink> stairs,
+						 const std::string& mood);
 	// Hands a level's whole text to the world in place of what it held (the
 	// files stay untouched until `savemap`, like every editor edit).
 	bool InstallLevelText(const std::string& stem, const std::string& map,

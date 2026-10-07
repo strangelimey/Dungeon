@@ -58,7 +58,10 @@ std::string_view CatalogEntry::DisplayView() const {
 // whitespace too: `undead, animal` is what a person writes without thinking, and
 // silently keeping "undead," as a tag that matches nothing is the sort of defect
 // you only find by wondering why a generator ignored half its content.
-std::vector<std::string> ParseTags(std::string_view value) {
+// IDS (SplitIds) split the same way and keep their case: the one difference
+// between a tag list and an id list is `lower`.
+namespace {
+std::vector<std::string> SplitList(std::string_view value, bool lower) {
 	std::vector<std::string> out;
 	std::string cur;
 	auto flush = [&] {
@@ -69,11 +72,16 @@ std::vector<std::string> ParseTags(std::string_view value) {
 		if (std::isspace(u) || ch == ',')
 			flush();
 		else
-			cur.push_back(static_cast<char>(std::tolower(u)));
+			cur.push_back(lower ? static_cast<char>(std::tolower(u)) : ch);
 	}
 	flush();
 	return out;
 }
+} // namespace
+
+std::vector<std::string> ParseTags(std::string_view value) { return SplitList(value, true); }
+
+std::vector<std::string> SplitIds(std::string_view value) { return SplitList(value, false); }
 
 std::vector<std::string> CatalogTags(const CatalogEntry* e) {
 	return e ? ParseTags(e->Get("tags", "")) : std::vector<std::string>{};

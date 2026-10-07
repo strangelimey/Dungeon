@@ -1,0 +1,63 @@
+; levelcase.eval - a level stem with a CAPITAL in it, and an opening with no
+; level of its own (code-review batch 85: C331, C136, C332). Run with -project
+; lb_case: LevelBuildTest.py phase 9 prepares that scratch copy of the demo world
+; first - project.ini loses its start_level (so the opening lands on the first
+; level, crypt1) and moves to 12,1; world.map gains a doorway crypt_side landing
+; on crypt2 5,3, a square no stair uses; crypt2's stair up gains a flag=.
+;
+; 1. crypt2 is renamed Crypt2. The dungeon's list was split LOWERCASED, so the
+;    checker reported the level missing from its own dungeon, a doorway onto it
+;    entered the dungeon's FIRST level, and a reroll stopped keeping the
+;    doorway's square open.
+; 2. In through crypt_side: the party must be on Crypt2, at 5,3. A rock dropped
+;    on the square ahead (5,4; a drop is a click, and the party's own square is
+;    under the eye) must still lie there after leaving and coming back - the
+;    level's saved state is found under its stem.
+; 3. Crypt2 and crypt1 are each rerolled three times into a small map (phase 7's
+;    knobs and seeds). Crypt2 must keep crypt_side's square; crypt1, with no
+;    start_level, must still START on the opening; and the saved files must keep
+;    crypt2's stair flag, both levels' atmosphere and crypt2's uistone.
+;
+; Every knob is given on every line: unset ones would fall back to the dialog's
+; remembered knobs, which a test must not depend on.
+logecho on
+reset
+freeze on
+echo --- case: rename ---
+levelrename crypt2 Crypt2
+dungeons
+validate
+
+echo --- case: enter ---
+leave
+discover crypt_side
+enter crypt_side
+state
+pos
+worldclock
+drop rock 5 4
+leave
+enter crypt_side
+state
+echo --- case: back ---
+worldclock
+flooritems 5 4
+
+echo --- case: reroll ---
+reset
+levels view Crypt2
+generate again width:14 height:14 roommin:3 roommax:4 path:3 branches:0 branchmin:1 branchmax:1 loops:0 winding:0 irregular:0 deadends:0 locks:0 difficulty:0 density:0 ramp:0 boss:0 reward:0 seed:11
+validate
+generate again width:14 height:14 roommin:3 roommax:4 path:3 branches:0 branchmin:1 branchmax:1 loops:0 winding:0 irregular:0 deadends:0 locks:0 difficulty:0 density:0 ramp:0 boss:0 reward:0 seed:12
+validate
+generate again width:14 height:14 roommin:3 roommax:4 path:3 branches:0 branchmin:1 branchmax:1 loops:0 winding:0 irregular:0 deadends:0 locks:0 difficulty:0 density:0 ramp:0 boss:0 reward:0 seed:13
+validate
+levels view crypt1
+generate again width:16 height:16 roommin:3 roommax:4 path:3 branches:0 branchmin:1 branchmax:1 loops:0 winding:0 irregular:0 deadends:0 locks:0 difficulty:0 density:0 ramp:0 boss:0 reward:0 seed:21
+validate
+generate again width:16 height:16 roommin:3 roommax:4 path:3 branches:0 branchmin:1 branchmax:1 loops:0 winding:0 irregular:0 deadends:0 locks:0 difficulty:0 density:0 ramp:0 boss:0 reward:0 seed:22
+validate
+generate again width:16 height:16 roommin:3 roommax:4 path:3 branches:0 branchmin:1 branchmax:1 loops:0 winding:0 irregular:0 deadends:0 locks:0 difficulty:0 density:0 ramp:0 boss:0 reward:0 seed:23
+validate
+savemap
+echo --- case: end ---

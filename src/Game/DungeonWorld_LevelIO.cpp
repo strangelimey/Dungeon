@@ -239,21 +239,9 @@ static std::string SerializeMapStatic(const std::string& stem,
 		for (const std::string& tag : map.Tags()) m += " " + tag;
 		m += '\n';
 	}
-	// Per-level atmosphere (the Level settings dialog's mood knobs): only set
-	// values are written — an untouched level carries no record and follows
-	// the world defaults.
-	if (map.DustDensity() >= 0.0f || map.HazeAmbient() >= 0.0f ||
-		map.AmbientScale() >= 0.0f) {
-		m += "atmosphere";
-		if (map.DustDensity() >= 0.0f) m += std::format(" dust={:g}", map.DustDensity());
-		if (map.HazeAmbient() >= 0.0f) m += std::format(" haze={:g}", map.HazeAmbient());
-		if (map.AmbientScale() >= 0.0f)
-			m += std::format(" ambient={:g}", map.AmbientScale());
-		m += '\n';
-	}
-	// The UI material override (DungeonMap::UiStone) - absent unless the level
-	// sets its own, so it follows its dungeon's.
-	if (!map.UiStone().empty()) m += std::format("uistone {}\n", map.UiStone());
+	// Per-level atmosphere (the Level settings dialog's mood knobs) and the UI
+	// material override: the map's one writer of them, which a reroll uses too.
+	m += map.MoodRecords();
 	m += ";\n";
 
 	// Grid: 'P' start, '#' wall, 'D' authored-dusty floor, '.' floor. Fixtures
@@ -319,10 +307,7 @@ static std::string SerializeMapStatic(const std::string& stem,
 	// Always the new form, marked so (DungeonMap's constructor reads a file
 	// without the marker as the old travel-facing meaning and turns it round).
 	m += "stairfacing arrive\n";
-	for (const StairLink& s : map.Stairs())
-		m += std::format("stairs {} {} {} {} dest={} destx={} destz={}{}\n", s.type, s.x, s.z,
-						 DirToken(s.facing), s.destLevel, s.destX, s.destZ,
-						 s.flag.empty() ? std::string() : " flag=" + s.flag);
+	for (const StairLink& s : map.Stairs()) m += DungeonMap::StairRecord(s);
 
 	// A pinned palette index is a `variant`; a theme reference a
 	// `theme`, written by the theme's ID (its slot number is this

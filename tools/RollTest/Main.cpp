@@ -68,6 +68,7 @@
 #include "Game/Power.h"
 #include "Game/Style.h"
 #include "Game/Carve.h"
+#include "Game/Arrival.h"
 #include "Game/Character.h" // RecomputeMaxima({}) - header-only, so it links
 #include "Game/Generate.h"
 #include "Game/LightProfile.h"
@@ -3499,6 +3500,30 @@ int main(int argc, char** argv) {
 		CheckTrue("another vendor's chip with the same device id is not it",
 				  resolve(AdapterIdentity{0x1002, 0x2820, 0, 0, "x"}, machine) == -1);
 		CheckTrue("nothing saved resolves to none (auto)", resolve(AdapterIdentity{}, machine) == -1);
+	}
+
+	// --- where a way in lands -----------------------------------------------
+	// Game/Arrival.h (code-review C136): the one rule a new game, a doorway, a
+	// reroll and a stair move all resolve a way in by. The cases the reroll's
+	// old copy got wrong are here by name: an EMPTY start_level (it skipped the
+	// opening) and a stem with a CAPITAL in it (it lowercased the list).
+	{
+		using namespace dungeon::game::arrival;
+		std::printf("\nWhere a way in lands (Game/Arrival.h)\n");
+		const std::vector<std::string> project{"crypt1", "Crypt2", "eval_arena"};
+		CheckTrue("the opening names its level", OpeningLevel("Crypt2", project) == "Crypt2");
+		CheckTrue("an empty start_level opens the project's first level",
+				  OpeningLevel("", project) == "crypt1");
+		CheckTrue("...and a project with no levels opens level1",
+				  OpeningLevel("", {}) == "level1");
+		const std::vector<std::string> keep{"room1", "Keep1"};
+		CheckTrue("a doorway naming a listed level opens it, case and all",
+				  DoorwayLevel("Keep1", keep) == "Keep1");
+		CheckTrue("...and a case that does not match is not that level",
+				  DoorwayLevel("keep1", keep) == "room1");
+		CheckTrue("a doorway naming no level opens the dungeon's first",
+				  DoorwayLevel("", keep) == "room1");
+		CheckTrue("a dungeon with no levels opens nothing", DoorwayLevel("Keep1", {}).empty());
 	}
 
 	// --- verdict ------------------------------------------------------------

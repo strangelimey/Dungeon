@@ -95,6 +95,14 @@ inline bool CatalogBreakable(const CatalogEntry* e) {
 // preference, never a gate — untagged content must stay usable, or every
 // existing type would vanish from the palette the day a level picks tags.
 std::vector<std::string> ParseTags(std::string_view value);
+// An ID LIST - a dungeon's `levels`, a quest's `stages`, the manifest's level
+// list - split the same way (whitespace and commas) but KEEPING CASE. An id is
+// matched exactly and a level stem is a FILE NAME, so ParseTags' lowercasing
+// is wrong for every one of them: a level renamed `Keep1` fell out of its own
+// dungeon's list, a doorway onto it entered the dungeon's first level instead,
+// and the checker reported errors that were not there (code-review C331).
+// Every id list goes through this; nothing splits one by hand.
+std::vector<std::string> SplitIds(std::string_view value);
 // The entry's `tags`, parsed and lowercased; empty for a null entry.
 std::vector<std::string> CatalogTags(const CatalogEntry* e);
 // Does `e` carry any of `wanted`? An empty `wanted` — no tags picked — is true

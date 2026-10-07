@@ -5,6 +5,7 @@
 
 #include "Assets/File.h"
 #include "Core/Log.h"
+#include "Game/Arrival.h"
 #include "Game/Inventory.h" // kItemIdCapacity
 #include "Game/Serialize.h"
 
@@ -12,7 +13,6 @@
 #include <cstdlib>
 #include <filesystem>
 #include <format>
-#include <sstream>
 
 namespace dungeon::game {
 
@@ -89,14 +89,6 @@ const CatalogSlot kCatalogs[] = {
 	 "recipe, not a level. Saved from the dialog; hand-editable."},
 };
 
-// Splits a space-separated list (the manifest's "levels" field) into stems.
-std::vector<std::string> SplitWords(const std::string& s) {
-	std::vector<std::string> out;
-	std::istringstream in(s);
-	std::string word;
-	while (in >> word) out.push_back(word);
-	return out;
-}
 
 } // namespace
 
@@ -150,7 +142,7 @@ Project Project::Load(const std::string& folder) {
 			if (!b.id.empty()) continue; // manifest lives in the unnamed block
 			p.manifest = b; // kept whole — see the member's comment
 			p.name = b.Get("name", "Untitled");
-			p.levels = SplitWords(b.Get("levels"));
+			p.levels = SplitIds(b.Get("levels"));
 			p.defaultSconce = b.Get("default_sconce", "sconce");
 			p.defaultBrazier = b.Get("default_brazier", "brazier");
 			p.startDungeon = b.Get("start_dungeon", "");
@@ -162,9 +154,7 @@ Project Project::Load(const std::string& folder) {
 			p.startZ = std::atoi(b.Get("start_z", "-1").c_str());
 			p.evalLevel = b.Get("eval_level", "");
 			// Comma- or space-separated; either reads.
-			std::string items = b.Get("start_items", "");
-			std::ranges::replace(items, ',', ' ');
-			p.startItems = SplitWords(items);
+			p.startItems = SplitIds(b.Get("start_items", ""));
 		}
 	} else {
 		log::Warn("project has no project.ini: {}", folder);
@@ -369,10 +359,9 @@ std::vector<std::string> Project::DungeonLevels(std::string_view dungeonId) cons
 	std::vector<std::string> out;
 	const CatalogEntry* d = dungeons.Find(dungeonId);
 	if (!d) return out;
-	// SplitWords, not ParseTags: a stem is a FILENAME, and it is about to be
-	// drawn and opened, so it keeps the case it was authored in. (ParseTags
-	// lowercases — right for tags, wrong for anything that names a file.)
-	for (const std::string& stem : SplitWords(d->Get("levels", "")))
+	// SplitIds, not ParseTags: a stem is a FILENAME, and it is about to be
+	// drawn and opened, so it keeps the case it was authored in (C331).
+	for (const std::string& stem : SplitIds(d->Get("levels", "")))
 		if (std::find(levels.begin(), levels.end(), stem) != levels.end())
 			out.push_back(stem);
 	return out;
@@ -380,7 +369,7 @@ std::vector<std::string> Project::DungeonLevels(std::string_view dungeonId) cons
 
 const CatalogEntry* Project::DungeonOfLevel(std::string_view stem) const {
 	for (const CatalogEntry& d : dungeons.Entries())
-		for (const std::string& s : SplitWords(d.Get("levels", "")))
+		for (const std::string& s : SplitIds(d.Get("levels", "")))
 			if (s == stem) return &d;
 	return nullptr;
 }
@@ -390,6 +379,19 @@ std::vector<std::string> Project::OrphanLevels() const {
 	for (const std::string& stem : levels)
 		if (!DungeonOfLevel(stem)) out.push_back(stem);
 	return out;
+}
+
+std::string Project::OpeningLevel() const {
+	// No start dungeon = the game opens on the WORLD MAP, and lands on no level.
+	return startDungeon.empty() ? std::string() : arrival::OpeningLevel(startLevel, levels);
+}
+
+std::string Project::DoorwayLevel(std::string_view dungeonId, std::string_view level) const {
+	// The dungeon's list AS WRITTEN, not DungeonLevels: entering a doorway opens
+	// what the list names, and a stem missing from the manifest is the checker's
+	// to report, not a reason to land somewhere else.
+	const CatalogEntry* d = dungeons.Find(dungeonId);
+	return d ? arrival::DoorwayLevel(level, SplitIds(d->Get("levels", ""))) : std::string();
 }
 
 std::string Project::WorldMapPath() const {

@@ -69,7 +69,12 @@ opens, and nothing reports whether the result matches what was asked for.
   project's flat list. The flat list interleaves dungeons, so a stair down from
   crypt2 led to `eval_arena`.
 - A regenerate takes its palette from the level itself, not the active level.
-  Rerolling a browsed floor used to quietly re-skin it.
+  Rerolling a browsed floor used to quietly re-skin it. It keeps the level's
+  LOOK too - its `atmosphere` and `uistone` records (`DungeonMap::MoodRecords`)
+  - and each stair keeps the `flag=` it waits on: every stair line, the .map
+  writer's, a reroll's and every exit the game authors, is written by ONE
+  formatter, `DungeonMap::StairRecord` (code-review C332; the reroll's own copy
+  dropped all three, and a gated stair came back open).
 - Checks: `tools/LevelBuildTest.py` (scratch world; the checker clean, every
   stair paired, a reroll into a too-small map grows). Mutation: with the reroll's
   stairs dropped, 5 of 7 checks FAIL. `InGameTest.ps1` sweeps both dialog modes.
@@ -339,7 +344,13 @@ range bonus on top; the Generate button gets a die.
   stair leads up, the first arrival becomes the ENTRY (the layout's root and the
   start), since that is where a player walking in begins. The checker gained
   `map.check.arrivalblocked`: a doorway opening onto rock. It had no such rule,
-  so a bad reroll passed it.
+  so a bad reroll passed it. WHICH LEVEL a way in lands on is one rule,
+  `Game/Arrival.h` (`Project::OpeningLevel` / `DoorwayLevel`), shared by a new
+  game, entering a doorway, `ArrivalsOn` and a stair move's `RemapArrivals`
+  (code-review C136): this copy had skipped an opening with an empty
+  `start_level` and lowercased the dungeon's level list, which an id list must
+  never be (`SplitIds`, C331). LevelBuildTest phase 9 holds both, with a
+  `Crypt2`.
 - **The Generate icon is a die**, drawn onto the pack's blank disc like the
   level, save and globe glyphs.
 - Checks: `LevelBuildTest.py` phase 4 now demands difficulty 0.2 -> 0.8 be 3+

@@ -3151,7 +3151,7 @@ Full per-phase history + gotchas live in the editor-overhaul memory.
   backup holds it), nothing new in `git status` under assets/projects and
   assets/library, and no status line naming the judge's own scratch worlds, a
   killed run's included. LevelBuildTest refuses a phase it does not have
-  (`LevelBuildTest 9`, exit 2 - nothing ran) and a run that ran no check; a
+  (`LevelBuildTest 10`, exit 2 - nothing ran) and a run that ran no check; a
   judge that ran a game and stops early (WorldTest's unclean baseline) is a
   FAIL, exit 1.
 - TYPED TEXT IS ONE ORDERED STREAM (Platform/Input.h `TypedChars`): printable

@@ -1,7 +1,7 @@
 # tools/LevelBuildTest.py - the level-building thread's checks (docs/level-building.md).
 #
 # Run:  python tools\LevelBuildTest.py [phase ...]   (needs a debug build;
-#       no phases = all eight)
+#       no phases = all nine)
 #
 # The eval runner's own verdict only says every line matched a command, so it
 # reads PASS on a run that stranded every level it made. This reads what the
@@ -65,6 +65,17 @@
 #      crypt1's exit stair faces; down crypt1's stair must land on crypt2's
 #      facing the way THAT stair faces (not the old destfacing); savemap must
 #      write the new form, each stair back at the demo's own facing.
+#   9. A CAPITAL IN A STEM, AN OPENING WITH NO LEVEL (code-review batch 85) -
+#      crypt2 is renamed Crypt2 and the opening's start_level is removed. The
+#      checker stays clean; a doorway onto Crypt2 enters Crypt2 (not the
+#      dungeon's first level) and finds what was dropped there; rerolls keep
+#      the doorway's square joined on and crypt1 starting on the opening; and
+#      the saved files keep crypt2's stair `flag=`, both atmospheres and the
+#      uistone. Each id list used to be split LOWERCASED (C331), the reroll's
+#      own copy of the arrival rule skipped an empty start_level (C136), and
+#      the reroll wrote no flag, atmosphere or uistone (C332). Crypt2.map must
+#      first hold the rerolls' 14x14 grid: the staged file levelrename moves
+#      there already passes the other three Crypt2 checks unrerolled.
 #
 # Checked by mutation (2026-09-24): with the reroll's stairs dropped, the
 # checker reported 5 errors (stairblocked, stairunpaired, three levellost) and
@@ -75,9 +86,9 @@
 # ends by checking the real worlds and the style library are as it found them
 # (before it cleared up after a killed run) and that git status names none of
 # its scratch worlds.
-# A phase that is not 1-8 is REFUSED (exit 2), and a run in which no check ran
-# is a FAIL: `LevelBuildTest 9` used to run nothing and print PASS (code-review
-# C432).
+# A phase that is not 1-9 is REFUSED (exit 2), and a run in which no check ran
+# is a FAIL: `LevelBuildTest 9` used to run nothing and print PASS when there
+# were eight (code-review C432).
 import io
 import os
 import re
@@ -90,10 +101,10 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 EXE = os.path.join(ROOT, r"build\debug\bin\Dungeon.exe")
 LOG = os.path.join(ROOT, r"build\debug\bin\dungeon.log")
 SCRIPTS = os.path.join(ROOT, r"tools\EvalScripts")
-PHASES = range(1, 9)
+PHASES = range(1, 10)
 # Each phase's scratch world, by name - so a run can clear what a killed one left.
 SCRATCH = ("lb_create", "lb_shape", "lb_complex", "lb_threat", "lb_recipe", "lb_play",
-           "lb_arrive", "lb_facing")
+           "lb_arrive", "lb_facing", "lb_case")
 
 failures = 0
 checks_run = 0
@@ -141,6 +152,26 @@ def grid_of(levels_dir, stem):
     p = os.path.join(levels_dir, stem + ".map")
     return [l for l in io.open(p, encoding="utf-8").read().splitlines()
             if l and l[0] in "#.PDTF" and not l.startswith(";")]
+
+
+def reached(grid, start):
+    """Floor squares joined to `start` (4-connected, '#' is rock)."""
+    seen, todo = set(), [start]
+    while todo:
+        x, z = todo.pop()
+        if (x, z) in seen or not (0 <= z < len(grid) and 0 <= x < len(grid[z])):
+            continue
+        if grid[z][x] == "#":
+            continue
+        seen.add((x, z))
+        todo += [(x + 1, z), (x - 1, z), (x, z + 1), (x, z - 1)]
+    return seen
+
+
+def start_of(grid):
+    """The grid's start square ('P'), or None."""
+    return next(((x, z) for z, row in enumerate(grid) for x, ch in enumerate(row)
+                 if ch == "P"), None)
 
 
 def measure(rows):
@@ -917,24 +948,6 @@ def main():
                   f"{[con[i] for i in verdicts if not con[i].startswith('validate: clean')]}")
 
             levels = os.path.join(proj, "levels")
-
-            def reached(grid, start):
-                """Floor squares joined to `start` (4-connected, '#' is rock)."""
-                seen, todo = set(), [start]
-                while todo:
-                    x, z = todo.pop()
-                    if (x, z) in seen or not (0 <= z < len(grid) and 0 <= x < len(grid[z])):
-                        continue
-                    if grid[z][x] == "#":
-                        continue
-                    seen.add((x, z))
-                    todo += [(x + 1, z), (x - 1, z), (x, z + 1), (x, z - 1)]
-                return seen
-
-            def start_of(grid):
-                return next(((x, z) for z, row in enumerate(grid) for x, ch in enumerate(row)
-                             if ch == "P"), None)
-
             g2 = grid_of(levels, "crypt2")
             s2 = start_of(g2)
             joined = reached(g2, s2) if s2 else set()
@@ -1029,6 +1042,120 @@ def main():
                   "savemap writes the NEW form: the marker, every stair turned back to "
                   "the demo's own facing, no destfacing",
                   f"{[l for t in new.values() for l in t.splitlines() if l.startswith('stair')]}")
+        finally:
+            shutil.rmtree(proj, ignore_errors=True)
+
+    if phase_wanted(9):
+        print("\n9 - a stem with a capital, an opening with no level, and a reroll that "
+              "keeps the level's look")
+        proj = scratch("lb_case")
+        try:
+            # THE OPENING NAMES NO LEVEL: start_level goes, so it lands on the
+            # project's first (crypt1), at 12,1 - a square nothing else holds.
+            # The reroll's copy of the arrival rule skipped such an opening (C136).
+            ini = os.path.join(proj, "project.ini")
+            text = io.open(ini, encoding="utf-8", newline="").read()
+            eol = "\r\n" if "\r\n" in text else "\n"
+            text = text.replace("start_level = crypt1" + eol, "")
+            text = text.replace("start_x = 7", "start_x = 12").replace("start_z = 7", "start_z = 1")
+            io.open(ini, "w", encoding="utf-8", newline="").write(text)
+            # A doorway onto crypt2 5,3 (no stair under it - phase 7's), which
+            # the rename must carry to Crypt2.
+            wm = os.path.join(proj, r"world\world.map")
+            text = io.open(wm, encoding="utf-8", newline="").read()
+            eol = "\r\n" if "\r\n" in text else "\n"
+            at = text.index("location dungeon crypt_back")
+            text = (text[:at] + "location dungeon crypt_side 8 13 dungeon=crypt level=crypt2 "
+                    "entryx=5 entryz=3" + eol + text[at:])
+            io.open(wm, "w", encoding="utf-8", newline="").write(text)
+            # A GATED stair: crypt2's way up waits on relic_lifted. A reroll wrote
+            # stairs without `flag=` (C332), and the gate came back open.
+            c2 = os.path.join(proj, r"levels\crypt2.map")
+            text = io.open(c2, encoding="utf-8", newline="").read()
+            up = "stairs stairs_up 1 1 south dest=crypt1 destx=1 destz=1"
+            check(up in text and "start_level =" not in io.open(ini, encoding="utf-8").read(),
+                  "the scratch world is staged: no start_level, crypt2's stair up where "
+                  "the demo has it", up)
+            text = text.replace(up, up + " flag=relic_lifted")
+            io.open(c2, "w", encoding="utf-8", newline="").write(text)
+            # What the reroll must keep, read off the demo's own files.
+            def looks(stem):
+                p = os.path.join(proj, "levels", stem + ".map")
+                return [l for l in io.open(p, encoding="utf-8").read().splitlines()
+                        if l.startswith(("atmosphere", "uistone"))]
+            look2, look1 = looks("crypt2"), looks("crypt1")
+            check(len(look2) == 2 and len(look1) == 1,
+                  "crypt2 carries an atmosphere and a uistone, crypt1 an atmosphere (the "
+                  "records a reroll must keep)", f"{look2} {look1}")
+            # The staged grid's size: the rerolls make it 14x14, and only that
+            # proves the Crypt2.map read below is a REROLL savemap wrote - the
+            # staged file (renamed by levelrename) already holds the flag, the
+            # look and a 5,3 joined to its start.
+            staged2 = grid_of(os.path.join(proj, "levels"), "crypt2")
+            dims2 = (max(map(len, staged2), default=0), len(staged2))
+            check(dims2 != (14, 14),
+                  "the staged crypt2 is not already the rerolls' 14x14", f"{dims2}")
+
+            code, con = run("levelcase.eval", "lb_case")
+            check(code == 0, "the script ran to the end", f"exit {code}")
+
+            def section(name):
+                out, on = [], False
+                for l in con:
+                    if l.startswith("--- case: "):
+                        on = l == f"--- case: {name} ---"
+                    elif on:
+                        out.append(l.strip())
+                return out
+
+            # 1. The rename, and the checker after it (C331).
+            ren = section("rename")
+            check(any(re.match(r"crypt\b.*: crypt1 Crypt2$", l) for l in ren),
+                  "Crypt2 keeps its place in its dungeon's list, capital and all", f"{ren}")
+            check(any(l.startswith("validate: clean") for l in ren),
+                  "the checker is clean after the rename (lowercased, the list lost Crypt2)",
+                  f"{[l for l in ren if 'validate' in l or 'error' in l.lower()]}")
+            # 2. In by the doorway, and back again (C331).
+            ent = section("enter")
+            check(any(l.startswith("5,3 facing ") for l in ent) and
+                  any("level=Crypt2 " in l for l in ent if l.startswith("worldclock")),
+                  "in through crypt_side: on Crypt2 at 5,3 (it entered crypt1, the "
+                  "dungeon's first)", f"{ent}")
+            back = section("back")
+            check(any("level=Crypt2 " in l for l in back if l.startswith("worldclock")) and
+                  any(l.startswith("flooritems ") and "rock" in l for l in back),
+                  "out and back in: on Crypt2 again, and the rock dropped at 5,4 still lies "
+                  "there (its state is kept under its stem)", f"{back}")
+            # 3. The rerolls (C136, C332).
+            rr = section("reroll")
+            blocked = [l for l in rr if "arrivalblocked" in l or "stairblocked" in l]
+            verdicts = [l for l in rr if l.startswith("validate:")]
+            check(len(verdicts) == 6 and not blocked,
+                  "six rerolls, and no way in left landing on rock",
+                  f"{len(verdicts)} verdicts, {blocked}")
+            levels = os.path.join(proj, "levels")
+            g2 = grid_of(levels, "Crypt2")
+            s2 = start_of(g2)
+            check(len(g2) == 14 and all(len(r) == 14 for r in g2),
+                  f"Crypt2.map holds a rerolled 14x14 grid (staged {dims2[0]}x{dims2[1]}): "
+                  "savemap wrote the browsed level's reroll, so the checks below read it",
+                  f"{len(g2)} rows, widths {sorted(set(map(len, g2)))}")
+            check(s2 is not None and (5, 3) in reached(g2, s2),
+                  "Crypt2: crypt_side's square 5,3 is floor joined to the level (the doorway "
+                  "was not counted under a capitalised stem)", f"start {s2}, rows {g2}")
+            g1 = grid_of(levels, "crypt1")
+            s1 = start_of(g1)
+            check(s1 == (12, 1),
+                  "crypt1: with start_level empty, the OPENING is still its entry - the "
+                  "level starts on 12,1", f"start {s1}")
+            new2 = io.open(os.path.join(levels, "Crypt2.map"), encoding="utf-8").read()
+            check(re.search(r"^stairs stairs_up 1 1 \w+ dest=crypt1 destx=1 destz=1 "
+                            r"flag=relic_lifted$", new2, re.M) is not None,
+                  "Crypt2's stair up still waits on relic_lifted after the rerolls",
+                  f"{[l for l in new2.splitlines() if l.startswith('stairs')]}")
+            check(looks("Crypt2") == look2 and looks("crypt1") == look1,
+                  "the atmosphere and the uistone survive the rerolls, value for value",
+                  f"{looks('Crypt2')} {looks('crypt1')}")
         finally:
             shutil.rmtree(proj, ignore_errors=True)
 

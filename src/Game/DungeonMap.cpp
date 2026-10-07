@@ -1192,6 +1192,29 @@ size_t DungeonMap::RemoveDecorationRecordsAt(int x, int z) {
 						 [&](const Entity& e) { return e.x == x && e.z == z; });
 }
 
+// The record writers beside the parser that reads them back (see the header).
+std::string DungeonMap::MoodRecords() const {
+	std::string m;
+	// Only set values: an untouched level carries no record and follows the
+	// world defaults.
+	if (m_dustDensity >= 0.0f || m_hazeAmbient >= 0.0f || m_ambientScale >= 0.0f) {
+		m += "atmosphere";
+		if (m_dustDensity >= 0.0f) m += std::format(" dust={:g}", m_dustDensity);
+		if (m_hazeAmbient >= 0.0f) m += std::format(" haze={:g}", m_hazeAmbient);
+		if (m_ambientScale >= 0.0f) m += std::format(" ambient={:g}", m_ambientScale);
+		m += '\n';
+	}
+	// Absent unless the level sets its own, so it follows its dungeon's.
+	if (!m_uiStone.empty()) m += std::format("uistone {}\n", m_uiStone);
+	return m;
+}
+
+std::string DungeonMap::StairRecord(const StairLink& s) {
+	return std::format("stairs {} {} {} {} dest={} destx={} destz={}{}\n", s.type, s.x, s.z,
+					   DirToken(s.facing), s.destLevel, s.destX, s.destZ,
+					   s.flag.empty() ? std::string() : " flag=" + s.flag);
+}
+
 bool DungeonMap::AddStair(const StairLink& link) {
 	if (!IsWalkable(link.x, link.z) || StairAt(link.x, link.z)) return false;
 	m_stairs.push_back(link);

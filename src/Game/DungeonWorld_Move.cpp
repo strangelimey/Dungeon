@@ -443,25 +443,19 @@ void DungeonWorld::RemapArrivals(const std::string& stem,
 		std::vector<std::string> follow;
 		for (const WorldMap::Location& l : world.Locations()) {
 			if (l.entryX < 0 || l.entryZ < 0) continue; // lands on the level's start
-			// Which level the doorway opens onto, resolved as entering it does
-			// (Game::ArrivalsOn): its `level` when that belongs to its dungeon,
-			// else the dungeon's first.
-			const std::vector<std::string> levels = m_project.DungeonLevels(l.Dungeon());
-			if (levels.empty()) continue;
-			const bool named = std::find(levels.begin(), levels.end(), l.level) != levels.end();
-			if ((named ? l.level : levels.front()) == stem) follow.push_back(l.id);
+			// Which level the doorway opens onto: the one arrival rule
+			// (Game/Arrival.h, C136), the same answer entering it gets.
+			if (m_project.DoorwayLevel(l.Dungeon(), l.level) == stem) follow.push_back(l.id);
 		}
 		for (const std::string& id : follow)
 			if (WorldMap::Location* l = world.MutableLocation(id);
 				l && remap(l->entryX, l->entryZ))
 				say(loc::Format("map.move.arrival", id, l->entryX, l->entryZ));
 	}
+	// The opening's level by the same rule. m_openLevel IS the project's
+	// start_level (SetOpeningForUndo lends it), so the project answers for it.
 	if (m_openLevel && m_openX && m_openZ && *m_openX >= 0 && *m_openZ >= 0) {
-		const std::string level =
-			m_openLevel->empty()
-				? (m_project.levels.empty() ? std::string("level1") : m_project.levels.front())
-				: *m_openLevel;
-		if (level == stem && remap(*m_openX, *m_openZ)) {
+		if (m_project.OpeningLevel() == stem && remap(*m_openX, *m_openZ)) {
 			m_openingMoved = true;
 			say(loc::Format("map.move.opening", *m_openX, *m_openZ));
 		}

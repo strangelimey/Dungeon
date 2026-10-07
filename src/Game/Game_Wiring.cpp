@@ -592,17 +592,11 @@ void Game::WireModuleCallbacks() {
 			// quest AND a stage ("<quest>:<stage>"), and its reveal a world-map
 			// location.
 			if (std::string_view(spec.options) == kOptQuestStages) {
-				// Split as written, NOT through ParseTags: that lowercases, and a
-				// stage is matched by its exact name.
-				for (const CatalogEntry& q : m_project.quests.Entries()) {
-					const std::string st = q.Get("stages", "");
-					for (size_t i = 0; i < st.size();) {
-						while (i < st.size() && st[i] == ' ') ++i;
-						const size_t b = i;
-						while (i < st.size() && st[i] != ' ') ++i;
-						if (i > b) ids.push_back(q.id + ":" + st.substr(b, i - b));
-					}
-				}
+				// SplitIds, NOT ParseTags: that lowercases, and a stage is
+				// matched by its exact name (C331).
+				for (const CatalogEntry& q : m_project.quests.Entries())
+					for (const std::string& stage : SplitIds(q.Get("stages", "")))
+						ids.push_back(q.id + ":" + stage);
 				return ids;
 			}
 			if (std::string_view(spec.options) == kOptUiStones) return InstalledUiStones();

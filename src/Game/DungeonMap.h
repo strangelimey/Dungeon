@@ -375,6 +375,18 @@ public:
 	const std::string& UiStone() const { return m_uiStone; }
 	void SetUiStone(std::string name) { m_uiStone = std::move(name); }
 
+	// --- the records a WRITER emits for the level's look ----------------------
+	// The `atmosphere` (set values only) and `uistone` lines, "" for a level
+	// that sets neither. ONE writer for the editor's .map writer and a reroll
+	// (Game::RegenerateViewedLevel): the reroll wrote neither, so rerolling
+	// crypt1 lost its atmosphere and crypt2 its material (code-review C332).
+	std::string MoodRecords() const;
+	// One `stairs` record line, newline included - `flag=` when it waits on
+	// one. ONE formatter for every writer of a stair (the .map writer, a reroll
+	// carrying its stairs across, every exit the game authors): the reroll's
+	// copy dropped `flag=`, and a gated stair came back open (C332).
+	static std::string StairRecord(const StairLink& s);
+
 	// The file this was read from is in a form the writer no longer writes (its
 	// stairs in the old travel-facing meaning - see Parse), so it means the same
 	// as the map but does not SAY it the way a save would: a level read so is

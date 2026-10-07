@@ -1187,11 +1187,8 @@ void Game::StartNewGame() {
 		if (staged(ground, -1, -1)) return;
 		log::Info("New game started on the harness ground ({})", ground);
 	} else if (!m_project.startDungeon.empty()) {
-		const std::string level =
-			m_project.startLevel.empty()
-				? (m_project.levels.empty() ? std::string("level1")
-											: m_project.levels.front())
-				: m_project.startLevel;
+		// The opening's level by the one arrival rule (Game/Arrival.h).
+		const std::string level = m_project.OpeningLevel();
 		if (staged(level, m_project.startX, m_project.startZ)) return;
 		log::Info("New game started in {} ({} at {},{})", m_project.startDungeon,
 				  level, m_project.startX, m_project.startZ);

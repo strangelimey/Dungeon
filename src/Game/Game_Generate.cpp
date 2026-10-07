@@ -78,12 +78,6 @@ std::string RecordLine(const Entity& e) {
 	return line + "\n";
 }
 
-// The generated level as the two files' TEXT. Shared by both entry points so
-// they cannot drift into producing different dungeons from the same knobs.
-//
-// `stairs` are carried across VERBATIM: a regenerated level keeps its links to
-// the floors around it (the generator was told to leave their squares open), so
-// rerolling a floor never strands the one above.
 // The three surface palettes a generated level copies, by Surface order (wall,
 // floor, ceiling). A donor LEVEL's (PalettesOf) or ones chosen from a catalog
 // (the new-world wizard, which has no level to copy from).
@@ -106,11 +100,20 @@ std::string DressLevel(const Project& project, const generate::Params& params,
 	return look.records;
 }
 
+// The generated level as the two files' TEXT. Shared by both entry points so
+// they cannot drift into producing different dungeons from the same knobs.
+//
+// `stairs` are carried across VERBATIM: a regenerated level keeps its links to
+// the floors around it (the generator was told to leave their squares open), so
+// rerolling a floor never strands the one above - and each keeps the flag it
+// waits on, written by the map's own stair formatter (C332). `mood` is the
+// level's `atmosphere` / `uistone` records (DungeonMap::MoodRecords) for a
+// reroll, which changes the shape and not the look; "" for a new level.
 void BuildLevelText(const std::string& stem, const generate::Level& lv,
 					const generate::Params& params, const Palettes& palettes,
 					const std::vector<std::string>& tags, const std::string& themeRecords,
 					std::span<const StairLink> stairs, std::string& map,
-					std::string& ent) {
+					std::string& ent, const std::string& mood = {}) {
 	auto join = [](const std::vector<std::string>& ids) {
 		std::string out;
 		for (const std::string& id : ids) out += (out.empty() ? "" : " ") + id;
@@ -121,12 +124,10 @@ void BuildLevelText(const std::string& stem, const generate::Level& lv,
 	map += "palette floor " + join(palettes[1]) + "\n";
 	map += "palette ceiling " + join(palettes[2]) + "\n";
 	if (!tags.empty()) map += "tags " + join(tags) + "\n";
+	map += mood;
 	map += themeRecords; // after the palettes: a theme resolves against them
 	map += "stairfacing arrive\n"; // the new stair-facing meaning (DungeonMap)
-	for (const StairLink& st : stairs)
-		map += std::format("stairs {} {} {} {} dest={} destx={} destz={}\n", st.type, st.x,
-						   st.z, kDir[static_cast<int>(st.facing)], st.destLevel, st.destX,
-						   st.destZ);
+	for (const StairLink& st : stairs) map += DungeonMap::StairRecord(st);
 	map += ";\n";
 	for (int z = 0; z < lv.height; ++z) {
 		for (int x = 0; x < lv.width; ++x)
@@ -152,19 +153,25 @@ bool Game::InEncounter() const { return m_world->CurrentLevel() == kEncounterSte
 std::string Game::ExitStairRecord(const std::string& type, int startX, int startZ,
 								  const std::function<bool(int, int)>& open, ExitSpot spot,
 								  const std::string& dest) {
-	const auto line = [&](int x, int z, const char* facing) {
-		return std::format("stairs {} {} {} {} dest={} destx=0 destz=0\n", type, x, z, facing,
-						   dest);
+	// Through the map's one stair formatter (C332), like every stair written.
+	const auto line = [&](int x, int z, int facing) {
+		StairLink s;
+		s.type = type;
+		s.x = x;
+		s.z = z;
+		s.facing = static_cast<Direction>(facing);
+		s.destLevel = dest;
+		return DungeonMap::StairRecord(s);
 	};
-	// The sides in kDir's order, so side d's opposite is (d + 2) % 4.
+	// The sides in Direction's order (north, east, south, west), so side d's
+	// opposite is (d + 2) % 4.
 	constexpr int kStep[4][2] = {{0, -1}, {1, 0}, {0, 1}, {-1, 0}};
 	for (int d = 0; d < 4; ++d) {
 		const int x = startX + kStep[d][0], z = startZ + kStep[d][1];
 		if (!open(x, z)) continue;
-		return spot == ExitSpot::OnStart ? line(startX, startZ, kDir[d])
-										 : line(x, z, kDir[(d + 2) % 4]);
+		return spot == ExitSpot::OnStart ? line(startX, startZ, d) : line(x, z, (d + 2) % 4);
 	}
-	return spot == ExitSpot::OnStart ? line(startX, startZ, kDir[0]) : std::string();
+	return spot == ExitSpot::OnStart ? line(startX, startZ, 0) : std::string();
 }
 
 bool Game::StartEncounter(float difficulty, const std::vector<std::string>& tags,
@@ -575,7 +582,8 @@ bool Game::LinkToFloorAbove(const std::string& stem,
 
 bool Game::BuildAndInstall(const std::string& stem, const generate::Params& params,
 						   const std::vector<std::string>& tags,
-						   const DungeonMap& donor, std::span<const StairLink> stairs) {
+						   const DungeonMap& donor, std::span<const StairLink> stairs,
+						   const std::string& mood) {
 	generate::Params p = params;
 	FillPools(p, tags);
 	const generate::Level lv = generate::Run(p);
@@ -584,7 +592,7 @@ bool Game::BuildAndInstall(const std::string& stem, const generate::Params& para
 	std::string map, ent;
 	Palettes palettes = PalettesOf(donor);
 	const std::string themes = DressLevel(m_project, p, lv, palettes);
-	BuildLevelText(stem, lv, p, palettes, tags, themes, stairs, map, ent);
+	BuildLevelText(stem, lv, p, palettes, tags, themes, stairs, map, ent, mood);
 	return InstallLevelText(stem, map, ent);
 }
 
@@ -617,21 +625,18 @@ bool Game::InstallLevelText(const std::string& stem, const std::string& map,
 
 std::vector<std::pair<int, int>> Game::ArrivalsOn(const std::string& stem) const {
 	std::vector<std::pair<int, int>> out;
-	// The game's opening: a named square on its start level.
-	if (m_project.startLevel == stem && m_project.startX >= 0 && m_project.startZ >= 0)
+	// Which level each way in lands on is the ONE rule (Game/Arrival.h, C136):
+	// this copy used to skip the opening when start_level was empty and to
+	// lowercase the dungeon's level list, so a reroll of the first level, or of
+	// one with a capital in its stem, could fill an arrival square with rock.
+	// The game's opening: a named square on its level.
+	if (m_project.startX >= 0 && m_project.startZ >= 0 && m_project.OpeningLevel() == stem)
 		out.push_back({m_project.startX, m_project.startZ});
 	if (!m_worldMap) return out;
 	for (const WorldMap::Location& l : m_worldMap->Locations()) {
 		if (l.entryX < 0 || l.entryZ < 0) continue; // lands on the level's start
-		// Which level this doorway opens onto, resolved as entering it does
-		// (Game::EnterLocation): its `level` when that belongs to its dungeon,
-		// else the dungeon's first.
-		const CatalogEntry* d = m_project.dungeons.Find(l.Dungeon());
-		if (!d) continue;
-		const std::vector<std::string> levels = ParseTags(d->Get("levels", ""));
-		if (levels.empty()) continue;
-		const bool named = std::find(levels.begin(), levels.end(), l.level) != levels.end();
-		if ((named ? l.level : levels.front()) == stem) out.push_back({l.entryX, l.entryZ});
+		if (m_project.DoorwayLevel(l.Dungeon(), l.level) == stem)
+			out.push_back({l.entryX, l.entryZ});
 	}
 	return out;
 }
@@ -687,8 +692,13 @@ bool Game::RegenerateViewedLevel(generate::Params params) {
 	// A tag or palette CHOSEN in the dialog (P4b) replaces the level's own;
 	// empty keeps it, which is what a reroll did before there was a choice.
 	const std::vector<std::string> tags = TagsFor(params, m_project, viewed.Tags());
+	// AND ITS LOOK: the atmosphere and the UI material are the level's own,
+	// whoever donates the palette (C332 - a reroll dropped both, and crypt1, crypt2
+	// and eval_arena all carry an atmosphere). Taken as TEXT before the install,
+	// since `viewed` can be the live map the install replaces.
+	const std::string mood = viewed.MoodRecords();
 	const bool ok = BuildAndInstall(stem, params, tags,
-									PaletteDonor(params.palette, viewed), stairs);
+									PaletteDonor(params.palette, viewed), stairs, mood);
 	m_world->CommitUndoStep(ok);
 	return ok;
 }

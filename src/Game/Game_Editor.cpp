@@ -473,16 +473,11 @@ bool Game::RenameLevel(const std::string& oldStem, const std::string& newStem,
 	// the vector being walked.
 	std::vector<CatalogEntry> retyped;
 	for (const CatalogEntry& e : m_project.dungeons.Entries()) {
-		std::string words = e.Get("levels", "");
+		// The list split as every reader splits it (SplitIds, C331), so a
+		// stem this matches is one they find.
 		std::string out;
 		bool hit = false;
-		size_t i = 0;
-		while (i < words.size()) {
-			while (i < words.size() && words[i] == ' ') ++i;
-			const size_t start = i;
-			while (i < words.size() && words[i] != ' ') ++i;
-			if (i == start) break;
-			std::string w = words.substr(start, i - start);
+		for (std::string w : SplitIds(e.Get("levels", ""))) {
 			if (w == oldStem) {
 				w = newStem;
 				hit = true;

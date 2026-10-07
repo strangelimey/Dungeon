@@ -262,6 +262,14 @@ struct Project {
 	// and the editor must still be able to REACH them — a level that became
 	// uneditable by being forgotten is a worse outcome than an untidy list.
 	std::vector<std::string> OrphanLevels() const;
+	// WHERE A WAY IN LANDS (Game/Arrival.h, code-review C136): the level the
+	// game's opening opens ("" = it opens on the world map: no start_dungeon),
+	// and the level a doorway into `dungeonId` naming `level` opens ("" = the
+	// dungeon is unknown or lists no level). Every
+	// place that resolves one asks here - a new game, entering a doorway, a
+	// reroll keeping the squares they land on, a stair move carrying them.
+	std::string OpeningLevel() const;
+	std::string DoorwayLevel(std::string_view dungeonId, std::string_view level) const;
 
 	// --- one project per WORLD (W7) -------------------------------------
 	// Michael's word for a project is a WORLD, and after W6 that is what one

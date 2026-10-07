@@ -52,18 +52,6 @@ char GlyphOf(const CatalogEntry& e) {
 	return ReadGlyph(e);
 }
 
-// How many space-separated stems a dungeon's `levels` field names.
-size_t WordCount(const std::string& s) {
-	size_t n = 0;
-	bool inWord = false;
-	for (const char c : s) {
-		const bool space = c == ' ' || c == '	';
-		if (!space && !inWord) ++n;
-		inWord = !space;
-	}
-	return n;
-}
-
 } // namespace
 
 WorldMap::TerrainRules Game::CatalogTerrainRules() const {
@@ -134,7 +122,7 @@ void Game::ReserveWorldState() {
 	const auto fit = [&longest](std::string_view s) { longest = std::max(longest, s.size()); };
 	for (const CatalogEntry& e : m_project.quests.Entries()) {
 		fit(e.id);
-		for (const std::string& stage : ParseTags(e.Get("stages", ""))) fit(stage);
+		for (const std::string& stage : SplitIds(e.Get("stages", ""))) fit(stage);
 	}
 	for (const CatalogEntry& e : m_project.flags.Entries()) fit(e.id);
 	if (m_worldMap)
@@ -255,7 +243,11 @@ std::vector<validate::Issue> Game::ValidateProject() {
 	for (const CatalogEntry& e : m_project.dungeons.Entries()) {
 		validate::DungeonView d;
 		d.id = e.id;
-		d.levels = ParseTags(e.Get("levels", "")); // space-split + lowercased
+		// As written, case and all, and UNFILTERED (not Project::DungeonLevels,
+		// which drops a stem the manifest lacks - that is a finding to report,
+		// not one to hide). Lowercased, a level renamed `Keep1` was reported
+		// missing from its own dungeon (C331).
+		d.levels = SplitIds(e.Get("levels", ""));
 		d.style = e.Get("style", "");
 		view.dungeons.push_back(std::move(d));
 	}
@@ -272,7 +264,7 @@ std::vector<validate::Issue> Game::ValidateProject() {
 	for (const CatalogEntry& e : m_project.quests.Entries()) {
 		validate::QuestView q;
 		q.id = e.id;
-		q.stages = ParseTags(e.Get("stages", ""));
+		q.stages = SplitIds(e.Get("stages", "")); // a stage is matched by its exact name
 		view.quests.push_back(std::move(q));
 	}
 	for (const CatalogEntry* e : m_project.AllItems()) {
@@ -388,23 +380,22 @@ bool Game::EnterLocation(const std::string& id) {
 				  loc->Dungeon());
 		return false;
 	}
-	const std::vector<std::string> levels = ParseTags(d->Get("levels", ""));
-	if (levels.empty()) {
-		log::Warn("enter: dungeon '{}' has no levels", loc->Dungeon());
-		return false;
-	}
 	// WHERE THIS DOORWAY LANDS — the LOCATION says, and nothing else does. A
 	// dungeon has no start of its own (Michael, 2026-09-09): it is a named group
 	// of levels, and every way in carries its own destination. An unauthored
 	// `level` falls back to the first only so a half-written location still
-	// opens something rather than aborting; the checker calls it out.
-	std::string entry = loc->level;
-	if (entry.empty() ||
-		std::find(levels.begin(), levels.end(), entry) == levels.end()) {
-		log::Warn("enter: location '{}' names no level of dungeon '{}' — using {}",
-				  id, loc->Dungeon(), levels.front());
-		entry = levels.front();
+	// opens something rather than aborting; the checker calls it out. The
+	// resolution is the one arrival rule (Game/Arrival.h, C136), over the
+	// dungeon's list AS WRITTEN - it was lowercased (C331), so a doorway onto
+	// a level renamed `Keep1` entered the dungeon's first level instead.
+	const std::string entry = m_project.DoorwayLevel(loc->Dungeon(), loc->level);
+	if (entry.empty()) {
+		log::Warn("enter: dungeon '{}' has no levels", loc->Dungeon());
+		return false;
 	}
+	if (entry != loc->level)
+		log::Warn("enter: location '{}' names no level of dungeon '{}' - using {}", id,
+				  loc->Dungeon(), entry);
 
 	m_worldState.onWorldMap = false;
 	m_worldState.atLocation = id; // the fallback for an exit that names none
@@ -772,7 +763,7 @@ std::vector<std::string> Game::WorldReport() const {
 			"  {:<7} {:<12} {},{}  on {}  difficulty {:.2f}  -> {}", l.kind, l.id,
 			l.x, l.z, w.TerrainAt(l.x, l.z).id, w.Difficulty(l.x, l.z),
 			d ? std::format("{} ({} level(s)) at {} {},{}", l.Dungeon(),
-							WordCount(d->Get("levels", "")),
+							SplitIds(d->Get("levels", "")).size(),
 							l.level.empty() ? std::string("(unset!)") : l.level,
 							l.entryX, l.entryZ)
 			  : std::string("NO SUCH DUNGEON")));
@@ -799,7 +790,7 @@ void Game::OpenWorldSettings(const std::string& selectLocation) {
 	// construction rather than reporting it afterwards.
 	std::vector<WorldSettingsDialog::DungeonInfo> dungeons;
 	for (const CatalogEntry& e : m_project.dungeons.Entries())
-		dungeons.push_back({e.id, ParseTags(e.Get("levels", ""))});
+		dungeons.push_back({e.id, SplitIds(e.Get("levels", ""))}); // stems keep their case
 
 	WorldSettingsDialog::Manifest m;
 	m.startDungeon = m_project.startDungeon;
