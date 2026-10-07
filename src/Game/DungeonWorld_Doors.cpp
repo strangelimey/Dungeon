@@ -62,10 +62,12 @@ void DungeonWorld::SpawnDoor(const Entity& record) {
 	door.open = door.initialOpen;
 	door.openT = door.open ? 1.0f : 0.0f;
 	door.panel = &DecorationKindFor(record.type, PropCatalog::Doors);
-	// The type's knobs, resolved ONCE from its catalog entry. A legacy record
-	// naming a type the catalog has lost keeps the defaults, which are the
-	// sideways slide and the shared frame every door had before either was
-	// authorable.
+	// The type's knobs, resolved ONCE from its catalog entry. The entry is there:
+	// a record naming a type the catalog lacks has already aborted on its model
+	// in DecorationKindFor, above - not a soft failure at load, so the rename
+	// sweep, the delete refusal and the generator's lock type (found by flag,
+	// code-review C334) are what keep one from being written. The defaults below
+	// (the sideways slide, the shared frame) are a field the entry leaves out.
 	std::string frame = "door_frame";
 	if (const CatalogEntry* def = m_project.doors.Find(record.type)) {
 		const std::string m = def->Get("motion", "slide");

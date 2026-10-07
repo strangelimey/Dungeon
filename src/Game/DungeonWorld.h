@@ -1762,6 +1762,15 @@ public:
 	// again (Unpark).
 	void ParkActive();
 	bool Parked() const { return m_parked; }
+	// The LAST level parked and where the party stood in it - kept when an ambush
+	// replaces it (an encounter is never parked), so a save on the world map
+	// after one still names a real level (code-review C299; Game::SaveGame). A
+	// new game or a load forgets it; "" = nothing parked since.
+	struct ParkedPose {
+		std::string stem;
+		int x = 0, z = 0, facing = 0;
+	};
+	const ParkedPose& LastPark() const { return m_lastPark; }
 
 	// A pending level transition: the destination level + arrival cell/facing,
 	// raised when the party steps onto a stair (see the .map "stairs" records).
@@ -5833,6 +5842,7 @@ private:
 	DungeonMap ActiveStaticCopy() const;
 	// The active level is PARKED (ParkActive): stashed, with the party outside it.
 	bool m_parked = false;
+	ParkedPose m_lastPark; // LastPark()
 	// The live level is the authority again, IN PLACE - a save loaded or a game
 	// begun on the level that was parked, a regenerate of it. What the park
 	// stashed of its editor layers was a COPY of these live ones, so it is

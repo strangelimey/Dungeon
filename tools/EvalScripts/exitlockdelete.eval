@@ -1,0 +1,37 @@
+; exitlockdelete.eval - a generated lock is the door the catalog SAYS is a lock
+; (code-review C334). Judged by tools/EditorTest.py phase 35, on a fresh scratch
+; world; exitlockrename.eval is the phase's other half. Each floor is generated
+; with locks:1 from the same knobs and PLAYED, so a lock naming a type the world
+; lacks aborts there.
+;
+;   --- lock deleted ---  wooden_door deleted (nothing uses it): the lock is the
+;                         next offered door with a hand-hold, stone_door. The
+;                         generator wrote `wooden_door` still, and the floor
+;                         aborted on entry.
+;   --- lock marked ---   the portcullis marked `lock = 1`: the mark wins over
+;                         the fallback, so the lock is a portcullis.
+;   --- no lock door ---  the mark taken off and stone_door's opener removed:
+;                         nothing qualifies (the portcullis has no opener, and
+;                         a lock the party cannot work would shut them out), so
+;                         the floor has no lock - its report says 0 of the 1
+;                         asked for - and no door.
+logecho on
+reset
+seed 4
+echo --- lock deleted ---
+typeset delete doors wooden_door
+generate crypt width:24 height:24 roommin:3 roommax:5 path:5 branches:2 branchmin:1 branchmax:2 loops:0 winding:0.2 irregular:0 deadends:1 locks:1 difficulty:0.2 density:0.2 ramp:0.5 boss:0 reward:0.3 seed:5
+generate play
+doors
+echo --- lock marked ---
+typeset doors portcullis lock 1
+generate crypt width:24 height:24 roommin:3 roommax:5 path:5 branches:2 branchmin:1 branchmax:2 loops:0 winding:0.2 irregular:0 deadends:1 locks:1 difficulty:0.2 density:0.2 ramp:0.5 boss:0 reward:0.3 seed:5
+generate play
+doors
+echo --- no lock door ---
+typeset doors portcullis lock
+typeset doors stone_door opener
+generate crypt width:24 height:24 roommin:3 roommax:5 path:5 branches:2 branchmin:1 branchmax:2 loops:0 winding:0.2 irregular:0 deadends:1 locks:1 difficulty:0.2 density:0.2 ramp:0.5 boss:0 reward:0.3 seed:5
+generate play
+doors
+echo --- end ---

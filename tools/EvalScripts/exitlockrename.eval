@@ -1,0 +1,46 @@
+; exitlockrename.eval - the types the game authors itself are found by FLAG, so
+; a rename reaches them (code-review C333, C334). Judged by tools/EditorTest.py
+; phase 35, on its scratch world; exitlockdelete.eval is the phase's other half.
+;
+;   --- lock renamed ---  wooden_door renamed oak_door, then a floor generated
+;                         with locks:1 and played: its lock is an oak_door. The
+;                         generator wrote the literal `wooden_door`, a type the
+;                         world no longer had, and entering the floor aborted on
+;                         a model nobody had.
+;   --- exit renamed ---  stairs_exit renamed gate_stair, then an ambush on the
+;                         road: its way out is a gate_stair (the log names it).
+;                         It was the literal `stairs_exit`, and the ambush
+;                         aborted on that model mid-play. The party arrives on
+;                         the stair facing the way it faces, and a step forward
+;                         MOVES it: the stair faces open floor. (It faced north
+;                         whatever was there; an ambush's start is the middle of
+;                         a room, so north is open nearly always and this is a
+;                         reading, not the discriminating check.)
+;   --- last exit ---     a second exit type, duplicated from it, deletes; then
+;                         gate_stair, the last, is refused AS the last exit (it
+;                         is in use too, but that is not what is said).
+logecho on
+reset
+seed 4
+echo --- lock renamed ---
+typeset rename doors wooden_door oak_door
+generate crypt width:24 height:24 roommin:3 roommax:5 path:5 branches:2 branchmin:1 branchmax:2 loops:0 winding:0.2 irregular:0 deadends:1 locks:1 difficulty:0.2 density:0.2 ramp:0.5 boss:0 reward:0.3 seed:5
+generate play
+doors
+echo --- exit renamed ---
+typeset rename stairs stairs_exit gate_stair
+leave
+worldpos 6 6
+encounter
+freeze on
+pos
+forward
+step 2
+pos
+freeze off
+leave
+echo --- last exit ---
+newasset stairs duplicate gate_stair gate_stair_b
+typeset delete stairs gate_stair_b
+expect-refuse typeset delete stairs gate_stair
+echo --- end ---

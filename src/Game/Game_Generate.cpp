@@ -149,11 +149,38 @@ const char* const kEncounterStem = "~encounter";
 
 bool Game::InEncounter() const { return m_world->CurrentLevel() == kEncounterStem; }
 
+std::string Game::ExitStairRecord(const std::string& type, int startX, int startZ,
+								  const std::function<bool(int, int)>& open, ExitSpot spot,
+								  const std::string& dest) {
+	const auto line = [&](int x, int z, const char* facing) {
+		return std::format("stairs {} {} {} {} dest={} destx=0 destz=0\n", type, x, z, facing,
+						   dest);
+	};
+	// The sides in kDir's order, so side d's opposite is (d + 2) % 4.
+	constexpr int kStep[4][2] = {{0, -1}, {1, 0}, {0, 1}, {-1, 0}};
+	for (int d = 0; d < 4; ++d) {
+		const int x = startX + kStep[d][0], z = startZ + kStep[d][1];
+		if (!open(x, z)) continue;
+		return spot == ExitSpot::OnStart ? line(startX, startZ, kDir[d])
+										 : line(x, z, kDir[(d + 2) % 4]);
+	}
+	return spot == ExitSpot::OnStart ? line(startX, startZ, kDir[0]) : std::string();
+}
+
 bool Game::StartEncounter(float difficulty, const std::vector<std::string>& tags,
 						  u32 seed) {
 	// THE AREA DECIDES WHAT YOU MEET. Difficulty scales the strength, the
 	// density and the size; the terrain's tags pick the pool, so a moor throws
 	// undead and a forest throws beasts without either being named here.
+	// THE WAY OUT FIRST: an encounter is left by an exit stair, found by its flag
+	// (code-review C333). It was the literal `stairs_exit`, so a renamed exit
+	// type made the next ambush install a stair naming nothing, and the game
+	// aborted on its model mid-play. A world with no exit type has no ambush.
+	const std::string exitType = m_project.ExitStairType();
+	if (exitType.empty()) {
+		log::Warn("encounter: stairs.cat has no exit type (exit = 1) - no way out, so no ambush");
+		return false;
+	}
 	generate::Params p;
 	p.seed = seed;
 	// Small: an encounter is a fight, not a dungeon. It grows a little with the
@@ -201,10 +228,13 @@ bool Game::StartEncounter(float difficulty, const std::vector<std::string>& tags
 	BuildLevelText(kEncounterStem, lv, p, PalettesOf(m_world->Map()), tags, {}, {}, map, ent);
 	// THE WAY OUT, authored onto the arrival cell. An encounter is left the same
 	// way a dungeon is — by an exit stair — rather than by some second mechanism
-	// that would then need its own rules about when it is allowed.
-	// North: you arrived facing into the fight, the stair rising behind you.
-	map += std::format("stairs stairs_exit {} {} north dest=- destx=0 destz=0\n",
-					   lv.startX, lv.startZ);
+	// that would then need its own rules about when it is allowed. Facing the
+	// first open side: you arrive facing into the fight, not into the rock.
+	const std::string exitRecord = ExitStairRecord(
+		exitType, lv.startX, lv.startZ, [&](int x, int z) { return lv.At(x, z); },
+		ExitSpot::OnStart, "-");
+	map += exitRecord;
+	log::Info("encounter: the way out is {}", exitRecord.substr(0, exitRecord.size() - 1));
 
 	if (!m_world->InstallLevelFromText(kEncounterStem, map, ent)) {
 		log::Warn("encounter: could not install the generated level");
@@ -257,6 +287,8 @@ void Game::FillPools(generate::Params& params, const std::vector<std::string>& t
 	params.keyIds.clear();
 	for (const CatalogEntry* e : project.AllItems())
 		if (e && e->Get("category", "") == "key") params.keyIds.push_back(e->id);
+	// ...and the door a lock is, found by flag (code-review C334): none, no locks.
+	params.lockDoor = project.LockDoorType();
 	// Loot must not hand out the keys as treasure — that would let a key turn up
 	// behind its own door, precisely the fault the construction order prevents.
 	std::erase_if(params.lootIds, [&](const std::string& id) {
@@ -385,24 +417,10 @@ bool Game::GenerateWizardLevel(const Project& project, const std::string& stem,
 	// THE WAY OUT, on the start square - an encounter's arrangement: you arrive
 	// on it, and it is where you go back to. Facing the first open side, since
 	// a stair stepped off into rock is one nobody can use.
-	std::string exit;
-	for (const CatalogEntry& e : project.stairs.Entries())
-		if (CatalogBool(&e, "exit", false)) {
-			exit = e.id;
-			break;
-		}
-	if (!exit.empty()) {
-		constexpr struct { int dx, dz; const char* facing; } kSides[] = {
-			{0, -1, "north"}, {1, 0, "east"}, {0, 1, "south"}, {-1, 0, "west"}};
-		const char* facing = "north";
-		for (const auto& s : kSides)
-			if (lv.At(lv.startX + s.dx, lv.startZ + s.dz)) {
-				facing = s.facing;
-				break;
-			}
-		map += std::format("stairs {} {} {} {} dest={} destx=0 destz=0\n", exit, lv.startX,
-						   lv.startZ, facing, doorway);
-	}
+	if (const std::string exit = project.ExitStairType(); !exit.empty())
+		map += ExitStairRecord(exit, lv.startX, lv.startZ,
+							   [&](int x, int z) { return lv.At(x, z); }, ExitSpot::OnStart,
+							   doorway);
 	log::Info("wizard: {} {}x{}, tags '{}', difficulty {:.2f}, seed {}, {} monster kinds",
 			  stem, p.width, p.height, spec.tag, p.difficulty, p.seed, p.monsterIds.size());
 	return true;

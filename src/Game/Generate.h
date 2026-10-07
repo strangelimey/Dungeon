@@ -118,6 +118,11 @@ struct Params {
 	std::vector<float> monsterWeight;
 	std::vector<std::string> lootIds;
 	std::vector<std::string> keyIds; // door/key pairs draw from these, in order
+	// The DOOR TYPE every lock is authored as - the caller's too (Project::
+	// LockDoorType, found by flag): a literal here broke the moment that type was
+	// renamed or deleted (code-review C334). Empty = no locks, however many are
+	// asked for, as with no keys.
+	std::string lockDoor;
 };
 
 // What was asked for beside what was BUILT. A knob you cannot measure is a knob

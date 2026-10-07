@@ -284,6 +284,16 @@
 #      level. A wall on the start square is refused, live and browsed, and a
 #      wall rectangle over it keeps it open, saying so once; a crop that leaves
 #      out the start is refused naming it.
+#  35. THE TYPES THE GAME AUTHORS ARE FOUND BY FLAG (code-review C333, C334):
+#      wooden_door renamed oak_door, and a floor generated with locks:1 and
+#      played has an oak_door for its lock (the generator wrote the literal
+#      `wooden_door`, and entering the floor aborted on its model); deleted,
+#      the lock is the next offered door with an opener (stone_door); a door
+#      marked `lock = 1` wins (the portcullis); with none of either, no lock and
+#      no door. stairs_exit renamed gate_stair, and an ambush's way out is a
+#      gate_stair the party arrives on, facing open floor (the literal aborted
+#      the ambush); and the last exit type's delete is refused as the last,
+#      where a second one's is allowed.
 #  40. ONE WORLD TICK (code-review C78, C125), read off the world's own update
 #      count (`worldclock`): a paused editor stays paused through a bare
 #      `editor`, `editor pick` and `editor issues` - each asks for Editor mode,
@@ -4212,6 +4222,91 @@ finally:
         io.open(SETTINGS, "wb").write(settings_before)
     elif os.path.isfile(SETTINGS):
         os.remove(SETTINGS)
+
+
+# --- phase 35: the types the game authors are found by flag ---------------------
+print("35 - an ambush's exit stair and a generated lock are found by flag: a rename or delete reaches them")
+DOOR35 = re.compile(r"^\s*\d+ (\S+) @ \d+,\d+ ")
+LOCKS35 = re.compile(r"^generate: built .* locks (\d+)/(\d+),")
+POS35 = re.compile(r"^(\d+),(\d+) facing (\w+)$")
+STEP35 = {"north": (0, -1), "east": (1, 0), "south": (0, 1), "west": (-1, 0)}
+
+
+def doors35(lines):
+    """The door types `doors` listed, in order ([] for `no doors`)."""
+    return [m.group(1) for m in map(DOOR35.match, lines) if m]
+
+
+def locks35(lines):
+    """(got, wanted) of each `generate: built` report."""
+    return [(int(m.group(1)), int(m.group(2))) for m in map(LOCKS35.match, lines) if m]
+
+
+fresh()
+try:
+    log = run("exitlockrename.eval")
+    check(passed(log), "the rename script ran clean (its one refusal expected)")
+    sec = console_sections(log)
+    check("end" in sec, "and ran to its end - no abort on a model nobody had",
+          "\n".join(harness_game.fatal_lines(log)[:5]))
+
+    # 1. C334: the lock follows its type's rename.
+    lr = sec.get("lock renamed", [])
+    check("typeset rename doors 'wooden_door': done" in lr and locks35(lr) == [(1, 1)]
+          and doors35(lr) == ["oak_door"],
+          "wooden_door renamed oak_door: the generated floor's one lock is an oak_door, and it "
+          "loaded (the generator wrote `wooden_door`)", str(lr))
+
+    # 2. C333: the ambush's way out follows the exit type's rename.
+    er = sec.get("exit renamed", [])
+    way = re.search(r"encounter: the way out is stairs (\S+) (\d+) (\d+) (\w+) dest=- ", log)
+    check("typeset rename stairs 'stairs_exit': done" in er and way is not None
+          and way.group(1) == "gate_stair",
+          "stairs_exit renamed gate_stair: the ambush's way out is a gate_stair (it was the "
+          "literal stairs_exit, and the ambush aborted)", way.group(0) if way else str(er))
+    poses = [m.groups() for m in map(POS35.match, er) if m]
+    ok = way is not None and len(poses) == 2
+    if ok:
+        (x0, z0, f0), (x1, z1, _) = poses
+        dx, dz = STEP35.get(f0, (0, 0))
+        ok = ((int(x0), int(z0), f0) == (int(way.group(2)), int(way.group(3)), way.group(4))
+              and (int(x1), int(z1)) == (int(x0) + dx, int(z0) + dz))
+    check(ok, "the party arrives on it facing the way it faces, and a step forward moves it there",
+          str(poses))
+
+    # 3. C333: the last exit type cannot be deleted; a second one could.
+    le = sec.get("last exit", [])
+    check("newasset stairs 'gate_stair_b' from gate_stair: created" in le
+          and "typeset delete stairs 'gate_stair_b': done" in le,
+          "THE CONTROL: with two exit types, one of them deletes", str(le))
+    check(any(l.startswith("typeset delete stairs 'gate_stair': refused - The world's last exit stair")
+              for l in le),
+          "the last one is refused, said as the last exit (it is in use too; that is not what is "
+          "said)", str(le))
+finally:
+    drop()
+
+fresh()
+try:
+    log = run("exitlockdelete.eval")
+    check(passed(log), "the delete script ran clean")
+    sec = console_sections(log)
+    check("end" in sec, "and ran to its end - every generated floor loaded",
+          "\n".join(harness_game.fatal_lines(log)[:5]))
+    ld = sec.get("lock deleted", [])
+    check("typeset delete doors 'wooden_door': done" in ld and locks35(ld) == [(1, 1)]
+          and doors35(ld) == ["stone_door"],
+          "wooden_door deleted: the lock is the next offered door with a hand-hold, stone_door",
+          str(ld))
+    lm = sec.get("lock marked", [])
+    check(locks35(lm) == [(1, 1)] and doors35(lm) == ["portcullis"],
+          "the portcullis marked `lock = 1`: the mark wins over the fallback", str(lm))
+    nl = sec.get("no lock door", [])
+    check(locks35(nl) == [(0, 1)] and "no doors" in nl,
+          "nothing qualifies (no mark, no other door with an opener): no lock, 0 of the 1 asked "
+          "for, and no door", str(nl))
+finally:
+    drop()
 
 
 # --- phase 40: one world tick ----------------------------------------------------

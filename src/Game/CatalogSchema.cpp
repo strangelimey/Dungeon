@@ -332,6 +332,10 @@ constexpr FieldSpec kDoorFields[] = {
 	{.key = "hidden", .kind = FieldKind::Bool, .sectionKey = kSectionRules,
 	 .help = "Internal type the palette never offers (the shared door frame).",
 	 .def = "0"},
+	{.key = "lock", .kind = FieldKind::Bool, .sectionKey = kSectionRules,
+	 .help = "The door the level generator locks a way with (the first marked wins; none "
+			 "marked = the first offered door with an opener).",
+	 .def = "0"},
 	{.key = "motion", .kind = FieldKind::Enum, .sectionKey = kSectionRules,
 	 .help = "How the leaf opens: slide into the wall, rise into the ceiling, or split in two.",
 	 .options = "slide rise split", .def = "slide"},

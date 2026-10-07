@@ -857,6 +857,7 @@ map.check.stylenotheme=Stil '{}' nennt Thema '{}', das dieser Welt fehlt
 map.check.stylenomonster=Stil '{}' nennt Monster '{}', das dieser Welt fehlt
 map.check.dungeonnostyle=Dungeon '{}' nennt Stil '{}', der dieser Welt fehlt
 map.type.classbacked=Der Spielcode definiert diesen Typ - sein Eintrag stimmt ihn nur ab, darum kann er weder umbenannt noch gelöscht werden.
+map.type.lastexit=Die letzte Ausgangstreppe der Welt - ein Überfall und der erste Raum einer neuen Welt führen über sie hinaus, darum kann sie nicht gelöscht werden.
 map.cat.empty=(keine definiert)
 map.select.empty=Zelle {}, {}: leer {}
 map.select.contents=Zelle {}, {}: {}

@@ -334,6 +334,29 @@ std::vector<const CatalogEntry*> Project::AllItems() const {
 	return out;
 }
 
+std::string Project::ExitStairType() const {
+	for (const CatalogEntry& e : stairs.Entries())
+		if (CatalogBool(&e, "exit", false)) return e.id;
+	return {};
+}
+
+int Project::ExitStairTypes() const {
+	int n = 0;
+	for (const CatalogEntry& e : stairs.Entries())
+		if (CatalogBool(&e, "exit", false)) ++n;
+	return n;
+}
+
+std::string Project::LockDoorType() const {
+	for (const CatalogEntry& e : doors.Entries())
+		if (CatalogBool(&e, "lock", false)) return e.id;
+	// The fallback reads what a lock NEEDS: a leaf the palette offers (an opener
+	// or a frame is `hidden`) and a hand-hold, so its key opens it from this side.
+	for (const CatalogEntry& e : doors.Entries())
+		if (!CatalogBool(&e, "hidden", false) && !e.Get("opener", "").empty()) return e.id;
+	return {};
+}
+
 std::vector<Project::CatalogFile> Project::CatalogFiles() const {
 	std::vector<CatalogFile> out;
 	out.reserve(std::size(kCatalogs));

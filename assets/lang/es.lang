@@ -857,6 +857,7 @@ map.check.stylenotheme=El estilo '{}' nombra el tema '{}', que falta en este mun
 map.check.stylenomonster=El estilo '{}' nombra el monstruo '{}', que falta en este mundo
 map.check.dungeonnostyle=La mazmorra '{}' nombra el estilo '{}', que falta en este mundo
 map.type.classbacked=Lo define el código del juego - su entrada solo lo ajusta, así que no se puede renombrar ni borrar.
+map.type.lastexit=La última escalera de salida del mundo - una emboscada y la primera sala de un mundo nuevo salen por ella, así que no se puede borrar.
 map.cat.empty=(ninguno definido)
 map.select.empty=Celda {}, {}: vacía {}
 map.select.contents=Celda {}, {}: {}

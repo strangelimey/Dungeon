@@ -21,7 +21,8 @@
 #   6. TWO DOORS — a dungeon with a front gate and a back way, which land in
 #      different parts of it and surface in different parts of the world.
 #   7. RANDOM ENCOUNTERS — built from text, scaled by the area, thrown away,
-#      and refusing to be saved.
+#      and refusing to be saved; but a save made OUT of one, on the road, is
+#      written, names the level parked before it and loads (code-review C299).
 #   8. THE ROAD HURTS — DoTs bite while travelling, settled in slices, and
 #      camp is what heals you.
 #   9. QUESTS — named stages that move by finding things, a clue that reveals
@@ -136,7 +137,7 @@ harness_game.refuse_if_running(EXE)
 # <worktree>_<hash>): the saves folder is shared with every other session and
 # with Michael's own play, and this suite downgrades one and deletes them all.
 SAVES = {n: harness_game.save_name(ROOT, n)
-         for n in ("worldtrip", "encountertrip", "questtrip", "worldpersist",
+         for n in ("worldtrip", "encountertrip", "encounterleft", "questtrip", "worldpersist",
                    "worldsaves_a", "worldsaves_b", "worldsaves_bad")}
 SAVE = harness_game.save_path(SAVES["worldtrip"])
 
@@ -515,6 +516,28 @@ try:
           any("5,3 (on the world map)" in l for l in party),
           "leaving an encounter puts the party back where it stood",
           " / ".join(l[-46:] for l in party))
+
+    # --- and a save OUT of one, on the road, is written and loads (C299) ----
+    # The ambush is still the level loaded under the world map, so every save
+    # there was refused until the party went underground; and written, it
+    # named "~encounter", which has no file. It names the level parked before
+    # the ambushes - the harness ground, eval_arena, left by the first `leave`.
+    left = harness_game.save_path(SAVES["encounterleft"])
+    check("refusing to save inside a random encounter" not in log and os.path.exists(left),
+          "a save on the world map after an ambush is written, not refused", left)
+    current = re.search(r"^save current=(\S*)", read(left), re.M) if os.path.exists(left) else None
+    check(current is not None and current.group(1) == "eval_arena"
+          and "the save names eval_arena" in log,
+          "and it names the level parked before the ambush, not the ambush",
+          current.group(0) if current else "(no `save current=` line)")
+    after = log.split("--- encounter: loaded ---", 1)[-1] if "--- encounter: loaded ---" in log else ""
+    check(re.search(r"Loaded game from .*\(loading eval_arena\)", log) is not None
+          and "state worldmap" in after and any("5,3 (on the world map)" in l for l in party_lines(after)),
+          "the load opens that level and lands on the world map where the party stood",
+          " / ".join(l[-46:] for l in party_lines(after)))
+    check(re.search(r"28x24 map, start 14,12", after) is not None
+          and re.search(r"14x10 map, start 7,7", after) is not None,
+          "eval_arena is the level under the map, and a doorway still opens crypt1 after it")
 
     # --- and a save inside one is refused, not written ----------------------
     # This worktree's slot, cleared at the start: so a file here is this run's.

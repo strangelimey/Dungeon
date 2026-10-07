@@ -19,6 +19,8 @@
 ;                 means NONE, and a door with none cannot be opened by the
 ;                 party at all — only by a button wired to its name
 ;   opener_side   left | right — which jamb the hand-hold hangs on
+;   lock          1 = the door the level generator locks a way with (the first
+;                 so marked; none marked = the first offered door with an opener)
 ;   ease_in       how the motion STARTS: the shape it accelerates on
 ;   ease_out      how it ENDS: the shape it decelerates on
 ;

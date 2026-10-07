@@ -106,6 +106,7 @@
 #include "Platform/Window.h"
 
 #include <array>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <span>
@@ -606,6 +607,21 @@ private:
 	static constexpr int kStarterSize = 16, kStarterCentre = 8;
 	// The same box as a floor grid (row-major, 1 = open).
 	static std::vector<u8> StarterFloor();
+	// THE EXIT STAIR'S RECORD, placed ONE way (code-review C333; it was written
+	// four ways, and the encounter's faced north whatever was there): a stair of
+	// `type` (Project::ExitStairType) out to `dest`, newline included, for a map
+	// that says `stairfacing arrive`. OnStart lays it ON the start square, facing
+	// the first open side (north, east, south, west; north if none) - an
+	// encounter's and the wizard's, where you arrive on it and step off into the
+	// level, and a stair stepped off into rock is one nobody can use. BesideStart
+	// lays it on the first open square beside the start, facing back toward it -
+	// a new world's first room and a copied level, where the start is the
+	// level's own; "" when no side is open. `open` says whether a square is
+	// walkable floor, and false out of bounds. (Game_Generate.cpp.)
+	enum class ExitSpot { OnStart, BesideStart };
+	static std::string ExitStairRecord(const std::string& type, int startX, int startZ,
+									   const std::function<bool(int, int)>& open,
+									   ExitSpot spot, const std::string& dest);
 	// The box in style `styleId` (Phase 7): `palettes` (wall, floor, ceiling)
 	// take the style's theme members where it names any, and the returned text
 	// is the level's `tags` record plus the `theme` records painting the room and

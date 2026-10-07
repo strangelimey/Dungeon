@@ -634,7 +634,8 @@ Level Run(const Params& p) {
 	// generating and checking.
 	auto idx = [&](int x, int z) { return static_cast<int>(z) * lv.width + x; };
 	std::vector<int> shut; // cell indices of doors placed so far
-	const int wantLocks = std::min<int>(p.locks, static_cast<int>(p.keyIds.size()));
+	const int wantLocks =
+		p.lockDoor.empty() ? 0 : std::min<int>(p.locks, static_cast<int>(p.keyIds.size()));
 	// WANTED is what was asked, not what the key pool allows: a project with one
 	// key asked for three locks should read 1/3, which says why.
 	lv.report.locksWanted = std::max(0, p.locks);
@@ -698,7 +699,7 @@ Level Run(const Params& p) {
 			const std::string keyId = p.keyIds[static_cast<size_t>(lock)];
 			Entity door;
 			door.kind = EntityKind::Door;
-			door.type = "wooden_door"; // the caller retypes if it wants another
+			door.type = p.lockDoor; // the caller's, found by flag (C334)
 			door.x = cell % lv.width;
 			door.z = cell / lv.width;
 			Direction axis = Direction::North;

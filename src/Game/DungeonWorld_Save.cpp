@@ -182,6 +182,7 @@ void DungeonWorld::ResetForNewGame() {
 	MarkSeen(m_party.GridX(), m_party.GridZ());
 	m_levelStates.clear(); // forget any explored levels
 	Unpark(); // a level parked here is the live one again (its stash goes too)
+	m_lastPark = {};
 	// Everything above snapped back with no travel for the shadow cubes to see
 	// (code-review C178): a same-level new game starts them over too.
 	m_shadows.InvalidateCubes();
@@ -500,6 +501,7 @@ void DungeonWorld::ParkActive() {
 	StashActive();
 	StashEditedLayers();
 	m_parked = true;
+	m_lastPark = {m_currentLevel, m_party.GridX(), m_party.GridZ(), m_party.Facing()};
 }
 
 void DungeonWorld::Unpark() {

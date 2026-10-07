@@ -429,7 +429,14 @@ The way out is an **exit stair** authored onto the arrival cell, so an encounter
 is left exactly the way a dungeon is rather than by a second mechanism that
 would need its own rules. Leaving returns the party to open ground, where it
 stood: it came from no doorway, so `atLocation` is empty and the fallback is
-already right.
+already right. The stair's TYPE is found by its flag (`Project::ExitStairType`,
+code-review C333), never named: it was the literal `stairs_exit`, so a renamed
+exit type made the next ambush install a stair naming nothing, and the game
+aborted on its model. A world with no exit type gets no ambush (refused, with a
+log line), and the last exit type cannot be deleted. It faces the first open
+side of the arrival square, through the one helper every exit the game authors
+goes through (`Game::ExitStairRecord`: the wizard's floor, a new world's first
+room, a copied level, an ambush).
 
 Dev: `encounter [difficulty]`, `encounters [on|off|<rate>]` — which reports the
 rate and the switch SEPARATELY, because a rate of zero and "switched off" are
@@ -441,6 +448,15 @@ becoming a corrupt file, since a save naming `~encounter` would reload into a
 level that no longer exists and cannot be rebuilt. Refusing is recoverable;
 writing it is not. Determinism means a seed plus params WOULD reproduce the
 space exactly, if that ever turns out to be the answer.
+
+The refusal holds only while the party is IN the encounter (code-review C299).
+Back on the world map the ambush is still the level loaded underneath - nothing
+replaces it until a doorway does - and the guard used to refuse every save on
+the road until the party went underground. A save there names what lay under the
+map before the ambush instead: the level last PARKED (`DungeonWorld::LastPark`,
+with where the party stood in it; its state is in the save, so the load parks it
+again), else the project's first level at its start. Checked by WorldTest phase
+7 (worldencounter.eval: encounter, leave, save, load, and a doorway after it).
 
 ### Quests
 

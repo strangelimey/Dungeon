@@ -127,13 +127,6 @@ void AddStarterDungeon(Project& p, const std::string& stem, const std::string& s
 	p.dungeons.Add(std::move(dungeon));
 }
 
-// The project's first EXIT stair type (stairs.cat `exit = 1`), "" if it has none.
-std::string ExitStairType(const Project& p) {
-	for (const CatalogEntry& e : p.stairs.Entries())
-		if (CatalogBool(&e, "exit", false)) return e.id;
-	return {};
-}
-
 // The overworld: one passable terrain everywhere, a start square, and ONE
 // doorway onto `stem`. BLANK ON PURPOSE - the point of a new world is to paint
 // your own; what it must not be is unopenable.
@@ -161,13 +154,6 @@ bool WriteStarterWorld(const Project& p, const std::string& stem) {
 		w += '\n';
 	}
 	return WriteText(p.WorldMapPath(), w);
-}
-
-// The exit stair a starter level needs, as a record: on (x,z), facing `f` (the
-// way you face stepping off it into the level), out to the starter doorway.
-std::string ExitRecord(const std::string& type, int x, int z, const char* f) {
-	return std::format("stairs {} {} {} {} dest={} destx=0 destz=0\n", type, x, z, f,
-					   kStarterDoorway);
 }
 } // namespace
 
@@ -267,8 +253,15 @@ bool Game::BuildBlankWorld(const std::string& folder, const std::string& id,
 	map += "palette ceiling " + join(palettes[2]) + "\n";
 	map += styled + "\n";
 	AppendStarterRoom(map);
-	if (const std::string exit = ExitStairType(made); !exit.empty())
-		map += "stairfacing arrive\n" + ExitRecord(exit, 8, 7, "south");
+	if (const std::string exit = made.ExitStairType(); !exit.empty()) {
+		const std::vector<u8> room = StarterFloor();
+		const auto open = [&](int x, int z) {
+			return x >= 0 && z >= 0 && x < kStarterSize && z < kStarterSize &&
+				   room[static_cast<size_t>(z) * kStarterSize + x] != 0;
+		};
+		map += "stairfacing arrive\n" + ExitStairRecord(exit, kStarterCentre, kStarterCentre, open,
+														ExitSpot::BesideStart, kStarterDoorway);
+	}
 	return WriteText(made.LevelMapPath(stem), map) &&
 		   WriteText(made.LevelEntPath(stem), "; " + stem + " - dynamic layer (empty).\n") &&
 		   WriteStarterWorld(made, stem);
@@ -379,18 +372,15 @@ bool Game::BuildLevelWorld(const std::string& folder, const std::string& id,
 	// ...and ONE EXIT takes their place: on the first open square beside the
 	// start, facing the start, out to the new world's one doorway - so a party
 	// that walks in can walk out. The map is parsed to find where that is.
-	if (const std::string exit = ExitStairType(made); !exit.empty()) {
+	if (const std::string exit = made.ExitStairType(); !exit.empty()) {
 		const DungeonMap map = DungeonMap::FromText(kept, DungeonWorld::FixtureTypesOf(made), stem);
-		struct Side { int dx, dz; const char* facing; };
 		// Facing is the way you face stepping OFF the stair - back toward the start.
-		constexpr Side kSides[] = {{0, -1, "south"}, {1, 0, "west"}, {0, 1, "north"},
-								   {-1, 0, "east"}};
-		for (const Side& s : kSides) {
-			const int x = map.StartX() + s.dx, z = map.StartZ() + s.dz;
-			if (!map.IsWalkable(x, z)) continue;
+		const std::string record = ExitStairRecord(
+			exit, map.StartX(), map.StartZ(), [&](int x, int z) { return map.IsWalkable(x, z); },
+			ExitSpot::BesideStart, kStarterDoorway);
+		if (!record.empty()) {
 			if (!arrival) kept += "stairfacing arrive\n";
-			kept += ExitRecord(exit, x, z, s.facing);
-			break;
+			kept += record;
 		}
 	}
 	// ITS FLAG WIRING GOES TOO: the new world starts with no flags (ClearPlaces),

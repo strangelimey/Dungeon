@@ -223,6 +223,24 @@ struct Project {
 	}
 	std::vector<const CatalogEntry*> AllItems() const;
 
+	// --- the types the CODE needs, found by flag (code-review C333, C334) -----
+	// Content the game itself authors - an encounter's way out, a new world's
+	// exit, a generated lock - names a type, and naming it by a literal id broke
+	// the moment that type was renamed or deleted (the next ambush, or the next
+	// generated lock, aborted on a model nobody had). So each is FOUND, by what
+	// the catalog says the type is, never by what it happens to be called.
+	//
+	// The first EXIT stair type (stairs.cat `exit = 1`), "" when there is none.
+	std::string ExitStairType() const;
+	// How many stair types are exits: the last one cannot be deleted
+	// (Game::DeleteType), since encounters and new worlds need one.
+	int ExitStairTypes() const;
+	// The door type a generated LOCK is authored as: the first entry marked
+	// `lock = 1`, else the first non-hidden door with an `opener` - a lock the
+	// party cannot work by hand (the portcullis) would shut them out of half
+	// the level. "" when nothing qualifies, and then no lock is placed.
+	std::string LockDoorType() const;
+
 	// --- the dungeon tier (docs/world-map.md, W5) ----------------------------
 	// `levels` above stays the FLAT UNIVERSE — every stem the editor can open
 	// and the checker walks. These are how that universe is PRESENTED: a

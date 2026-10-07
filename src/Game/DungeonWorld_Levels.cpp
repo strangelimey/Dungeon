@@ -74,8 +74,10 @@ bool DungeonWorld::RenameLevel(const std::string& oldStem,
 		state.stem = newStem; // the block writes its own stem line
 		m_levelStates.insert_or_assign(newStem, std::move(state));
 	}
-	// ...and the active stem.
+	// ...and the active stem, and the last parked one (a save after an ambush
+	// names it: C299).
 	if (m_currentLevel == oldStem) m_currentLevel = newStem;
+	if (m_lastPark.stem == oldStem) m_lastPark.stem = newStem;
 
 	// Repoint every stair dest= that names the old stem: the active map is
 	// fixed live, every other level via its stash - made only for a level that

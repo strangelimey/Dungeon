@@ -87,6 +87,13 @@ opens, and nothing reports whether the result matches what was asked for.
   report says why not, e.g. no room on a small map).
 - It stays a TREE, which the lock construction depends on. Locks go on the
   spine first (they gate progress), optionally on branches (they gate treasure).
+- A lock's DOOR TYPE is the caller's (`Params::lockDoor`, code-review C334),
+  found by flag like the exit stair: `Project::LockDoorType` - the first
+  doors.cat entry marked `lock = 1`, else the first offered door with an
+  `opener` (the portcullis has none, and a lock the party cannot work would
+  shut them out). None qualifies, no locks. It was the literal `wooden_door`,
+  and a renamed or deleted wooden door made every generated lock abort the
+  level on entry. EditorTest phase 35.
 
 **P2 LANDED (2026-09-24).**
 - Knobs `path`, `branches`, `branchmin`, `branchmax` replaced `rooms` and

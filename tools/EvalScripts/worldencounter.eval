@@ -12,6 +12,7 @@
 ;     everywhere except where it is the measurement.
 ;   - leaving puts the party back on the world map WHERE IT STOOD, not at a
 ;     doorway: it came from open ground.
+;   - and a save made there, out of the ambush, is written and loads (below).
 logecho on
 reset
 seed 4
@@ -35,3 +36,21 @@ mapinfo
 monsters
 leave
 world
+
+; --- a save on the road after it (code-review C299) --------------------------
+; Out of the ambush, it is still the level loaded under the world map (nothing
+; replaces it until a doorway does) - and every save was refused until the
+; party went underground. The save is allowed now, and names the level PARKED
+; before the ambushes (the harness ground, left by the first `leave`), not the
+; ambush, which has no file: the load opens that level, parks it again, and
+; lands on the world map where the party stood.
+echo --- encounter: saved on the road ---
+save encounterleft
+load encounterleft
+echo --- encounter: loaded ---
+state
+world
+mapinfo
+discover crypt_gate
+enter crypt_gate
+mapinfo

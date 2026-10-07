@@ -1253,8 +1253,11 @@ bool Game::SaveGame(const std::string& name) {
 	// it — it is the guard that stops the absence of an answer becoming a
 	// corrupt file. An encounter level exists only in memory; a save naming it
 	// would reload into a level that no longer exists and cannot be rebuilt.
-	// Refusing is recoverable. Writing it is not.
-	if (InEncounter()) {
+	// Refusing is recoverable. Writing it is not. ONLY WHILE THE PARTY IS IN IT
+	// (code-review C299): out on the world map after one, the encounter is still
+	// the level loaded underneath - nothing replaces it until a doorway does -
+	// and every save on the road was refused until the party went underground.
+	if (InEncounter() && !m_worldState.onWorldMap) {
 		log::Warn("SaveGame: refusing to save inside a random encounter — the "
 				  "level exists only in memory (docs/world-map.md)");
 		if (m_world->onMessage) m_world->onMessage(loc::View("world.nosave"));
@@ -1280,6 +1283,32 @@ bool Game::SaveGame(const std::string& name) {
 	// On the world map the level underneath is not where the party IS: a parked
 	// one is written from the store, and a baseline never entered has no state.
 	m_world->CaptureState(data, /*includeLive=*/!m_worldState.onWorldMap);
+	// THE AMBUSH LEFT BEHIND names no level a load could open: it has no file. So
+	// the save names what lay under the world map before it - the level last
+	// parked, where the party stood in it (its state is in the store, so the load
+	// parks it again) - else the project's first level at its start, a baseline
+	// never entered, as under a new game begun on the world map.
+	if (InEncounter()) {
+		const DungeonWorld::ParkedPose& park = m_world->LastPark();
+		if (!park.stem.empty() && std::ranges::find(m_project.levels, park.stem) !=
+									  m_project.levels.end()) {
+			data.currentLevel = park.stem;
+			data.partyX = park.x;
+			data.partyZ = park.z;
+			data.partyFacing = park.facing;
+		} else {
+			data.currentLevel = m_project.levels.empty() ? std::string("level1")
+														 : m_project.levels.front();
+			const DungeonMap& first = m_world->MapOf(data.currentLevel);
+			data.partyX = first.StartX();
+			data.partyZ = first.StartZ();
+			data.partyFacing = 0;
+		}
+		data.lookYaw = data.lookPitch = 0.0f;
+		data.looking = false;
+		log::Info("SaveGame: on the world map after an ambush - the save names {}",
+				  data.currentLevel);
+	}
 	for (const Character& member : m_characters) {
 		SaveData::CharState c{member.health, member.maxHealth, member.stamina,
 							  member.maxStamina, member.mana, member.maxMana,

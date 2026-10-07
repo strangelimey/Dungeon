@@ -864,6 +864,7 @@ map.check.stylenotheme=Style '{}' names theme '{}', which this world lacks
 map.check.stylenomonster=Style '{}' names monster '{}', which this world lacks
 map.check.dungeonnostyle=Dungeon '{}' names style '{}', which this world lacks
 map.type.classbacked=The game's code defines this one - its entry only tunes it, so it cannot be renamed or deleted.
+map.type.lastexit=The world's last exit stair - an ambush and a new world's first room leave by it, so it cannot be deleted.
 map.cat.empty=(none defined)
 map.select.empty=Cell {}, {}: empty {}
 map.select.contents=Cell {}, {}: {}

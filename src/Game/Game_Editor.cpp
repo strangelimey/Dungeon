@@ -1253,6 +1253,16 @@ bool Game::DeleteType(const std::string& catalogKey, const std::string& id,
 		problem = loc::Tr("map.type.classbacked");
 		return false;
 	}
+	// THE LAST EXIT STAIR (code-review C333): the game authors exits itself - an
+	// ambush's way out, a new world's first room, a copied level's - and finds
+	// the type by its `exit` flag. With none left an ambush has no way out (it is
+	// refused) and a new world's first room none either, which no level shows,
+	// so a fresh world would let it go unasked.
+	if (catalogKey == "stairs" && CatalogBool(cat->Find(id), "exit", false) &&
+		m_project.ExitStairTypes() <= 1) {
+		problem = loc::Tr("map.type.lastexit");
+		return false;
+	}
 	// A DUNGEON TAKES ITS LEVELS WITH IT (W10), so it is not a catalog delete
 	// with a bigger sweep — it has rules of its own and files to remove.
 	if (catalogKey == "dungeons") {
