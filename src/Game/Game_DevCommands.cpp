@@ -67,22 +67,35 @@ void Game::RegisterDevCommands() {
 						.summary = "cap the frame rate to the window's monitor"},
 					   [this](const std::vector<std::string>& args) {
 						   if (!args.empty()) m_device.SetFrameCapEnabled(ArgOn(args[0]));
-						   const int hz = m_device.FrameCapHz();
+						   // Every number through gfx::FrameRateFor / FrameRateText, the
+						   // cap's own formula and the Video tab's spelling (C200): hz
+						   // can be fractional ("82.5", "59.94").
+						   const gfx::RefreshRate refresh = m_device.Refresh();
+						   const std::string hz = gfx::FrameRateText(m_device.FrameCapHz());
+						   const std::string monitor =
+							   gfx::FrameRateText(gfx::FrameRateFor(refresh, 1));
 						   // key=value to the log so a harness can read the target it
 						   // is meant to hold the frame rate against, rather than
-						   // hardcoding this machine's monitor.
-						   log::Info("framecap enabled={} hz={} monitor={}",
-									 m_device.FrameCapEnabled() ? 1 : 0, hz,
-									 m_device.RefreshHz());
+						   // hardcoding this machine's monitor. hz=0 with the cap on is
+						   // exclusive full-screen, which Present paces itself.
+						   log::Info("framecap enabled={} hz={} monitor={} interval={} refresh={}/{} "
+									 "exclusive={}",
+									 m_device.FrameCapEnabled() ? 1 : 0, hz, monitor,
+									 m_device.PresentInterval(), refresh.numerator,
+									 refresh.denominator, m_device.IsExclusive() ? 1 : 0);
 						   m_console.Print(
-							   m_device.FrameCapEnabled()
-								   ? std::format("frame cap ON - {} Hz (monitor {} Hz / "
-												 "present interval)",
-												 hz, m_device.RefreshHz())
-								   : std::format("frame cap OFF - paced by DWM, which on a "
+							   !m_device.FrameCapEnabled()
+								   ? std::format("frame cap OFF - paced by DWM, which on a "
 												 "mixed-refresh desktop is the FASTEST "
 												 "monitor, not this one ({} Hz)",
-												 m_device.RefreshHz()));
+												 monitor)
+							   : m_device.FrameCapHz() <= 0.0
+								   ? std::format("frame cap ON but idle - exclusive full-screen, "
+												 "paced by Present on the {} Hz monitor",
+												 monitor)
+								   : std::format("frame cap ON - {} Hz (monitor {} Hz / "
+												 "present interval {})",
+												 hz, monitor, m_device.PresentInterval()));
 					   });
 	m_console.Register({.name = "lang",
 						.group = CmdGroup::Settings,

@@ -1559,6 +1559,21 @@ if ($strip -and $stripIcons -ge 3 -and $stripSpread -gt 4) {
 	$global++
 }
 
+# THE GAME IS DPI AWARE (code-review C201): the boot says what the process is.
+# Unaware - an exe that lost src/Main/DpiAware.manifest - sees logical pixels on
+# a scaled monitor, so Windows stretches a too-small swapchain over it, blurred,
+# and the Video tab's physical resolutions come out too large.
+$dpiLine = @($lines -match '^\[info \] dpi: awareness=\S+ window=\d+ scale=\d+%') | Select-Object -First 1
+if (-not $dpiLine) {
+	Write-Host '  [FAIL] the boot logged no `dpi: awareness=` line' -ForegroundColor Red
+	$global++
+} elseif ($dpiLine -match 'awareness=permonitorv2 ') {
+	Write-Host "  [ok  ] the game is per-monitor-v2 DPI aware: $($dpiLine -replace '^\[info \] ', '')"
+} else {
+	Write-Host "  [FAIL] the game is not per-monitor-v2 DPI aware: $($dpiLine -replace '^\[info \] ', '')" -ForegroundColor Red
+	$global++
+}
+
 Write-Host ''
 $problems = $failed.Count + $global
 $verdict = if ($problems -eq 0) { 'PASS' } else { 'FAIL' }

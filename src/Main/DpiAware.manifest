@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<!--
+  src/Main/DpiAware.manifest - the game is per-monitor DPI aware, version 2
+  (code-review C201). Dungeon.exe only: the tools draw no window.
+
+  Without it the process saw LOGICAL pixels on a monitor scaled past 100%: the
+  swapchain was made at the logical size and Windows stretched it over the
+  physical one, so the scene and every font atlas drew blurred (at 2/3 of the
+  resolution on a 150% display), and the Video tab's resolutions - physical
+  DXGI mode sizes - were applied as a logical client size, so a native-size
+  Windowed window came out larger than the monitor. With it every size the game
+  sees is physical; Platform/Window measures its frame with
+  AdjustWindowRectExForDpi at the target monitor's DPI and answers
+  WM_DPICHANGED, and the UI already scales by the window's height.
+
+  PerMonitorV2 needs Windows 10 1703; the older dpiAware element is the
+  fallback before that. The linker merges this with the exe's own manifest and
+  with src/Core/Utf8CodePage.manifest (each exe lists that one). The boot logs
+  `dpi: awareness=...`, which InGameTest holds to permonitorv2.
+-->
+<assembly manifestVersion="1.0" xmlns="urn:schemas-microsoft-com:asm.v1">
+	<application>
+		<windowsSettings>
+			<dpiAware xmlns="http://schemas.microsoft.com/SMI/2005/WindowsSettings">true/pm</dpiAware>
+			<dpiAwareness xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">PerMonitorV2</dpiAwareness>
+		</windowsSettings>
+	</application>
+</assembly>

@@ -15,11 +15,18 @@
 ;   last        the same on the staged adapter's LAST monitor: the window is in
 ;               ITS work area (on one monitor this is monitor 0 again, and the
 ;               judge skips the check rather than count it).
+;   drop        what Alt+Tab does to an Exclusive swapchain (code-review C194),
+;               asked for: the frame after `video drop` finds the swapchain's
+;               state is not the one the device last saw and rebuilds the back
+;               buffers before it presents, and the frames after it present.
+;               Windowed here, so the drop is SIMULATED (the device remembers an
+;               exclusive state the swapchain does not hold - a harness run takes
+;               no monitor); `DisplayTest.py --exclusive` does it for real.
 ;
 ; Every apply here is a SCRIPT's, so it is applied and never saved: the judge
 ; holds settings.ini's display keys to what they were. The refusals: a monitor
 ; the adapter does not have, a word `video apply` does not know, a verb `video`
-; does not have.
+; does not have, and a drop with words after it.
 newgame
 video status
 video apply
@@ -32,6 +39,12 @@ video apply windowed 1280x720
 video status
 video apply windowed 1280x720 monitor last
 video status
+video drop
+echo dropped-frame-1
+echo dropped-frame-2
+echo dropped-frame-3
+video status
+expect-refuse video drop now
 expect-refuse video apply monitor 99
 expect-refuse video apply fullscreen
 expect-refuse video bogus

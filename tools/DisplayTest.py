@@ -1,6 +1,6 @@
 # tools/DisplayTest.py - the display lifecycle's checks (code-review batch 68).
 #
-# Run:  python tools\DisplayTest.py [--selftest]   (needs a debug build)
+# Run:  python tools\DisplayTest.py [--selftest] [--exclusive]   (needs a debug build)
 #
 # The Video tab's Apply and the GPU switch's relaunch were both a click on a page
 # no harness opened. The dev console's `video` reaches them now - `video status`
@@ -41,9 +41,23 @@
 #              posted WM_DISPLAYCHANGE sets off (C199); and the staged monitor's
 #              device name and the GPU's identity survive settings.ini's text both
 #              ways (`video ini` - the text, never the player's file).
+#   DROP       in the PLACEMENT run (code-review batch 70, C194): `video drop`
+#              does what Alt+Tab does to an Exclusive swapchain - its state goes
+#              behind the device's back - and the next frame must find it, rebuild
+#              the back buffers once (said in the log) and the frames after it
+#              present. The window is Windowed there, so the drop is SIMULATED
+#              (the device is made to remember a state the swapchain does not
+#              hold, the same mismatch); no harness run takes a monitor.
+#   EXCLUSIVE  only with --exclusive, never from CheckAll: it SWITCHES A MONITOR
+#              to exclusive full-screen for a few seconds, so run it when nobody is
+#              using that screen. tools\EvalScripts\displayexclusive.eval enters
+#              Exclusive, drops it for real, checks the drop as above, posts the
+#              activation that coming back sends (`video activate`) and checks
+#              the Exclusive is re-entered, then goes back to Windowed.
 #
 # --selftest runs the scripts with every `video apply`, `video restart`, `video
-# displaychange` and `video ini` line cut, and demands EXACTLY the checks
+# displaychange`, `video ini`, `video drop` and `video activate` line cut, and
+# demands EXACTLY the checks
 # resting on them fail (NOT_CUT names the rest, which must still pass), so no
 # check is met by nothing happening.
 #
@@ -74,7 +88,9 @@ TOOL = "displaytest"
 CHILD_WAIT_S = 90
 DISPLAY_KEYS = ("adapter_id", "monitor", "reswidth", "resheight", "fullscreen")
 GHOST = r"\\.\DN-GHOST"
-CUT = ("video apply", "video restart", "video displaychange", "video ini")
+EXCLUSIVE = os.path.join(ROOT, r"tools\EvalScripts\displayexclusive.eval")
+CUT = ("video apply", "video restart", "video displaychange", "video ini", "video drop",
+	   "video activate")
 
 # The checks that rest on none of the CUT lines: with those lines cut
 # (--selftest) these, and ONLY these, may still pass.
@@ -86,6 +102,7 @@ NOT_CUT = {
 	"a WARP boot lists and stages the running adapter, and its monitor and resolution "
 	"lists are not empty",
 	"the WARP script ran to its verdict",
+	"the exclusive script ran to its verdict",
 	"the real worlds and the style library are byte for byte as the run found them "
 	"(or as a killed run's backup held them)",
 	"and git status under assets/projects and assets/library shows nothing new since "
@@ -156,6 +173,8 @@ def statuses(log_text):
 			cur["saved"] = said
 		if said.startswith("video displays: "):
 			cur["displays"] = fields(said)
+		if said.startswith("video swapchain: "):
+			cur["swapchain"] = fields(said)
 		m = re.match(r"video monitor (\d+): ", said)
 		if m:
 			cur.setdefault("monitors", []).append(int(m.group(1)))
@@ -277,6 +296,8 @@ def placement(script):
 			  f"monitor staged {st.get('monitor')} running {run.get('monitor')} of {monitors}, "
 			  f"window {run.get('window')} work {st.get('work')}")
 
+	drop(text, sts, after(sts, "video apply windowed 1280x720 monitor last"), "simulated")
+
 	after_ini = ini_display()
 	check(before == after_ini, "a script's apply is never saved: settings.ini's display keys are as they began",
 		  f"before {before} after {after_ini}")
@@ -290,6 +311,62 @@ def placement(script):
 		  f"exit {code}: {verdict.split('eval ', 1)[-1] if verdict else 'no verdict line'}")
 	if "eval RESULT=FAIL" in verdict:
 		harness_game.report_failed_script(text, "display.eval")
+
+
+# ---------------------------------------------------------------------------
+# DROP and EXCLUSIVE
+# ---------------------------------------------------------------------------
+
+def drop(text, sts, before_status, how):
+	"""`video drop` (C194): the frame after it finds the swapchain's state is not
+	the one the device last saw and rebuilds the back buffers - said in the log
+	after the drop - and every frame after that presents. Read from the
+	`video swapchain:` line of `before_status` and of the status after the
+	frames that follow the drop (`echo dropped-frame-3`)."""
+	before = before_status.get("swapchain", {})
+	later = after(sts, "echo dropped-frame-3").get("swapchain", {})
+	lines = text.splitlines()
+	at = next((i for i, l in enumerate(lines) if "console: > video drop" in l), None)
+	tail = lines[at + 1:] if at is not None else []
+	said = any(f"video: exclusive state dropped ({how})" in l for l in tail)
+	changed = any("swapchain: the exclusive state changed under the device" in l for l in tail)
+	rebuilt = any("swapchain: back buffers recreated" in l for l in tail)
+	b_rec, l_rec = num(before.get("recreates")), num(later.get("recreates"))
+	b_sc, l_sc = num(before.get("statechanges")), num(later.get("statechanges"))
+	b_pr, l_pr = num(before.get("presents")), num(later.get("presents"))
+	# Five frames run from the drop to that status (the drop, three echoes, the
+	# status itself), each presenting; at least four of them after the rebuild.
+	check(said and changed and rebuilt and b_rec >= 0 and l_rec == b_rec + 1 and b_sc >= 0
+		  and l_sc == b_sc + 1 and b_pr >= 0 and l_pr >= b_pr + 4 and later.get("exclusive") == "0",
+		  f"a dropped exclusive state ({how}) is found by the next frame, the back buffers are "
+		  "rebuilt once, and the frames after it present",
+		  f"drop said: {said}; log: changed={changed} rebuilt={rebuilt}; recreates {b_rec} -> {l_rec}, "
+		  f"state changes {b_sc} -> {l_sc}, presents {b_pr} -> {l_pr}, exclusive after "
+		  f"{later.get('exclusive')}")
+
+
+def exclusive(script):
+	print("EXCLUSIVE - a real drop of exclusive full-screen, and its re-entry (C194; --exclusive)")
+	code, text = harness_game.run_eval(EXE, ROOT, LOG, [script], headless=False, timeout=300)
+	for f in harness_game.fatal_lines(text):
+		print(f"         game FATAL: {f}")
+	sts = statuses(text)
+	entered = after(sts, "video apply exclusive native")
+	check(entered.get("swapchain", {}).get("exclusive") == "1"
+		  and entered.get("swapchain", {}).get("wanted") == "1",
+		  "Exclusive is entered", f"{entered.get('swapchain')}")
+	drop(text, sts, entered, "real")
+	lost = after(sts, "echo dropped-frame-3").get("swapchain", {})
+	back = after(sts, "echo reentered").get("swapchain", {})
+	check(lost.get("lost") == "1" and back.get("exclusive") == "1" and back.get("lost") == "0"
+		  and num(back.get("reentries")) == num(lost.get("reentries")) + 1
+		  and num(back.get("activations")) > num(lost.get("activations")),
+		  "the activation that coming back sends re-enters the Exclusive the drop took",
+		  f"after the drop {lost}; after the activation {back}")
+	verdict = next((l for l in text.splitlines() if "eval RESULT=" in l), "")
+	check(harness_game.finished(code, text) and "eval RESULT=PASS" in verdict,
+		  "the exclusive script ran to its verdict",
+		  f"exit {code}: {verdict.split('eval ', 1)[-1] if verdict else 'no verdict line'}")
 
 
 # ---------------------------------------------------------------------------
@@ -507,6 +584,8 @@ def main():
 		placement(place)
 		warp(soft)
 		relaunch(again)
+		if "--exclusive" in sys.argv:
+			exclusive(cut_copy(EXCLUSIVE, tmp, CUT) if selftest else EXCLUSIVE)
 	finally:
 		shutil.rmtree(tmp, ignore_errors=True)
 		# A child the run left (one that did not end itself, and a crash between

@@ -1,5 +1,8 @@
 add_executable(Dungeon WIN32
 	Main.cpp
+	# Per-monitor-v2 DPI awareness (code-review C201) - the game's alone; merged
+	# with Utf8CodePage.manifest, which the root CMakeLists adds to every exe.
+	DpiAware.manifest
 )
 target_link_libraries(Dungeon PRIVATE Game)
 

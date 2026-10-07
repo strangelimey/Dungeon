@@ -311,6 +311,76 @@ void GraphicsDevice::RecreateSwapChainBuffers() {
 	DN_HR(m_swapchain->ResizeBuffers(kFrameCount, m_width, m_height, kBackBufferFormat,
 									 m_swapFlags));
 	CreateSizeDependentResources();
+	++m_recreates;
+}
+
+// ----------------------------------------------------------------------------
+// Exclusive full-screen taken away (code-review C194). MakeWindowAssociation
+// passes only NO_ALT_ENTER, so DXGI still leaves exclusive mode by itself when
+// the window loses focus, and nothing told the device: the window it restores
+// is the mode's size, so WM_SIZE early-outs, no ResizeBuffers happens, and the
+// next Present fails (DXGI #117) - an abort. Asked once a frame, before the
+// command list is opened, so the rebuild never has a frame of ours in flight
+// against the old buffers.
+// ----------------------------------------------------------------------------
+void GraphicsDevice::CheckFullscreenState() {
+	BOOL fs = FALSE;
+	if (FAILED(m_swapchain->GetFullscreenState(&fs, nullptr))) return;
+	const bool now = fs != FALSE;
+	if (now == m_fullscreen) return; // the steady state: one query, nothing else
+	// An OS event, never a steady-state frame: the line formats and the rebuild
+	// recreates resources, so it excuses itself (the GameSettings::Save rule).
+	const alloc::Excused excuse;
+	++m_stateChanges;
+	const bool lost = !now && m_wantExclusive;
+	log::Warn("swapchain: the exclusive state changed under the device ({} -> {}{}) - the back "
+			  "buffers are recreated before the next Present",
+			  m_fullscreen ? "exclusive" : "windowed", now ? "exclusive" : "windowed",
+			  lost ? "; the Exclusive the game asked for was taken, and is re-entered when the "
+					 "window is active again"
+				   : "");
+	m_fullscreen = now;
+	RecreateSwapChainBuffers();
+	log::Info("swapchain: back buffers recreated at {}x{} (rebuild {})", m_width, m_height,
+			  m_recreates);
+}
+
+bool GraphicsDevice::RestoreExclusive() {
+	if (!ExclusiveLost()) return false;
+	const std::string monitor = m_exclusiveMonitor; // SetFullscreen rewrites it
+	log::Info("swapchain: re-entering the Exclusive full-screen that was lost ({} {}x{})",
+			  monitor.empty() ? std::string("the window's monitor") : monitor, m_exclusiveWidth,
+			  m_exclusiveHeight);
+	if (!SetFullscreen(true, monitor, m_exclusiveWidth, m_exclusiveHeight)) return false;
+	++m_reentries;
+	return true;
+}
+
+const char* GraphicsDevice::DropExclusiveForTest() {
+	BOOL fs = FALSE;
+	m_swapchain->GetFullscreenState(&fs, nullptr);
+	if (fs) {
+		// What DXGI does on a focus loss: the state goes, and nobody tells us.
+		WaitIdle();
+		m_swapchain->SetFullscreenState(FALSE, nullptr);
+		log::Warn("swapchain: exclusive state dropped behind the device's back (video drop)");
+		return "real";
+	}
+	m_fullscreen = true;
+	log::Warn("swapchain: the device now remembers an exclusive state the swapchain does not "
+			  "hold (video drop, simulated - nothing here is exclusive)");
+	return "simulated";
+}
+
+GraphicsDevice::SwapchainStats GraphicsDevice::SwapStats() const {
+	return {.exclusive = IsExclusive(),
+			.wanted = m_wantExclusive,
+			.lost = ExclusiveLost(),
+			.stateChanges = m_stateChanges,
+			.recreates = m_recreates,
+			.presents = m_presents,
+			.skippedMinimized = m_skippedPresents,
+			.reentries = m_reentries};
 }
 
 // ----------------------------------------------------------------------------
@@ -328,13 +398,20 @@ bool GraphicsDevice::SetFullscreen(bool exclusive, std::string_view monitorDevic
 	m_swapchain->GetFullscreenState(&currentlyFs, nullptr);
 
 	if (!exclusive) {
+		// Leaving on purpose: nothing was taken, nothing is to be re-entered.
+		m_wantExclusive = false;
 		if (currentlyFs) {
 			m_swapchain->SetFullscreenState(FALSE, nullptr);
 			// A WM_SIZE follows from the restored window, but it may report the
 			// same size and early-out of Resize(); the flip model still demands a
 			// ResizeBuffers post-transition. The caller resizes the window next.
 			RecreateSwapChainBuffers();
+		} else if (m_fullscreen) {
+			// The state was already gone (taken on a focus loss, not yet seen by
+			// BeginFrame): the rebuild it is owed happens here instead.
+			RecreateSwapChainBuffers();
 		}
+		m_fullscreen = false;
 		return true;
 	}
 
@@ -382,6 +459,25 @@ bool GraphicsDevice::SetFullscreen(bool exclusive, std::string_view monitorDevic
 	if (FAILED(hr)) {
 		log::Warn("Exclusive full-screen failed (hr {:#010x}); staying windowed",
 				  static_cast<u32>(hr));
+		// Whatever the attempt left is settled HERE, against the state m_fullscreen
+		// held before it: a swapchain that changed state (exclusive on another
+		// monitor, then windowed by the refusal) is owed the flip model's
+		// ResizeBuffers, and writing the live state into m_fullscreen without it
+		// would hide the change from BeginFrame too - the next Present aborts.
+		const bool now = IsExclusive();
+		if (now != m_fullscreen) {
+			RecreateSwapChainBuffers();
+			log::Info("swapchain: the refused attempt left it {} - back buffers recreated at "
+					  "{}x{} (rebuild {})",
+					  now ? "exclusive" : "windowed", m_width, m_height, m_recreates);
+		}
+		m_fullscreen = now;
+		// Still exclusive: the attempt left the Exclusive the game held (its
+		// monitor, its mode) as it was, and that is still the one wanted. Not:
+		// the window is the caller's now (Borderless on the asked-for monitor), so
+		// nothing is wanted and nothing is lost - re-entering the OLD monitor on
+		// the next activation would undo the caller's placement.
+		if (!now) m_wantExclusive = false;
 		return false;
 	}
 	// Re-issue the mode after the transition (recommended DXGI pattern) so the
@@ -397,6 +493,12 @@ bool GraphicsDevice::SetFullscreen(bool exclusive, std::string_view monitorDevic
 	// when the fullscreen size matches the prior window size, so do it here or the
 	// next Present aborts (DXGI #117).
 	RecreateSwapChainBuffers();
+	// Held: a focus loss can take it, and RestoreExclusive puts back exactly this.
+	m_fullscreen = true;
+	m_wantExclusive = true;
+	m_exclusiveMonitor = std::string(monitorDevice);
+	m_exclusiveWidth = width;
+	m_exclusiveHeight = height;
 	return true;
 }
 
@@ -414,6 +516,10 @@ bool GraphicsDevice::IsExclusive() const {
 //               (Present's sync interval divides the refresh; SetPresentInterval)
 // ----------------------------------------------------------------------------
 ID3D12GraphicsCommandList* GraphicsDevice::BeginFrame(const float clearColor[4]) {
+	// An exclusive state DXGI dropped on its own is noticed here, before the
+	// list opens, and the back buffers rebuilt (C194).
+	CheckFullscreenState();
+
 	// Wait until the GPU has finished the previous frame that used this slot.
 	//
 	// ZONED, and this is the point of it: time spent here is the main thread
@@ -644,9 +750,18 @@ void GraphicsDevice::EndFrame() {
 	// second reading, a mostly idle one means the first. The console's verdict is
 	// built that way round for exactly this reason, and a waitable swapchain is
 	// what would separate them at the source.
-	{
+	//
+	// NOT WHILE MINIMIZED (C194): there is nothing to show, and an Exclusive
+	// swapchain DXGI has just minimized on a focus loss is mid-transition. The
+	// frame still executes and signals, so the slot's fence advances; the back
+	// buffer index does not, so the next frame waits on this one, which paces a
+	// minimized game to its GPU instead of spinning.
+	if (IsIconic(reinterpret_cast<HWND>(m_hwnd))) {
+		++m_skippedPresents;
+	} else {
 		DN_PROFILE_ZONE(prof::kZonePresent);
 		DN_HR(m_swapchain->Present(m_presentInterval, 0));
+		++m_presents;
 	}
 
 	m_fenceValues[m_frameIndex] = m_nextFenceValue;
@@ -660,43 +775,72 @@ void GraphicsDevice::SetPresentInterval(u32 interval) {
 	m_presentInterval = std::clamp<u32>(interval, 1, 4);
 }
 
-int GraphicsDevice::RefreshHz() const {
-	// The refresh rate of the monitor the window currently sits on, read from
-	// the OS (DXGI has no direct query). Drives the Frame Rate dropdown's labels
-	// — the actual cap is the present interval, so a stale value is cosmetic.
+RefreshRate GraphicsDevice::Refresh() const {
+	// The monitor the window sits on now, by its GDI device name.
 	HMONITOR mon = MonitorFromWindow(reinterpret_cast<HWND>(m_hwnd),
 									 MONITOR_DEFAULTTONEAREST);
 	MONITORINFOEXW info{};
 	info.cbSize = sizeof(info);
-	if (GetMonitorInfoW(mon, &info)) {
-		DEVMODEW dm{};
-		dm.dmSize = sizeof(dm);
-		if (EnumDisplaySettingsW(info.szDevice, ENUM_CURRENT_SETTINGS, &dm) &&
-			dm.dmDisplayFrequency > 1)
-			return static_cast<int>(dm.dmDisplayFrequency);
+	if (!GetMonitorInfoW(mon, &info)) return {60, 1}; // the safe default
+
+	// EXACT: the active display path whose source is that monitor carries the
+	// target's refresh as a rational (C200 - DEVMODE's whole hertz read 59.94 as
+	// 59). The arrays are fixed and on the stack: this runs inside frames the
+	// allocation guard watches (the cap re-reads it twice a second), and a desk
+	// with more paths than this falls back to DEVMODE below.
+	constexpr UINT32 kMaxPaths = 32, kMaxModes = 64;
+	DISPLAYCONFIG_PATH_INFO paths[kMaxPaths];
+	DISPLAYCONFIG_MODE_INFO modes[kMaxModes];
+	UINT32 pathCount = 0, modeCount = 0;
+	if (GetDisplayConfigBufferSizes(QDC_ONLY_ACTIVE_PATHS, &pathCount, &modeCount) == ERROR_SUCCESS &&
+		pathCount <= kMaxPaths && modeCount <= kMaxModes &&
+		QueryDisplayConfig(QDC_ONLY_ACTIVE_PATHS, &pathCount, paths, &modeCount, modes, nullptr) ==
+			ERROR_SUCCESS) {
+		for (UINT32 i = 0; i < pathCount; ++i) {
+			DISPLAYCONFIG_SOURCE_DEVICE_NAME source{};
+			source.header.type = DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME;
+			source.header.size = sizeof(source);
+			source.header.adapterId = paths[i].sourceInfo.adapterId;
+			source.header.id = paths[i].sourceInfo.id;
+			if (DisplayConfigGetDeviceInfo(&source.header) != ERROR_SUCCESS ||
+				std::wstring_view(source.viewGdiDeviceName) != std::wstring_view(info.szDevice))
+				continue;
+			const DISPLAYCONFIG_RATIONAL r = paths[i].targetInfo.refreshRate;
+			if (r.Numerator > 0 && r.Denominator > 0 && r.Numerator / r.Denominator >= 1)
+				return {r.Numerator, r.Denominator};
+			break;
+		}
 	}
-	return 60; // safe default when the OS reports a placeholder (0/1) or fails
+
+	DEVMODEW dm{};
+	dm.dmSize = sizeof(dm);
+	if (EnumDisplaySettingsW(info.szDevice, ENUM_CURRENT_SETTINGS, &dm) && dm.dmDisplayFrequency > 1)
+		return {static_cast<u32>(dm.dmDisplayFrequency), 1};
+	return {60, 1}; // the OS reported a placeholder (0/1) or failed
 }
 
-int GraphicsDevice::FrameCapHz() const {
-	if (!m_frameCap) return 0;
-	// Cached: re-read at most a few times a second. RefreshHz is three Win32
-	// calls including EnumDisplaySettings, which is not something to do on every
-	// frame for a number that changes when a window is dragged between monitors.
+RefreshRate GraphicsDevice::CapRefresh() const {
+	// Cached: re-read at most twice a second. It is a walk of the display paths,
+	// which is not something to do on every frame for a number that changes when
+	// a window is dragged between monitors.
 	LARGE_INTEGER now{};
 	QueryPerformanceCounter(&now);
-	if (m_capHzCached == 0 || m_qpcFreq <= 0 ||
+	if (!m_capRefresh.Valid() || m_qpcFreq <= 0 ||
 		now.QuadPart - m_capHzCheckedQpc > m_qpcFreq / 2) {
-		m_capHzCached = RefreshHz();
+		m_capRefresh = Refresh();
 		m_capHzCheckedQpc = now.QuadPart;
 	}
-	const int interval = static_cast<int>(m_presentInterval < 1 ? 1 : m_presentInterval);
-	return m_capHzCached > 0 ? m_capHzCached / interval : 0;
+	return m_capRefresh;
+}
+
+double GraphicsDevice::FrameCapHz() const {
+	// Exclusive full-screen: Present's interval paces the output exactly.
+	if (!m_frameCap || m_fullscreen) return 0.0;
+	return FrameRateFor(CapRefresh(), m_presentInterval);
 }
 
 void GraphicsDevice::WaitFrameCap() {
-	const int hz = FrameCapHz();
-	if (hz <= 0) {
+	if (FrameCapHz() <= 0.0) {
 		m_capDeadlineQpc = 0;
 		return;
 	}
@@ -719,7 +863,13 @@ void GraphicsDevice::WaitFrameCap() {
 			log::Warn("frame cap: no high-resolution timer; falling back to spin-wait");
 	}
 
-	const i64 slice = m_qpcFreq / hz;
+	// The ONE formula (gfx::CapSliceTicks): the exact refresh's period times the
+	// interval, a hair short so the vblank sets the pace (C200).
+	const i64 slice = CapSliceTicks(CapRefresh(), m_presentInterval, m_qpcFreq);
+	if (slice <= 0) {
+		m_capDeadlineQpc = 0;
+		return;
+	}
 	LARGE_INTEGER now{};
 	QueryPerformanceCounter(&now);
 

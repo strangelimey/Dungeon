@@ -5,6 +5,7 @@
 #include "Core/StringUtil.h"
 
 #include <Windows.h>
+#include <ShellScalingApi.h> // GetDpiForMonitor
 #include <windowsx.h>
 
 #include <algorithm>
@@ -38,18 +39,57 @@ Window::Window(const WindowDesc& desc)
 	wc.lpszClassName = kClassName;
 	RegisterClassExW(&wc);
 
+	// The frame round the client at the DPI the window will be made at (the
+	// system's, the primary monitor's at sign-in), corrected below once the
+	// window knows the monitor it actually landed on.
 	RECT rect{0, 0, static_cast<LONG>(desc.width), static_cast<LONG>(desc.height)};
 	const DWORD style = WS_OVERLAPPEDWINDOW;
-	AdjustWindowRect(&rect, style, FALSE);
+	AdjustWindowRectExForDpi(&rect, style, FALSE, 0, GetDpiForSystem());
 
 	m_hwnd = CreateWindowExW(0, kClassName, str::Widen(desc.title).c_str(), style,
 							 CW_USEDEFAULT, CW_USEDEFAULT, rect.right - rect.left,
 							 rect.bottom - rect.top, nullptr, nullptr, instance, this);
 	DN_ASSERT(m_hwnd != nullptr, "CreateWindowExW failed");
 
+	// THE CLIENT IS IN PHYSICAL PIXELS (code-review C201): the exe declares
+	// per-monitor-v2 DPI awareness (src/Main/DpiAware.manifest), so the size
+	// asked for is the swapchain's, unscaled - and a frame sized for the system
+	// DPI is resized for the monitor's own if that differs.
+	m_dpi = GetDpiForWindow(m_hwnd);
+	if (m_dpi != GetDpiForSystem()) {
+		RECT fit{0, 0, static_cast<LONG>(desc.width), static_cast<LONG>(desc.height)};
+		AdjustWindowRectExForDpi(&fit, style, FALSE, 0, m_dpi);
+		SetWindowPos(m_hwnd, nullptr, 0, 0, fit.right - fit.left, fit.bottom - fit.top,
+					 SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+	}
+
 	ShowWindow(m_hwnd, desc.hidden ? SW_HIDE : SW_SHOW);
 	log::Info("Window created ({}x{}){}", m_width, m_height,
 			  desc.hidden ? " [hidden — headless]" : "");
+	// The boot's DPI line (InGameTest reads it): what the process is - an exe
+	// that lost its manifest says "unaware" here, and Windows then stretches a
+	// logical-size swapchain over a scaled monitor, blurred - and the DPI of the
+	// monitor the window is on.
+	log::Info("dpi: awareness={} window={} scale={}%", DpiAwarenessName(), m_dpi,
+			  m_dpi * 100 / 96);
+}
+
+const char* Window::DpiAwarenessName() {
+	const DPI_AWARENESS_CONTEXT ctx = GetThreadDpiAwarenessContext();
+	if (AreDpiAwarenessContextsEqual(ctx, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2))
+		return "permonitorv2";
+	switch (GetAwarenessFromDpiAwarenessContext(ctx)) {
+	case DPI_AWARENESS_PER_MONITOR_AWARE: return "permonitor";
+	case DPI_AWARENESS_SYSTEM_AWARE: return "system";
+	case DPI_AWARENESS_UNAWARE: return "unaware";
+	default: return "invalid";
+	}
+}
+
+bool Window::Minimized() const { return IsIconic(m_hwnd) != FALSE; }
+
+void Window::PostActivate() const {
+	PostMessageW(reinterpret_cast<HWND>(m_hwnd), WM_ACTIVATEAPP, TRUE, 0);
 }
 
 Window::~Window() {
@@ -65,10 +105,13 @@ void Window::SetWindowed(u32 width, u32 height, const ScreenRect* workArea) {
 	// Where it goes: the chosen monitor's work area, else the one it is on now.
 	const ScreenRect work = workArea ? *workArea : MonitorWorkArea();
 
-	// The frame round a client: AdjustWindowRect grows an empty rect by exactly
-	// the border and title bar, so the outer size is the client plus this.
+	// The frame round a client: AdjustWindowRectExForDpi grows an empty rect by
+	// exactly the border and title bar, so the outer size is the client plus
+	// this - at the DPI of the monitor the window is GOING to (C201: a frame
+	// measured at the primary's DPI is the wrong size on a scaled second one).
+	const UINT dpi = DpiAt(work);
 	RECT frame{0, 0, 0, 0};
-	AdjustWindowRect(&frame, WS_OVERLAPPEDWINDOW, FALSE);
+	AdjustWindowRectExForDpi(&frame, WS_OVERLAPPEDWINDOW, FALSE, 0, dpi);
 	const int frameW = frame.right - frame.left;
 	const int frameH = frame.bottom - frame.top;
 
@@ -84,16 +127,32 @@ void Window::SetWindowed(u32 width, u32 height, const ScreenRect* workArea) {
 				  width, height, work.width, work.height, frameW, frameH, clientW, clientH);
 	const int ww = clientW + frameW;
 	const int wh = clientH + frameH;
+	// Placed by us, at a size already measured for the target's DPI: the
+	// WM_DPICHANGED a cross-monitor move sends is not to rescale it.
+	m_placing = true;
 	SetWindowPos(hwnd, HWND_TOP, work.x + (work.width - ww) / 2, work.y + (work.height - wh) / 2,
 				 ww, wh, ShowFlags());
+	m_placing = false;
 }
 
 void Window::SetBorderless(int x, int y, u32 width, u32 height) {
 	const HWND hwnd = reinterpret_cast<HWND>(m_hwnd);
 	SetWindowLongPtrW(hwnd, GWL_STYLE, WS_POPUP | (m_hidden ? 0 : WS_VISIBLE));
 	m_borderless = true;
+	m_placing = true; // a monitor's desktop rect, in physical pixels: not rescaled
 	SetWindowPos(hwnd, HWND_TOP, x, y, static_cast<int>(width),
 				 static_cast<int>(height), ShowFlags());
+	m_placing = false;
+}
+
+u32 Window::DpiAt(const ScreenRect& area) const {
+	const RECT r{area.x, area.y, area.x + area.width, area.y + area.height};
+	UINT dx = 0, dy = 0;
+	if (SUCCEEDED(GetDpiForMonitor(MonitorFromRect(&r, MONITOR_DEFAULTTONEAREST),
+								   MDT_EFFECTIVE_DPI, &dx, &dy)) &&
+		dx > 0)
+		return dx;
+	return GetDpiForWindow(m_hwnd);
 }
 
 void Window::PostDisplayChange() const {
@@ -180,6 +239,33 @@ i64 Window::HandleMessage(u32 msg, u64 wparam, i64 lparam) {
 		}
 		return 0;
 	}
+
+	// The window crossed onto a monitor of another scale, or the scale changed
+	// under it (code-review C201). A window the PLAYER dragged takes the rect
+	// Windows suggests, which keeps it the same apparent size there; one we are
+	// placing ourselves (SetWindowed / SetBorderless measured it for that DPI
+	// already) or a Borderless one covering a monitor keeps its physical size.
+	case WM_DPICHANGED: {
+		const u32 dpi = HIWORD(wparam);
+		const bool keep = m_placing || m_borderless;
+		log::Info("dpi: the window is now at {} dpi ({}%) - {}", dpi, dpi * 100 / 96,
+				  keep ? "its size is kept" : "it takes the suggested size");
+		m_dpi = dpi;
+		if (!keep) {
+			const RECT* s = reinterpret_cast<const RECT*>(lparam);
+			SetWindowPos(m_hwnd, nullptr, s->left, s->top, s->right - s->left, s->bottom - s->top,
+						 SWP_NOZORDER | SWP_NOACTIVATE);
+		}
+		return 0;
+	}
+
+	// The application was activated again (Alt+Tab back, a click on it). A COUNT
+	// the game polls, as for a display change: an Exclusive full-screen DXGI took
+	// away on the way out is re-entered at the top of a frame, never in here -
+	// SetFullscreenState from inside the window procedure can deadlock (C194).
+	case WM_ACTIVATEAPP:
+		if (wparam) ++m_activations;
+		return 0;
 
 	case WM_DISPLAYCHANGE:
 		++m_displayChanges; // Game re-reads the display list next frame (C199)

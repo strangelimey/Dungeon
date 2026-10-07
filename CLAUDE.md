@@ -1652,8 +1652,16 @@ the dropdown can override it; DungeonWorld::SelectLights keeps the lights that
 add most to the view up to the budget - see "The light budget") plus a Frame Rate dropdown (GameSettings::
 kPresentIntervals → GraphicsDevice::SetPresentInterval: present sync interval
 1..4 = full-refresh VSync down to refresh/4, a tear-free divisor cap that cuts
-GPU load; options labelled with the live rate from GraphicsDevice::RefreshHz;
-ini presentinterval=). Above quality/lights the Video tab has the
+GPU load; ini presentinterval=). The options are labelled, and the FRAME CAP
+(GraphicsDevice::WaitFrameCap) aims, through ONE formula over the display's
+EXACT rate: GraphicsDevice::Refresh reads the rational the monitor runs at
+(QueryDisplayConfig - 60000/1001 for "59.94"; this desk's "144" is 143.933),
+and Graphics/FrameRate.h (pure, in RollTest's "frame cap" section) makes
+FrameRateFor / the cap's CapSliceTicks (0.1% fast, kCapBias, so the vblank sets
+the pace) / the labels' FrameRateText of it (code-review C200: whole hertz in
+integers capped 165/2 at 82 against 82.5, and a cap slower than the display
+repeats a frame). The cap is off in EXCLUSIVE full-screen, where Present's
+interval paces the output. Above quality/lights the Video tab has the
 DISPLAY block: adapter (GPU), monitor, resolution, and display
 mode (Windowed/Borderless/Exclusive fullscreen). ONE display list
 (GameUI::Displays, a gfx::DisplayList from gfx::EnumerateDisplays in
@@ -1687,7 +1695,31 @@ the monitor by DEVICE NAME (one gone is the one the window is on), Exclusive
 targets that monitor's output on whichever adapter lists it (placing the window
 there first, so a refused cross-adapter target falls back to the window's
 output) and logs a refusal's HRESULT, and a choice is SAVED only once it has
-applied (C199). An adapter
+applied (C199). EXCLUSIVE CAN BE TAKEN AWAY (code-review C194): DXGI drops it by
+itself when the window loses focus (Alt+Tab, the Windows key, a toast), and the
+flip model then needs a ResizeBuffers the restored window's WM_SIZE never asks
+for - the next Present aborted. GraphicsDevice::BeginFrame compares the
+swapchain's state with the one it last saw (CheckFullscreenState) and rebuilds
+the back buffers when they differ, logging both; Present is skipped while the
+window is minimized; and an Exclusive the game ASKED for and lost is re-entered
+when the app is activated again (Window counts WM_ACTIVATEAPP, Game::UpdateStates
+polls it and calls RestoreExclusive at the top of a frame, never in the window
+procedure, and not while still minimized). "Lost" is a LIVE test of the
+swapchain (`ExclusiveLost`: wanted and not held now), never a flag BeginFrame
+sets, because a focus lost and regained in one long frame's pump reaches Update
+before any BeginFrame saw it. A REFUSED SetFullscreen settles what the attempt
+left at once: a swapchain whose state moved is rebuilt there (writing the live
+state over the last-seen one without it hid the change from BeginFrame, and the
+next Present aborted), and one left windowed wants nothing more. THE GAME IS
+PER-MONITOR-V2 DPI AWARE
+(C201, src/Main/DpiAware.manifest, Dungeon.exe only, merged with the UTF-8 one):
+every size is PHYSICAL pixels, Window measures its frame with
+AdjustWindowRectExForDpi at the TARGET monitor's DPI, and WM_DPICHANGED's
+suggested rect is taken for a window the player dragged but not one the game is
+placing or a Borderless one; the boot logs `dpi: awareness=<..> window=<dpi>
+scale=<%>`, which InGameTest holds to permonitorv2. Unaware, a scaled monitor
+stretched a logical-size swapchain over it, blurred, and the physical
+resolutions came out too large. An adapter
 change can't be done in place (the device is bound to its GPU), so it pops a
 Yes/No confirm modal (GameUI::m_confirmUi, drawn over the page; Esc = No) and
 on confirm persists + relaunches the exe (Game::RestartApp via
@@ -1717,7 +1749,13 @@ refused), `video restage` (what opening Settings does), `video restart`, `video
 displaychange` (posts a real WM_DISPLAYCHANGE), `video ghost` (lists and stages a
 monitor that is not there) and `video ini` (the staged monitor and the GPU
 identity through settings.ini's TEXT both ways - GameSettings::Text / Parse,
-never the player's file). Checked by `tools\DisplayTest.py`
+never the player's file), `video drop` (what Alt+Tab does to an Exclusive
+swapchain - for real when Exclusive, else SIMULATED: the device remembers a
+state the swapchain does not hold; a hidden window refuses) and `video activate`
+(posts a real WM_ACTIVATEAPP); `video status` adds a `video swapchain` line
+(exclusive / wanted / lost, state changes, rebuilds, presents, skipped Presents,
+re-entries, activations, the cap, the exact refresh, the DPI and the awareness).
+Checked by `tools\DisplayTest.py`
 (CheckAll `display`, full tier: a shown window moved over every monitor - the
 last-monitor check is SKIPPED on a one-monitor machine and the verdict line's
 `monitors=` says how many there were; it REFUSES, exit 2, a settings.ini saving
@@ -1725,7 +1763,10 @@ Borderless or Exclusive - a headless `-warp` run, displaywarp.eval, where the
 monitor and resolution lists must still be full, Borderless must cover the staged
 monitor, a display change must drop the ghost and `video ini` must round-trip -
 and a relaunch whose child keeps `-project`, appends after the parent's whole
-log and quits by itself).
+log and quits by itself; the shown run also drops exclusive state, simulated, and
+demands the next frame rebuild the buffers once and the frames after present.
+`--exclusive`, never from CheckAll since it SWITCHES A MONITOR, does it for real
+with displayexclusive.eval and checks the activation re-enters it).
 Changing the adapter/monitor dropdown also repopulates the dependent lists by
 rebuilding the settings page next frame (GameUI::m_videoRebuildPending →
 ApplyPendingVideoRebuild, deferred like the language switch since the rebuild

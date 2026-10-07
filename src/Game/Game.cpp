@@ -2192,6 +2192,25 @@ void Game::UpdateStates(float dt) {
 		m_ui.RefreshDisplays(true);
 		m_ui.ApplyPendingVideoRebuild();
 	}
+	// Back from a focus loss: an Exclusive full-screen DXGI dropped on the way out
+	// is re-entered now, at the top of a frame - never from the window procedure
+	// (code-review C194). The activation is only NOTED here, and whether anything
+	// was lost is asked when it is acted on: it waits while the window is still
+	// minimized (the activation can come before the restore, and a minimized
+	// window cannot take the monitor), and ExclusiveLost is a live test of the
+	// swapchain, so a focus lost and regained in one long frame's message pump -
+	// before any BeginFrame saw the drop - is still caught.
+	if (m_window.Activations() != m_seenActivations) {
+		m_seenActivations = m_window.Activations();
+		m_reenterExclusive = true;
+	}
+	if (m_reenterExclusive && !m_window.Minimized()) {
+		m_reenterExclusive = false;
+		const alloc::Excused excuse; // an OS event, like the display change above
+		if (m_device.ExclusiveLost() && !m_device.RestoreExclusive())
+			log::Warn("display: the Exclusive full-screen taken on a focus loss could not be "
+					  "re-entered - the game stays windowed until the Video tab applies it");
+	}
 	// A Video-tab adapter/monitor change last frame repopulates the settings page
 	// now, for the same reason: the rebuild destroys the dropdown that triggered it.
 	m_ui.ApplyPendingVideoRebuild();

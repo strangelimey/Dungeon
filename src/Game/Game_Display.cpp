@@ -271,6 +271,23 @@ void Game::PrintVideoStatus() {
 								list.adapters.size(), list.monitors.size(), m_ui.DisplayRefreshes(),
 								m_window.DisplayChanges()));
 
+	// The swapchain (code-review C194/C200/C201): its exclusive state now, what
+	// the game asked for and whether a focus loss took it; the counts `video
+	// drop` must move - state changes the device found, back-buffer rebuilds,
+	// frames presented, Presents skipped while minimized, Exclusives re-entered;
+	// the cap's aim and the exact refresh it comes from; and the window's DPI and
+	// what the process is aware of.
+	const gfx::GraphicsDevice::SwapchainStats sw = m_device.SwapStats();
+	const gfx::RefreshRate refresh = m_device.Refresh();
+	m_console.Print(std::format(
+		"video swapchain: exclusive={} wanted={} lost={} statechanges={} recreates={} presents={} "
+		"skippedminimized={} reentries={} activations={} cap={} refresh={}/{} interval={} dpi={} "
+		"awareness={}",
+		sw.exclusive ? 1 : 0, sw.wanted ? 1 : 0, sw.lost ? 1 : 0, sw.stateChanges, sw.recreates,
+		sw.presents, sw.skippedMinimized, sw.reentries, m_window.Activations(),
+		gfx::FrameRateText(m_device.FrameCapHz()), refresh.numerator, refresh.denominator,
+		m_device.PresentInterval(), m_window.Dpi(), Window::DpiAwarenessName()));
+
 	// Every monitor, which `video apply ... monitor <n>` picks from.
 	for (size_t o = 0; o < list.monitors.size(); ++o) {
 		const gfx::OutputInfo& out = list.monitors[o];
@@ -292,10 +309,12 @@ void Game::RegisterDisplayCommands() {
 				   "restart\n"
 				   "displaychange\n"
 				   "ghost\n"
-				   "ini",
+				   "ini\n"
+				   "drop\n"
+				   "activate",
 		 .summary = "the Video tab's display choice: show it, stage and apply it (a script's is "
-					"not saved), re-stage it as opening Settings does, relaunch, or check the "
-					"display list and the saved monitor"},
+					"not saved), re-stage it as opening Settings does, relaunch, check the "
+					"display list and the saved monitor, or lose and regain exclusive mode"},
 		[this](const std::vector<std::string>& args) {
 			const std::string verb = args.empty() ? "status" : args[0];
 			if (verb == "status" && args.size() <= 1) {
@@ -309,6 +328,33 @@ void Game::RegisterDisplayCommands() {
 				m_console.Print(std::format("video: WM_DISPLAYCHANGE posted - the display list "
 											"(read {} time(s)) is re-read next frame",
 											m_ui.DisplayRefreshes()));
+				return;
+			}
+			if (verb == "drop" && args.size() == 1) {
+				// What Alt+Tab does to an Exclusive swapchain (C194): its state
+				// goes behind the device's back, and the next frame must notice
+				// and rebuild the back buffers before it presents. Not Exclusive
+				// (a harness's run, which must take no monitor), the device is
+				// made to remember a state the swapchain does not hold - the same
+				// mismatch for BeginFrame to find.
+				if (m_window.IsHidden()) {
+					m_console.Refuse("a hidden window draws no frame - nothing would present "
+									 "after the drop");
+					return;
+				}
+				const char* how = m_device.DropExclusiveForTest();
+				m_console.Print(std::format("video: exclusive state dropped ({}) - the next frame "
+											"rebuilds the back buffers ({} so far)",
+											how, m_device.SwapStats().recreates));
+				return;
+			}
+			if (verb == "activate" && args.size() == 1) {
+				// The real message through the real pump: what coming back to the
+				// game sends, which re-enters an Exclusive a drop took (C194).
+				m_window.PostActivate();
+				m_console.Print(std::format("video: WM_ACTIVATEAPP posted - an Exclusive the game "
+											"lost ({}) is re-entered next frame",
+											m_device.ExclusiveLost() ? "lost" : "none lost"));
 				return;
 			}
 			if (verb == "ghost" && args.size() == 1) {

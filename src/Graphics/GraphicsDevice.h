@@ -25,6 +25,7 @@
 #include "Core/Types.h"
 #include "Graphics/D3DUtil.h"
 #include "Graphics/DisplayEnum.h" // FullscreenMode
+#include "Graphics/FrameRate.h"   // RefreshRate
 
 #include <d3d12sdklayers.h> // ID3D12InfoQueue/1 (validation messages)
 #include <dxgi1_6.h>
@@ -110,9 +111,16 @@ public:
 	// This is how the Video tab's Frame Rate dropdown caps GPU load on a high-
 	// refresh display. Live; safe to call any frame.
 	void SetPresentInterval(u32 interval);
-	// The current monitor's refresh rate in Hz (read from the OS) — the dropdown
-	// labels the intervals with the resulting frame rates (refresh / interval).
-	int RefreshHz() const;
+	u32 PresentInterval() const { return m_presentInterval; }
+	// The refresh rate of the monitor the window is on, EXACT - the rational the
+	// display runs at (60000/1001 for "59.94"), read from the OS's display paths
+	// (QueryDisplayConfig; DEVMODE's whole hertz only if that fails). The Frame
+	// Rate labels and the cap both make a frame rate of it through gfx::
+	// FrameRateFor, so they cannot disagree (code-review C200). No heap.
+	RefreshRate Refresh() const;
+	// The same, cached and re-read at most twice a second - what the cap aims
+	// at, and what a per-frame readout (the console's FPS ceiling) should ask.
+	RefreshRate CapRefresh() const;
 
 	// --- the frame cap -------------------------------------------------------
 	// Sleeps out whatever is left of this frame's slice, so the engine presents
@@ -129,13 +137,19 @@ public:
 	// Present cannot be asked to do this — its interval divides DWM's clock, not
 	// the output's — so the cap is a deliberate wait of our own on top of it.
 	// It divides by the present interval too, which has the side effect of making
-	// the Video tab's Frame Rate labels true: they were already computed as
-	// RefreshHz/interval and were describing a cap nothing enforced.
+	// the Video tab's Frame Rate labels true: both are gfx::FrameRateFor of the
+	// same exact refresh (code-review C200; it was whole hertz divided in integers,
+	// 82 against a real 82.5, and a cap slower than the display repeats a frame).
+	//
+	// NOT IN EXCLUSIVE FULL-SCREEN: there the swapchain owns the output and
+	// Present's interval paces it exactly, so a cap of our own could only drift
+	// against it.
 	void WaitFrameCap();
 	void SetFrameCapEnabled(bool on) { m_frameCap = on; }
 	bool FrameCapEnabled() const { return m_frameCap; }
-	// What the cap is currently aiming at, in Hz (0 = not capping).
-	int FrameCapHz() const;
+	// What the cap is currently aiming at, in frames a second (0 = not capping:
+	// switched off, or exclusive full-screen).
+	double FrameCapHz() const;
 
 	// Re-binds the back buffer RT/DSV + full viewport after an offscreen pass
 	// (e.g. shadow rendering) redirected the output merger. No clear.
@@ -165,6 +179,47 @@ public:
 	// Whether the swapchain holds exclusive full-screen now (the dev console's
 	// `video status`: what is RUNNING, not what was asked).
 	bool IsExclusive() const;
+
+	// --- exclusive full-screen taken away (code-review C194) ------------------
+	// DXGI drops exclusive mode BY ITSELF when the window loses focus - Alt+Tab,
+	// the Windows key, a toast - and a flip-model swapchain then needs a
+	// ResizeBuffers before its next Present, which used to abort the game: the
+	// restored window is the mode's size, so no WM_SIZE asked for one. BeginFrame
+	// now compares the swapchain's state with the one it last saw and rebuilds the
+	// back buffers when they differ, and remembers that an Exclusive the game
+	// ASKED for was taken from it; Game re-enters it when the window is active
+	// again (Window::Activations) through RestoreExclusive, so the game does not
+	// sit windowed while settings.ini says Exclusive. LIVE - the game wants
+	// Exclusive and the swapchain does not hold it now - never a flag BeginFrame
+	// sets: a focus lost and regained in ONE message pump (a long frame: a load
+	// task, a quality swap) reaches Game's Update before the BeginFrame that would
+	// notice it, and a latched answer read there said "nothing lost".
+	bool ExclusiveLost() const { return m_wantExclusive && !IsExclusive(); }
+	// Re-enters the Exclusive that was lost, on the monitor and at the mode it was
+	// entered with. False when none was lost or the swapchain refused (logged).
+	bool RestoreExclusive();
+	// `video drop`: what a focus loss does to an Exclusive swapchain, asked for -
+	// it leaves exclusive state BEHIND the device's back, so the next BeginFrame
+	// must notice. When the swapchain is not exclusive (a harness's Windowed or
+	// headless run, which must not take a monitor) the device is made to remember
+	// an exclusive state the swapchain does not hold, which is the same mismatch
+	// for BeginFrame to find. Returns "real" or "simulated".
+	const char* DropExclusiveForTest();
+	// What `video status` prints of the swapchain: the state now, what the game
+	// asked for, and the counts a harness reads - state changes BeginFrame found,
+	// back-buffer rebuilds (any cause), frames presented, Presents skipped while
+	// the window was minimized, and Exclusives re-entered.
+	struct SwapchainStats {
+		bool exclusive = false;
+		bool wanted = false;
+		bool lost = false;
+		u32 stateChanges = 0;
+		u32 recreates = 0;
+		u64 presents = 0;
+		u64 skippedMinimized = 0;
+		u32 reentries = 0;
+	};
+	SwapchainStats SwapStats() const;
 
 	void WaitIdle();
 
@@ -211,6 +266,9 @@ private:
 	// Unconditional back-buffer rebuild at the current size — required by
 	// flip-model swap chains after every fullscreen<->windowed transition.
 	void RecreateSwapChainBuffers();
+	// BeginFrame's first step: the swapchain's exclusive state against the one
+	// last seen, and a rebuild when they differ (see ExclusiveLost).
+	void CheckFullscreenState();
 
 	u32 m_width = 0;
 	u32 m_height = 0;
@@ -264,6 +322,18 @@ private:
 	// (full refresh); 2/3/4 divide the rate tear-free. See SetPresentInterval.
 	u32 m_presentInterval = 1;
 
+	// --- exclusive state (CheckFullscreenState, C194) -------------------------
+	bool m_fullscreen = false;     // the swapchain's state as last seen
+	bool m_wantExclusive = false;  // the game asked for Exclusive and has not left it
+	std::string m_exclusiveMonitor; // what RestoreExclusive re-enters with
+	u32 m_exclusiveWidth = 0;
+	u32 m_exclusiveHeight = 0;
+	u32 m_stateChanges = 0;
+	u32 m_recreates = 0;
+	u64 m_presents = 0;
+	u64 m_skippedPresents = 0;
+	u32 m_reentries = 0;
+
 	// --- frame cap state (WaitFrameCap) --------------------------------------
 	bool m_frameCap = true;
 	void* m_capTimer = nullptr; // high-resolution waitable timer, or null
@@ -274,10 +344,10 @@ private:
 	// one after it.
 	i64 m_capDeadlineQpc = 0;
 	i64 m_qpcFreq = 0;
-	// The refresh rate is re-read on a timer, not per frame: it is three Win32
-	// calls and it only changes when the window is dragged to another monitor or
-	// the mode is changed.
-	mutable int m_capHzCached = 0;
+	// The refresh rate is re-read on a timer, not per frame: it is a walk of the
+	// OS's display paths and it only changes when the window is dragged to
+	// another monitor or the mode is changed.
+	mutable RefreshRate m_capRefresh;
 	mutable i64 m_capHzCheckedQpc = 0;
 };
 

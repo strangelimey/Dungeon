@@ -1671,6 +1671,12 @@ private:
 	// Window::DisplayChanges as last seen: a frame that finds it moved re-reads
 	// the display list (GameUI::RefreshDisplays, code-review C199).
 	u32 m_seenDisplayChanges = 0;
+	// Window::Activations as last seen, and an activation not yet acted on: once
+	// the window is not minimized, an Exclusive full-screen lost on the focus
+	// loss (asked LIVE, GraphicsDevice::ExclusiveLost) is re-entered
+	// (GraphicsDevice::RestoreExclusive, code-review C194).
+	u32 m_seenActivations = 0;
+	bool m_reenterExclusive = false;
 
 	// The map overlay's panel in the given surface's pixel space (window pixels
 	// for input, device pixels for drawing): full-screen in Editor mode (it

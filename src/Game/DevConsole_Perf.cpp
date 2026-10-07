@@ -180,13 +180,14 @@ void DevConsole::DrawPerfSection(const PanelCtx& p, float top) {
 			m_font->Draw(batch, it.subText, x + m_font->MeasureWidth(it.text), ly,
 						dim ? kDim : it.subColor);
 	};
-	const int refreshHz = device.RefreshHz();
-	const float fpsCeiling = refreshHz > 0 ? static_cast<float>(refreshHz) : 240.0f;
+	// The cached exact rate, through the cap's own formula (code-review C200).
+	const double refreshHz = gfx::FrameRateFor(device.CapRefresh(), 1);
+	const float fpsCeiling = refreshHz > 0.0 ? static_cast<float>(refreshHz) : 240.0f;
 	const PerfItem items[kPerfLines] = {
 		// Against the DISPLAY's refresh rate, not an arbitrary round number: a
 		// full bar then means "as fast as this screen can show", which is the
 		// only sense in which a frame rate is good enough.
-		{"FPS", std::format("FPS  {:.0f} / {} Hz", m.fps, refreshHz), m.fps, fpsCeiling,
+		{"FPS", std::format("FPS  {:.0f} / {} Hz", m.fps, gfx::FrameRateText(refreshHz)), m.fps, fpsCeiling,
 		 {0.55f, 0.85f, 0.55f, 1.0f}, false},
 		// The two processors take the shared colours (DevConsole.h): the frame
 		// budget below paints CPU and GPU time in these, and a reader comparing

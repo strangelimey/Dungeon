@@ -21,7 +21,8 @@
 ;
 ; Every apply here is a SCRIPT's, so it is applied and never saved. No world is
 ; needed for any of it; the game is started first only because a script must
-; end playing to reach its verdict.
+; end playing to reach its verdict. A drop of exclusive mode (code-review C194)
+; is refused here: a hidden window draws no frame to present after it.
 newgame
 video status
 video apply borderless
@@ -33,3 +34,4 @@ video status
 video ini
 video apply windowed 1280x720
 video status
+expect-refuse video drop

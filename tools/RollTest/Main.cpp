@@ -77,6 +77,7 @@
 #include "Game/Roll.h"
 #include "Graphics/AdapterIdentity.h"
 #include "Graphics/Camera.h"
+#include "Graphics/FrameRate.h"
 #include "Graphics/LightTiles.h"
 
 #include <algorithm>
@@ -87,6 +88,7 @@
 #include <iterator>
 #include <random>
 #include <string>
+#include <tuple>
 #include <vector>
 
 using namespace dungeon::game;
@@ -3524,6 +3526,50 @@ int main(int argc, char** argv) {
 		CheckTrue("a doorway naming no level opens the dungeon's first",
 				  DoorwayLevel("", keep) == "room1");
 		CheckTrue("a dungeon with no levels opens nothing", DoorwayLevel("Keep1", {}).empty());
+	}
+
+	// --- the frame cap (Graphics/FrameRate.h) -----------------------------------
+	// The cap and the Frame Rate labels share one formula over the display's
+	// EXACT rate (code-review C200). It worked in whole hertz: 59.94 Hz read as
+	// 59, and 165 Hz at interval 2 capped at 82 against a real 82.5 - a cap
+	// slower than the display, which repeats a frame every second or two. The
+	// slice is checked against the period itself: never longer (a starved
+	// vblank), and kCapBias shorter.
+	{
+		namespace gfx = dungeon::gfx;
+		std::printf("\nThe frame cap (Graphics/FrameRate.h)\n");
+		constexpr dungeon::i64 kQpc = 10'000'000; // a 10 MHz counter, Windows' usual
+		const gfx::RefreshRate ntsc{60000, 1001}, hz165{165, 1}, hz144{144000, 1000};
+		Check("59.94 Hz at interval 1, in fps", gfx::FrameRateFor(ntsc, 1), 60000.0 / 1001.0, 1e-9);
+		Check("165 Hz at interval 2, in fps", gfx::FrameRateFor(hz165, 2), 82.5, 1e-9);
+		Check("an interval of 0 counts as 1", gfx::FrameRateFor(hz165, 0), 165.0, 1e-9);
+		Check("an unknown rate is no rate", gfx::FrameRateFor(gfx::RefreshRate{0, 1}, 1), 0.0, 0.0);
+		// The slice, in ticks, against the exact period: short by kCapBias (to a
+		// tick, the truncation), never long.
+		const auto period = [&](gfx::RefreshRate r, dungeon::u32 n) {
+			return static_cast<double>(kQpc) * n * r.denominator / r.numerator;
+		};
+		for (const auto& [label, r, n] :
+			 {std::tuple{"59.94 Hz slice / its period", ntsc, 1u},
+			  std::tuple{"165 Hz interval 2 slice / its period", hz165, 2u},
+			  std::tuple{"144 Hz interval 3 slice / its period", hz144, 3u}}) {
+			const double slice = static_cast<double>(gfx::CapSliceTicks(r, n, kQpc));
+			Check(label, slice / period(r, n), 1.0 - gfx::kCapBias, 1.0 / period(r, n) + 1e-9);
+		}
+		CheckTrue("the 165/2 cap is not 82 fps (the integer cap's slice)",
+				  gfx::CapSliceTicks(hz165, 2, kQpc) < kQpc / 82 - 500);
+		CheckTrue("no slice for an unknown rate or counter",
+				  gfx::CapSliceTicks(gfx::RefreshRate{0, 1}, 1, kQpc) == 0 &&
+					  gfx::CapSliceTicks(hz165, 1, 0) == 0);
+		// One spelling for the labels: what the cap aims at, written as such.
+		CheckTrue("59.94 Hz labels \"59.94\"",
+				  gfx::FrameRateText(gfx::FrameRateFor(ntsc, 1)) == "59.94");
+		CheckTrue("165 Hz / 2 labels \"82.5\" (it rounded to 83)",
+				  gfx::FrameRateText(gfx::FrameRateFor(hz165, 2)) == "82.5");
+		CheckTrue("144 Hz / 1 labels \"144\"",
+				  gfx::FrameRateText(gfx::FrameRateFor(hz144, 1)) == "144");
+		CheckTrue("59.94 Hz / 2 labels \"29.97\"",
+				  gfx::FrameRateText(gfx::FrameRateFor(ntsc, 2)) == "29.97");
 	}
 
 	// --- verdict ------------------------------------------------------------

@@ -1,0 +1,26 @@
+; displayexclusive.eval - exclusive full-screen taken away and given back
+; (code-review C194). JUDGED by `tools\DisplayTest.py --exclusive` ONLY, never
+; from CheckAll: it SWITCHES A MONITOR to exclusive full-screen for a few
+; seconds, so it is run when nobody is using that screen.
+;
+;   enter     `video apply exclusive` on the staged monitor at its own mode.
+;   drop      what Alt+Tab does: the state goes behind the device's back. The
+;             next frame must find it and rebuild the back buffers before it
+;             presents - the abort this batch fixes - and the frames after present.
+;   activate  coming back posts WM_ACTIVATEAPP; the game re-enters the Exclusive
+;             the drop took, at the top of the next frame.
+;
+; Every apply here is a script's, so nothing is saved; it ends Windowed.
+newgame
+video apply exclusive native
+video status
+video drop
+echo dropped-frame-1
+echo dropped-frame-2
+echo dropped-frame-3
+video status
+video activate
+echo reentered-wait
+echo reentered
+video status
+video apply windowed 1280x720

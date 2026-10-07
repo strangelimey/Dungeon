@@ -737,16 +737,16 @@ void GameUI::BuildSettings() {
 	// the rate is a tear-free divisor of the refresh (full = VSync, then half /
 	// third / quarter). Capping below refresh cuts GPU load. Labels show the
 	// resulting FPS from the live refresh rate; live (a present-interval change).
+	// The rate is the display's EXACT one through the cap's own formula
+	// (gfx::FrameRateFor), so "82.5" here is what the cap aims at (code-review
+	// C200: these rounded to 83 while the cap truncated to 82).
 	videoLabel("settings.framelimit");
-	const int refreshHz = m_device.RefreshHz();
+	const gfx::RefreshRate refresh = m_device.Refresh();
 	std::vector<std::string> fpsOptions;
 	for (u32 interval : kPresentIntervals)
-		fpsOptions.push_back(
-			interval == 1
-				? loc::Format("settings.framelimit.vsync", refreshHz)
-				: loc::Format("settings.framelimit.fps",
-							  (refreshHz + static_cast<int>(interval) / 2) /
-								  static_cast<int>(interval)));
+		fpsOptions.push_back(loc::Format(interval == 1 ? "settings.framelimit.vsync"
+													   : "settings.framelimit.fps",
+										 gfx::FrameRateText(gfx::FrameRateFor(refresh, interval))));
 	vf->Row<ui::DropDown>(
 		ui::Len::Fixed(kSetCtrl), std::move(fpsOptions),
 		GameSettings::PresentIntervalIndex(m_settings.presentInterval),

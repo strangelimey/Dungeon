@@ -211,8 +211,11 @@ if (@($snapNames | Where-Object { -not $snaps.ContainsKey($_) }).Count -eq 0) {
 
 	# --- 3. THE FRAME CAP HOLDS. Parsed from the game's own report rather than
 	# assumed, so this is not pinned to the monitor of whoever wrote it.
-	$capLine = $lines | Select-String 'framecap enabled=1 hz=(\d+)' | Select-Object -Last 1
-	$capHz = if ($capLine -and $capLine.Line -match 'hz=(\d+)') { [int]$Matches[1] } else { 0 }
+	# hz can be fractional (82.5 at 165 Hz / interval 2, 59.94 - code-review C200).
+	$capLine = $lines | Select-String 'framecap enabled=1 hz=(\d+(\.\d+)?)' | Select-Object -Last 1
+	$capHz = if ($capLine -and $capLine.Line -match 'hz=(\d+(\.\d+)?)') {
+		[double]::Parse($Matches[1], [Globalization.CultureInfo]::InvariantCulture)
+	} else { 0 }
 	$capped = $snaps['capped']; $uncapped = $snaps['uncapped']
 	if ($capHz -le 0) {
 		Skip 'the game reported no cap target - cap accuracy unchecked'
