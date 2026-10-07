@@ -27,6 +27,7 @@ using namespace DirectX;
 
 namespace dungeon::game {
 void DungeonWorld::EditCell(int x, int z, Cell cell) {
+	if (RaisesStart(m_map, x, z, cell)) return; // the start stays open (C348)
 	const u32 rev = m_map.Revision();
 	m_map.SetCell(x, z, cell);
 	if (m_map.Revision() == rev) return; // unchanged

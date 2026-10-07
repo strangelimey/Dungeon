@@ -71,10 +71,17 @@ bool DungeonWorld::ResizeLevel(const std::string& stem, int x0, int z0, int x1,
 	if (x0 == 0 && z0 == 0 && x1 == ow && z1 == oh) return false; // nothing to do
 
 	// NOTHING IS SILENTLY DELETED (his rule). Everything placed stands on a floor
-	// square - an entity, a fixture, a stair, a feature, the start - so counting
-	// the floor a trim would cut off covers them all; the one thing that lives
-	// in the ROCK is a window bored through it.
+	// square - an entity, a fixture, a stair, a feature - so counting the floor a
+	// trim would cut off covers them all; the one thing that lives in the ROCK is
+	// a window bored through it, and the start is asked after by name.
 	auto outside = [&](int x, int z) { return x < x0 || z < z0 || x >= x1 || z >= z1; };
+	// THE START first, whatever it stands on: a level without one cannot be
+	// parsed, and a start painted to rock (an older file; the brushes refuse it
+	// now) was no floor square to count, so a crop took it (code-review C348).
+	if (outside(map.StartX(), map.StartZ())) {
+		say(loc::Format("map.resize.start", map.StartX(), map.StartZ()));
+		return false;
+	}
 	int floor = 0, bores = 0;
 	for (int z = 0; z < oh; ++z)
 		for (int x = 0; x < ow; ++x)

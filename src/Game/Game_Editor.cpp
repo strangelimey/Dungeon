@@ -1212,6 +1212,8 @@ bool Game::RenameType(const std::string& catalogKey, const std::string& id,
 	// The undo stack holds level snapshots taken BEFORE the rename; restoring
 	// one would bring back records naming a type that no longer exists.
 	m_world->ClearUndoHistory();
+	// A brush armed with it holds it by id (C352), so it follows the rename.
+	m_mapEditor.TypeIdChanged(catalogKey, id, &newId);
 	log::Info("Renamed type '{}' -> '{}' ({} record(s) in {} level(s))", id, newId,
 			  used.count, used.levels.size());
 	if (m_world->onMessage)
@@ -1286,6 +1288,7 @@ bool Game::DeleteType(const std::string& catalogKey, const std::string& id,
 		return false;
 	}
 	cat->Remove(id);
+	m_mapEditor.TypeIdChanged(catalogKey, id, nullptr); // a brush armed with it goes too
 	if (!m_project.Save()) log::Warn("delete type: failed to save catalogs");
 	if (catalogKey == "terrain") {
 		// The world drops the kind too (the kinds after it move down an index,

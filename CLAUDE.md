@@ -2563,9 +2563,19 @@ by SurfaceAssetsAvailable — the worn-mesh load is a LoadModelOrDie that would
 ABORT on an unbaked type. APPEND-ONLY, and that rule is load-bearing: `variant`
 records store the palette INDEX, so inserting or removing mid-list would
 silently repaint every cell above it (removal needs an index remap — not built).
-For the same reason a paint validates the armed index against the viewed
-palette's CURRENT size (MapEditor::PaintCell): browsing a level with a shorter
-palette, or undoing an add, outlives the index the brush was armed with.
+THE BRUSH IS ARMED BY ID, never by row (code-review C352): a surface list is the
+VIEWED level's palette, so a row number painted another type on a level browsed
+to, after an undone add or a deleted earlier entry. MapEditor holds `{cat, id}`,
+the highlight finds its row by id (RowArmed), a gesture resolves the id ONCE
+(PaintPlan - a Fill level used to rebuild the category list for every square)
+and a level that lacks the type enrols it; a rename follows it, a delete puts
+the brush down (MapEditor::TypeIdChanged). THE START SQUARE STAYS OPEN (C348):
+no brush, stamp or EditCell/EditCellRemote raises a wall on it
+(DungeonWorld::RaisesStart), and a resize refuses a window that leaves it out.
+A middle-click erase that took nothing takes no undo step and says so (C353),
+so the redo history survives it. Dev: `editor palette add <cat> <id>`, `editor
+palette catalog [on|off]`, `armed=` at the end of `editor palette items`;
+EditorTest phase 34.
 A pool asset field (`texture` / `model`) is NOT a dropdown: those rows are
 buttons that open the ASSET PICKER (Game/AssetPicker.*, modal above whatever
 opened it — the type editor and the create dialog's "Use installed"), a

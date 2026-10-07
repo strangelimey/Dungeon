@@ -276,6 +276,8 @@ void Game::RegisterDevCommands() {
 								  "palette [mode stage|kind]\n"
 								  "palette group <name>|filter [text]|groups\n"
 								  "palette items <catalog>\n"
+								  "palette catalog [on|off]\n"
+								  "palette add <category> <id>\n"
 								  "palette use <id> [link]\n"
 								  "palette expand|collapse|swatches\n"
 								  "dock [left|right <px>]\n"
@@ -821,6 +823,14 @@ void Game::RegisterDevCommands() {
 									   args[2], x, z));
 								   return;
 							   }
+							   // ...but a wall refused on the start square is a rule,
+							   // not a no-op (C348).
+							   if (m_mapEditor.KeptStart()) {
+								   m_console.Refuse(std::format(
+									   "editor place: {} at {},{} refused - the start square stays open",
+									   args[2], x, z));
+								   return;
+							   }
 							   // The face it hung on, when it took one: a script reads where
 							   // the default put it.
 							   m_console.Print(std::format("editor place: {} at {},{}{}", args[2], x, z,
@@ -1253,6 +1263,7 @@ void Game::RegisterDevCommands() {
 				return;
 			}
 			m_world->Undo();
+			m_mapView.RefreshBrowse(); // as the toolbar's (MapView::DoUndoRedo)
 			m_console.Print("undone");
 		});
 	m_console.Register(
@@ -1265,6 +1276,7 @@ void Game::RegisterDevCommands() {
 				return;
 			}
 			m_world->Redo();
+			m_mapView.RefreshBrowse();
 			m_console.Print("redone");
 		});
 	m_console.Register({.name = "savemap",
@@ -2323,11 +2335,40 @@ void Game::PrintPalette(const std::vector<std::string>& args) {
 		// Quest items & flags section.
 		for (const MapEditor::PaletteItem& it : m_mapEditor.Items(cat))
 			m_console.Print(std::format(
-				"editor palette item {} {} band={} group='{}' ref={} goto={} label='{}' lens={}",
+				"editor palette item {} {} band={} group='{}' ref={} goto={} label='{}' lens={} "
+				"armed={}",
 				args[2], it.id, it.band, it.group, it.ref.empty() ? "-" : it.ref,
 				it.gotoLevel.empty() ? std::string("-")
 									 : std::format("{}@{},{}", it.gotoLevel, it.gotoX, it.gotoZ),
-				it.label, it.onTags ? "on" : "off"));
+				it.label, it.onTags ? "on" : "off", m_mapEditor.ItemArmed(cat, it) ? 1 : 0));
+		return;
+	}
+	// The "Catalogue" checkbox, clicked (it persists, as the click does).
+	if (args.size() >= 2 && args[1] == "catalog") {
+		if (args.size() >= 3 && args[2] != "on" && args[2] != "off") {
+			m_console.RefuseUsage();
+			return;
+		}
+		if (args.size() >= 3) m_mapEditor.SetShowCatalog(args[2] == "on");
+		m_console.Print(std::format("editor palette catalog: {}",
+									m_mapEditor.ShowCatalog() ? "on" : "off"));
+		return;
+	}
+	// A surface type added to the VIEWED level's palette and armed, as "+ New..."
+	// adds the type it made (MapEditor::AddToPalette).
+	if (args.size() >= 2 && args[1] == "add") {
+		if (args.size() < 4) {
+			m_console.RefuseUsage();
+			return;
+		}
+		const MapEditor::PaletteCat cat = MapEditor::CatForCatalogKey(args[2]);
+		if (!MapEditor::SurfaceCat(cat) || !m_mapEditor.AddToPalette(cat, args[3])) {
+			m_console.Refuse(std::format("editor palette add: {} not added to {}'s {}", args[3],
+										 m_mapView.ViewedLevel(), args[2]));
+			return;
+		}
+		m_console.Print(std::format("editor palette add: {} -> {} {}, armed {}", args[3],
+									m_mapView.ViewedLevel(), args[2], m_mapEditor.ArmedId()));
 		return;
 	}
 	if (args.size() >= 3 && args[1] == "mode") {

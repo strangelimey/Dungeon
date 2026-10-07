@@ -29,6 +29,7 @@
 #include <array>
 #include <functional>
 #include <map>
+#include <optional>
 #include <span>
 #include <string>
 #include <utility>
@@ -334,6 +335,12 @@ public:
 	// A section's rows exactly as the accordion resolves them (label, id,
 	// band...), for the harness - `editor palette items <catalog>`.
 	std::vector<PaletteItem> Items(PaletteCat cat) const { return CategoryItems(cat); }
+	// Whether that row draws as the armed brush (the highlight's own test).
+	bool ItemArmed(PaletteCat cat, const PaletteItem& item) const { return RowArmed(cat, item); }
+	// The "Catalogue" checkbox, set as a click on it sets it (persisted). The
+	// brush is held by id, so the type armed stays armed across it.
+	void SetShowCatalog(bool on);
+	bool ShowCatalog() const { return m_settings.mapShowCatalog; }
 	// One surface type (a Walls/Floors/Ceilings category) as the palette shows
 	// it: display name, group, the swatch and the flat fallback colour. Public
 	// so a dialog listing surface types (a theme's members) shows them exactly
@@ -365,7 +372,8 @@ public:
 	// as one undo step, and arms it as the brush. Reports through onMessage.
 	// The "+ New" flow calls this so a freshly created surface type is paintable
 	// at once; the "Catalogue" view instead enrols a type lazily, on first paint.
-	void AddToPalette(PaletteCat cat, const std::string& id);
+	// False when `cat` is no surface or the add was refused (`editor palette add`).
+	bool AddToPalette(PaletteCat cat, const std::string& id);
 	// Arms the palette row for `id` in `cat`, as clicking it would. False when
 	// the category does not list it. For the harness (`editor place`), which
 	// cannot click a palette row but must drive the real brush path.
@@ -418,12 +426,14 @@ public:
 	void BeginStroke();
 	void EndStroke();
 	bool StrokeOpen() const { return m_strokeOpen; }
+	// Whether the last gesture skipped the start square (a wall refused there,
+	// code-review C348) - for the console's `editor place`.
+	bool KeptStart() const { return m_startSaid; }
 	// True when something is armed AND it is a thing that gets PLACED (not a
 	// surface paint, not a non-placeable category). The hover ghost keys off
 	// this: a wall-texture brush has no pose to preview, only a cell to fill.
 	bool ArmedPlaceable() const {
-		return m_sel.index >= 0 && CategoryPlaceable(m_sel.cat) &&
-			   !PaintableCat(m_sel.cat);
+		return Armed() && CategoryPlaceable(m_sel.cat) && !PaintableCat(m_sel.cat);
 	}
 	// The armed brush's mount — what it attaches to (Placement.h). Data-driven:
 	// the type's own `mount` field, or its category's default.
@@ -491,7 +501,7 @@ public:
 	void PaintRectBetween(int ax, int az, int bx, int bz);
 	// True when the armed brush PAINTS squares - the only brushes the tools
 	// change the meaning of.
-	bool ArmedPaints() const { return m_sel.index >= 0 && PaintableCat(m_sel.cat); }
+	bool ArmedPaints() const { return Armed() && PaintableCat(m_sel.cat); }
 	// Alt+click: eyedropper — arms the brush from the clicked square (a solid
 	// square arms its wall texture, a floor square its floor texture; ceilings
 	// are picked while the Ceilings brush is armed, since they share the floor
@@ -501,10 +511,15 @@ public:
 	// MapView reads it to flip the grid's textured cell fill to the surface
 	// being painted (Walls/Floors/Ceilings show their textures while armed).
 	PaletteCat ArmedCat() const {
-		return m_sel.index >= 0 ? m_sel.cat : PaletteCat::Count;
+		return Armed() ? m_sel.cat : PaletteCat::Count;
 	}
-	// The armed row's catalog id ("" = nothing armed) - for the console.
-	std::string ArmedId() const;
+	// The armed type's catalog id ("" = nothing armed) - for the console.
+	const std::string& ArmedId() const { return m_sel.id; }
+	// A type renamed (`newId`) or deleted (null) in catalog `catalogKey`: a brush
+	// armed with it follows the rename, or is put down (Game::RenameType /
+	// DeleteType). The brush holds an id now, which an edit can leave stale.
+	void TypeIdChanged(const std::string& catalogKey, const std::string& id,
+					   const std::string* newId);
 	// The former Select tool, now on right-CLICK (a right-drag still pans):
 	// reports the cell's contents, selects the square (highlight + patrol-route
 	// overlay), and opens the inspector immediately when it holds an editable
@@ -541,13 +556,55 @@ public:
 					const gfx::Rect& panel);
 
 private:
-	// The armed palette entry: a category plus an item index within it.
-	// index -1 = nothing armed yet (left-click does nothing until a row is
-	// picked — the mouse-button inspect/erase work regardless).
-	struct Selection {
+	// The armed brush: a category plus the TYPE'S ID. Empty = nothing armed yet
+	// (left-click does nothing until a row is picked - the mouse-button inspect/
+	// erase work regardless). It used to be a ROW NUMBER, re-resolved through the
+	// category's list at every use (code-review C352): a surface list is the
+	// VIEWED level's palette, so a brush armed as row 2 of one level painted row 2
+	// of the next level browsed, and an undone palette add or a deleted earlier
+	// entry moved it the same way, highlight and all. The highlighted row is
+	// found by id when drawing (RowArmed), and a gesture looks the id up once.
+	struct Brush {
 		PaletteCat cat = PaletteCat::Walls;
+		std::string id;
+	};
+	// A palette ROW, by position: the hovered one (its index in its category's
+	// list, -2 for a header).
+	struct RowRef {
+		PaletteCat cat = PaletteCat::Count;
 		int index = -1;
 	};
+	bool Armed() const { return !m_sel.id.empty(); }
+	// True when the row standing for `item` in section `rowCat` is the armed
+	// brush - by id, through the row's own catalog for a row standing for
+	// another section's type (PaletteItem::ref). The palette's highlight and
+	// `editor palette items` both ask here.
+	bool RowArmed(PaletteCat rowCat, const PaletteItem& item) const;
+	// The armed brush's row in `items` (its category's list), or null when that
+	// list does not show it - a placement's label comes from here.
+	const PaletteItem* ArmedRow(const std::vector<PaletteItem>& items) const;
+	// Says the armed type is gone (deleted from its catalog under the brush) and
+	// puts the brush down.
+	void BrushGone();
+	// ONE GESTURE'S PAINT, resolved once (C352): the armed id to the surface it
+	// paints and, on the first square that needs it, the viewed level's variant
+	// for it - enrolled then, as a paint always enrolled a type the level lacks
+	// (EnsureSurfaceVariant / EnsureThemeVariant). Resolved lazily so a gesture
+	// that changes nothing enrols nothing (and stashes no browsed level, C307).
+	struct PaintPlan {
+		bool theme = false;
+		DungeonWorld::SurfaceSel sel = DungeonWorld::SurfaceSel::Floor;
+		std::string id;
+		ThemeMembers members{}; // a theme's
+		std::optional<int> variant; // resolved on first use; -1 = cannot paint
+	};
+	PaintPlan PlanPaint();
+	// THE START SQUARE STAYS OPEN (C348): a paint or a stamp that would raise a
+	// wall on the viewed level's start is skipped, and the gesture says so once.
+	// Cleared at the start of every gesture (BeginGesture).
+	bool KeepsStart(int cx, int cz, Cell want);
+	void BeginGesture() { m_startSaid = false; }
+	bool m_startSaid = false;
 
 	// Accordion layout, shared by hit-test and draw: one row per category header,
 	// per visible item, per group sub-header, and per empty-expanded placeholder.
@@ -672,7 +729,7 @@ private:
 	// that row's name had to be trimmed to fit - its full name and the row's
 	// rect as RenderBody drew it (device px), for RenderOverlay's tooltip.
 	// Reset at the top of every RenderBody, so a tip never outlives its row.
-	Selection m_hoverItem{PaletteCat::Count, -1};
+	RowRef m_hoverItem{PaletteCat::Count, -1};
 	std::string m_rowTip;
 	gfx::Rect m_rowTipAt{};
 	// DrawnSwatches: cleared at the top of every RenderBody, filled as it draws
@@ -721,18 +778,17 @@ private:
 		return SurfaceCat(cat) || cat == PaletteCat::Themes;
 	}
 	// A theme's paint on one square: its floor and ceiling mixes on open
-	// ground, its wall mix on a solid block (PaintCell's theme half). A
-	// theme RECOLOURS - it never changes the square's type.
-	void PaintThemeCell(int cx, int cz, bool remote, const std::string& stem);
-	// The same with the theme NAMED and the square's openness SAID rather than
-	// read - a shape brush paints squares it has just changed, which a browsed
-	// level's snapshot does not show yet.
+	// ground, its wall mix on a solid block (PaintCell's theme half), with the
+	// theme NAMED and the square's openness SAID rather than read - a shape
+	// brush paints squares it has just changed, which a browsed level's
+	// snapshot does not show yet. A theme RECOLOURS - it never changes the
+	// square's type.
 	void PaintThemeAs(const std::string& id, int cx, int cz, bool open, bool remote,
 					  const std::string& stem);
-	// One structural/surface application of the armed brush to a cell — the
+	// One structural/surface application of a gesture's plan to a cell - the
 	// shared inner body of ApplyBrush/PaintRect/FloodFill. No undo bracketing
 	// or change detection (callers bracket a whole gesture as one step).
-	void PaintCell(int cx, int cz, bool remote, const std::string& stem);
+	void PaintCell(int cx, int cz, bool remote, const std::string& stem, PaintPlan& plan);
 	// PaintCell over a whole set of squares on the viewed level as ONE undo
 	// step and one chunk batch - the body the area and level fills share.
 	void PaintCells(std::span<const std::pair<int, int>> cells);
@@ -748,7 +804,7 @@ private:
 	DungeonWorld* m_world = nullptr; // see SetWorld
 	GameSettings& m_settings; // owns the palette-collapse flag (read for layout)
 
-	Selection m_sel; // armed palette entry
+	Brush m_sel; // the armed brush, by id
 	// Per-category accordion expand state; Walls opens by default.
 	std::array<bool, static_cast<size_t>(PaletteCat::Count)> m_catOpen{};
 	std::map<std::string, bool> m_groupOpen; // sub-accordions (see GroupKey)

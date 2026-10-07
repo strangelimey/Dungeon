@@ -267,6 +267,7 @@ bool DungeonWorld::RemoveStairAt(int x, int z) {
 void DungeonWorld::EditCellRemote(const std::string& stem, int x, int z,
 								  Cell cell) {
 	const bool changed = EditMapStash(stem, [&](DungeonMap& map) {
+		if (RaisesStart(map, x, z, cell)) return false; // the start stays open (C348)
 		const u32 rev = map.Revision();
 		map.SetCell(x, z, cell);
 		if (map.Revision() == rev) return false; // unchanged / out of bounds
@@ -451,7 +452,9 @@ bool DungeonWorld::EraseRemote(const std::string& stem, int x, int z) {
 		map.SetCeilingVariant(x, z, -1);
 		return map.Revision() != rev;
 	});
-	say(loc::Format("map.erase.reset", x, z));
+	// A square with nothing to take and no override says so, and the caller
+	// takes no undo step for it (C353 - the redo history survives it).
+	say(loc::Format(reset ? "map.erase.reset" : "map.erase.none", x, z));
 	return reset;
 }
 

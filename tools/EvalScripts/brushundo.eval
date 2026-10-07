@@ -1,0 +1,91 @@
+; brushundo.eval - the brush by id, an erase of nothing, and the start square
+; (code-review C352, C353, C348). Judged by tools/EditorTest.py phase 34, on its
+; scratch world.
+;
+; Every level of the scratch world starts with the same floor palette (temple,
+; ancient stone, slabs, mossy cobble), so the script gives crypt1 and
+; eval_arena DIFFERENT fifth entries first. The editor is paused throughout, so
+; no monster walks onto a square the script erases.
+;
+;   --- browse ---    crypt1 gets floor_cobble as its 5th floor; eval_arena (the
+;                     active level) gets floor_slate as ITS 5th, which arms it.
+;                     Browsed to crypt1, the brush is still floor_slate: no row
+;                     of crypt1's floors lights (crypt1 has no slate), and a
+;                     click on 4,4 paints SLATE there - enrolled as crypt1's 6th.
+;                     The brush was a row number: it lit crypt1's 5th row,
+;                     floor_cobble, and painted that.
+;   --- redo ---      eval_arena, active: a floor paint on 5,18, undone, then a
+;                     middle-click erase of 7,18 (nothing on it, no override):
+;                     refused, said as nothing to erase, and the redo still
+;                     brings the paint back. The same on browsed crypt1's 5,5
+;                     (its pinned floor erased first, so it holds nothing).
+;   --- start ---     the party stepped off eval_arena's start (14,12): a wall
+;                     painted there is refused and the square stays open; a
+;                     wall rectangle over it raises the eight round it and keeps
+;                     it, saying so once; crypt1, browsed, refuses a wall on its
+;                     start 7,7 too.
+;   --- crop ---      a crop of eval_arena that leaves out its start column, and
+;                     one of crypt1 that leaves out its start row, are refused
+;                     NAMING the start (the start was counted only as floor).
+;   --- end ---
+
+logecho on
+reset
+editor
+editor pause on
+editor palette catalog off
+echo --- browse ---
+levels view crypt1
+editor palette add floors floor_cobble
+levels view eval_arena
+editor palette add floors floor_slate
+editor palette items floors
+levels view crypt1
+editor palette items floors
+editor levellist status
+editor cell 4 4
+editor ghost 4 4 0.5 0.5 click
+editor cell 4 4
+editor palette items floors
+echo --- redo ---
+levels view eval_arena
+editor cell 5 18
+editor records 7 18
+editor place floors floor_slabs 5 18
+editor cell 5 18
+undo
+editor cell 5 18
+expect-refuse editor erase 7 18
+redo
+editor cell 5 18
+levels view crypt1
+editor records 5 5
+editor erase 5 5
+editor cell 5 5
+editor place floors floor_slabs 5 5
+editor cell 5 5
+undo
+editor cell 5 5
+expect-refuse editor erase 5 5
+redo
+editor cell 5 5
+echo --- start ---
+levels view eval_arena
+tp 12 12
+expect-refuse editor place walls wall_marble 14 12
+editor cell 14 12
+editor fill walls wall_marble rect 13 11 15 13
+editor cell 14 12
+editor cell 13 12
+editor cell 15 13
+levels view crypt1
+expect-refuse editor place walls wall_marble 7 7
+editor cell 7 7
+echo --- crop ---
+levels view eval_arena
+expect-refuse editor resize 0 0 14 24
+levels view crypt1
+expect-refuse editor resize 0 0 14 7
+editor view
+echo --- end ---
+editor pause off

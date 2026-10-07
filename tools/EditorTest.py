@@ -274,6 +274,16 @@
 #      refused, a floor square takes a floor item, and `editor place` naming
 #      a wall with open floor behind it is refused (it laid a floor item there
 #      and said it went into the niche).
+#  34. THE BRUSH BY ID, AN ERASE OF NOTHING, THE START SQUARE (code-review C352,
+#      C353, C348): crypt1 and eval_arena given different fifth floors, the
+#      brush armed on eval_arena's (slate) and crypt1 browsed - no row of
+#      crypt1's lights, and a click paints SLATE there, enrolled (the brush was a
+#      row number, lit crypt1's fifth row and painted that). A paint undone, then
+#      a middle-click erase of an empty square - refused, said as nothing to
+#      erase - and the redo still brings the paint back, live and on a browsed
+#      level. A wall on the start square is refused, live and browsed, and a
+#      wall rectangle over it keeps it open, saying so once; a crop that leaves
+#      out the start is refused naming it.
 #  40. ONE WORLD TICK (code-review C78, C125), read off the world's own update
 #      count (`worldclock`): a paused editor stays paused through a bare
 #      `editor`, `editor pick` and `editor issues` - each asks for Editor mode,
@@ -1481,7 +1491,8 @@ def style_lines(lines):
 
 def palette_lens(lines, section):
     return {m.group(1): m.group(2) for m in
-            (re.match(rf"editor palette item {section} (\S+) .* lens=(on|off)$", l) for l in lines) if m}
+            (re.match(rf"editor palette item {section} (\S+) .* lens=(on|off)(?: |$)", l) for l in lines)
+            if m}
 
 
 def palette_listings(lines, section):
@@ -4060,6 +4071,147 @@ try:
           "crypt1.map gained exactly the niche at 12,5 east", str(records33(c1map, "niche")))
 finally:
     drop()
+
+
+# --- phase 34: the brush by id, an erase of nothing, the start square -------------
+print("34 - the brush holds its type across levels; an empty erase keeps the redo; the start stays")
+CELL34 = re.compile(r"editor cell (\S+) (\d+),(\d+) (\w+) wall=(\S+) floor=(\S+) ceiling=(\S+) bore=\S+$")
+
+
+def sections34(log):
+    """The console AND the editor's message lines, split on '--- name ---' -
+    an editor report (its message line) is what says why a brush did nothing."""
+    out, name = {}, None
+    for line in log.splitlines():
+        if "console: " in line:
+            text = line.split("console: ", 1)[1]
+        elif "editor: " in line:
+            text = "editor: " + line.split("editor: ", 1)[1]
+        else:
+            continue
+        m = re.match(r"--- (.*) ---$", text)
+        if m:
+            name = m.group(1)
+            out[name] = []
+        elif name is not None:
+            out[name].append(text)
+    return out
+
+
+def cells34(lines, x, z):
+    """(open|solid, wall, floor, ceiling) of each `editor cell` line for x,z."""
+    return [(m.group(4), m.group(5), m.group(6), m.group(7))
+            for m in map(CELL34.match, lines) if m and (int(m.group(2)), int(m.group(3))) == (x, z)]
+
+
+def armed34(lines):
+    """The `editor palette item floors` listings, each as {id: armed}."""
+    out, cur = [], None
+    for l in lines:
+        m = re.match(r"editor palette item floors (\S+) .* armed=(\d)$", l)
+        if m:
+            if cur is None:
+                cur = {}
+                out.append(cur)
+            cur[m.group(1)] = m.group(2) == "1"
+        else:
+            cur = None
+    return out
+
+
+def floor_palette34(stem):
+    text = io.open(os.path.join(PROJ, "levels", stem + ".map"), encoding="utf-8").read()
+    return next((l.split()[2:] for l in text.splitlines() if l.startswith("palette floor ")), [])
+
+
+# The developer's settings.ini beside the exe: the script's `editor palette
+# catalog off` saves map_show_catalog there (MapEditor::SetShowCatalog), so the
+# file is put back as it was found, whatever happened.
+settings_before = io.open(SETTINGS, "rb").read() if os.path.isfile(SETTINGS) else None
+fresh()
+try:
+    # THE CONTROL: both levels list the same four floors, slate and cobble among
+    # none of them, so a fifth entry is each level's own.
+    shared = ["floor_temple", "floor_ancient_stone", "floor_slabs", "floor_cobble_mossy"]
+    check(floor_palette34("crypt1") == shared and floor_palette34("eval_arena") == shared,
+          "THE CONTROL: crypt1 and eval_arena start with the same four floors",
+          f"{floor_palette34('crypt1')} | {floor_palette34('eval_arena')}")
+    log = run("brushundo.eval")
+    check(passed(log), "the script ran clean (its refusals expected, nothing else refused)")
+    sec = sections34(log)
+    check("end" in sec, "the script ran to its end", "\n".join(harness_game.fatal_lines(log)[:5]))
+    caught = [l for l in log.splitlines() if "exception on '" in l]
+    check(not caught, "no frame threw on the way (a caught throw is not a refusal)", "\n".join(caught[:3]))
+
+    # 1. C352: the brush is its TYPE, on any level browsed.
+    br = sec.get("browse", [])
+    check("editor palette add: floor_cobble -> crypt1 floors, armed floor_cobble" in br
+          and "editor palette add: floor_slate -> eval_arena floors, armed floor_slate" in br,
+          "crypt1's fifth floor is cobble, eval_arena's slate - the brush armed with slate", str(br))
+    lists = armed34(br)
+    check(len(lists) == 3, "three floor listings were read", str(lists))
+    if len(lists) == 3:
+        check([k for k, v in lists[0].items() if v] == ["floor_slate"],
+              "on eval_arena the slate row is the one lit", str(lists[0]))
+        check("floor_cobble" in lists[1] and not any(lists[1].values()),
+              "browsed to crypt1, NO row lights - crypt1 has no slate (the row number lit its fifth, "
+              "cobble)", str(lists[1]))
+        check(lists[2].get("floor_slate") is True and [k for k, v in lists[2].items() if v] == ["floor_slate"],
+              "after the paint crypt1 lists slate, and it is the row lit", str(lists[2]))
+    check(any(l.endswith("armed floors:floor_slate") for l in br),
+          "the brush is still floors:floor_slate on crypt1", str(br))
+    c44 = cells34(br, 4, 4)
+    check(len(c44) == 2 and c44[1][2] == "pin5/floor_slate" and c44[0][2] != c44[1][2],
+          "a click on crypt1's 4,4 paints SLATE there, enrolled as its sixth floor (the row number "
+          "painted crypt1's fifth, cobble)", str(c44))
+
+    # 2. C353: an erase of nothing keeps the redo, live and browsed.
+    rd = sec.get("redo", [])
+    a = cells34(rd, 5, 18)
+    check(len(a) == 4 and a[1][2] == "pin2/floor_slabs" and a[2] == a[0] and a[3] == a[1],
+          "eval_arena 5,18: painted slabs, undone back as it was, and REDONE after the empty "
+          "erase (an empty erase took an undo step and wiped the redo)", str(a))
+    b = cells34(rd, 5, 5)
+    check(len(b) == 4 and b[0][2].startswith("hash/") and b[1][2] == "pin2/floor_slabs"
+          and b[2] == b[0] and b[3] == b[1],
+          "browsed crypt1 5,5: erased bare, painted slabs, undone, and REDONE after the empty erase",
+          str(b))
+    check("editor records eval_arena 7,18: none" in rd and "editor records crypt1 5,5: none" in rd
+          and rd.count("redone") == 2,
+          "the erased squares held no record, and both redos ran", str(rd))
+    check("editor: Nothing to erase at 7, 18" in rd and "editor: Nothing to erase at 5, 5" in rd
+          and not any(l.startswith("editor: Reset cell 7, 18") for l in rd),
+          "each empty erase SAYS nothing was there (it said the cell was reset)", str(rd))
+
+    # 3. C348: the start square stays open.
+    st = sec.get("start", [])
+    check(any("editor place: wall_marble at 14,12 refused - the start square stays open" in l for l in st)
+          and any("editor place: wall_marble at 7,7 refused - the start square stays open" in l for l in st),
+          "a wall on eval_arena's start 14,12 and on browsed crypt1's 7,7 is refused", str(st))
+    s1412 = cells34(st, 14, 12)
+    check(len(s1412) == 2 and all(c[0] == "open" for c in s1412)
+          and [c[0] for c in cells34(st, 13, 12)] == ["solid"]
+          and [c[0] for c in cells34(st, 15, 13)] == ["solid"]
+          and [c[0] for c in cells34(st, 7, 7)] == ["open"],
+          "the start squares stay open; the rectangle raised the walls round 14,12", str(st))
+    check(st.count("editor: The start square 14, 12 stays open") == 2
+          and st.count("editor: The start square 7, 7 stays open") == 1,
+          "said once a gesture: the place, the rectangle, the browsed place", str(st))
+
+    # 4. C348: a crop that leaves out the start is refused, naming it.
+    cr = sec.get("crop", [])
+    check("editor: Can't crop it there - the start square 14, 12 would be cut off" in cr
+          and "editor: Can't crop it there - the start square 7, 7 would be cut off" in cr,
+          "a crop leaving out eval_arena's start and one leaving out crypt1's are refused naming the "
+          "start (it was counted only as a floor square)", str(cr))
+    check(any(l.startswith("editor view: crypt1 14x10 ") for l in cr),
+          "crypt1 is its old size after the refusal", str(cr))
+finally:
+    drop()
+    if settings_before is not None:
+        io.open(SETTINGS, "wb").write(settings_before)
+    elif os.path.isfile(SETTINGS):
+        os.remove(SETTINGS)
 
 
 # --- phase 40: one world tick ----------------------------------------------------

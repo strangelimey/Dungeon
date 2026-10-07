@@ -278,8 +278,8 @@ void MapEditor::LoadSurfaceSwatch(PaletteCat cat, const std::string& id) {
 	if (SurfaceCat(cat)) m_world->LoadSurfaceThumb(SelFor(cat), id);
 }
 
-void MapEditor::AddToPalette(PaletteCat cat, const std::string& id) {
-	if (!SurfaceCat(cat)) return;
+bool MapEditor::AddToPalette(PaletteCat cat, const std::string& id) {
+	if (!SurfaceCat(cat)) return false;
 	auto log = [&](const std::string& s) {
 		if (m_world->onMessage) m_world->onMessage(s);
 	};
@@ -293,29 +293,58 @@ void MapEditor::AddToPalette(PaletteCat cat, const std::string& id) {
 	m_world->CommitUndoStep(ok);
 	if (!ok) {
 		log(loc::Format("map.palette.failed", id));
-		return;
+		return false;
 	}
+	m_view.RefreshBrowse(); // a browsed level's rows come from its snapshot
 	log(loc::Format("map.palette.added", id));
 	// Arm the newcomer: it is the last row of its category, and painting it is
 	// the reason the user added it - so its section must be the one showing.
 	RevealCategory(cat);
+	m_sel = {cat, id};
+	// A grouped item hides inside a collapsed sub-accordion; open it so the
+	// armed row is visible.
 	const std::vector<PaletteItem> items = CategoryItems(cat);
-	for (int i = 0; i < static_cast<int>(items.size()); ++i)
-		if (items[i].id == id) {
-			m_sel = {cat, i};
-			// A grouped item hides inside a collapsed sub-accordion; open it so
-			// the armed row is visible.
-			if (!items[i].group.empty())
-				m_groupOpen[GroupKey(cat, items[i].group)] = true;
-			break;
-		}
+	if (const PaletteItem* row = ArmedRow(items); row && !row->group.empty())
+		m_groupOpen[GroupKey(cat, row->group)] = true;
+	return true;
 }
 
 bool MapEditor::Disarm() {
-	if (m_sel.index < 0) return false;
-	m_sel.index = -1;
+	if (!Armed()) return false;
+	m_sel.id.clear();
 	if (m_world && m_world->onMessage) m_world->onMessage(loc::View("map.brush.off"));
 	return true;
+}
+
+void MapEditor::BrushGone() {
+	if (m_world && m_world->onMessage)
+		m_world->onMessage(loc::FormatLine("map.brush.gone", m_sel.id));
+	m_sel.id.clear();
+}
+
+void MapEditor::TypeIdChanged(const std::string& catalogKey, const std::string& id,
+							  const std::string* newId) {
+	if (!Armed() || m_sel.id != id || catalogKey != CategoryCatalogKey(m_sel.cat)) return;
+	if (newId) m_sel.id = *newId;
+	else m_sel.id.clear(); // the type is gone; so is the brush
+}
+
+const MapEditor::PaletteItem* MapEditor::ArmedRow(const std::vector<PaletteItem>& items) const {
+	if (!Armed()) return nullptr;
+	for (const PaletteItem& it : items)
+		if (it.id == m_sel.id) return &it;
+	return nullptr;
+}
+
+bool MapEditor::RowArmed(PaletteCat rowCat, const PaletteItem& item) const {
+	return Armed() && item.id == m_sel.id && RowCat(rowCat, item) == m_sel.cat;
+}
+
+void MapEditor::SetShowCatalog(bool on) {
+	if (m_settings.mapShowCatalog == on) return;
+	m_settings.mapShowCatalog = on;
+	m_settings.Save(); // a workflow preference, persisted like the dock flags
+	m_paletteScroll = 0.0f;
 }
 
 bool MapEditor::BeginMove(int cx, int cz) {
@@ -351,10 +380,9 @@ bool MapEditor::EndMove(int cx, int cz) {
 }
 
 bool MapEditor::Arm(PaletteCat cat, const std::string& id) {
-	const std::vector<PaletteItem> items = CategoryItems(cat);
-	for (int i = 0; i < static_cast<int>(items.size()); ++i)
-		if (items[i].id == id) {
-			m_sel = {cat, i};
+	for (const PaletteItem& it : CategoryItems(cat))
+		if (it.id == id) {
+			m_sel = {cat, id};
 			return true;
 		}
 	return false;
@@ -629,25 +657,9 @@ bool MapEditor::OnClick(float mx, float my, const gfx::Rect& panel) {
 		return true;
 	}
 	// The "Catalogue" checkbox: surfaces show the whole catalog vs the level's
-	// palette. The armed selection is a ROW index, and the row set differs
-	// between the two views, so keep the same TYPE armed across the toggle
-	// (or disarm if it isn't shown in the new view).
+	// palette. The brush is held by id, so the type armed stays armed across it.
 	if (CatalogToggleRect(panel).Contains(mx, my)) {
-		std::string armedId;
-		if (m_sel.index >= 0 && SurfaceCat(m_sel.cat)) {
-			const std::vector<PaletteItem> before = CategoryItems(m_sel.cat);
-			if (m_sel.index < static_cast<int>(before.size()))
-				armedId = before[m_sel.index].id;
-		}
-		m_settings.mapShowCatalog = !m_settings.mapShowCatalog;
-		m_settings.Save(); // a workflow preference, persisted like the dock flags
-		m_paletteScroll = 0.0f;
-		if (!armedId.empty()) {
-			const std::vector<PaletteItem> after = CategoryItems(m_sel.cat);
-			m_sel.index = -1;
-			for (int i = 0; i < static_cast<int>(after.size()); ++i)
-				if (after[i].id == armedId) { m_sel.index = i; break; }
-		}
+		SetShowCatalog(!m_settings.mapShowCatalog);
 		return true;
 	}
 	std::vector<PaletteRow> rows;
@@ -679,14 +691,13 @@ bool MapEditor::OnClick(float mx, float my, const gfx::Rect& panel) {
 			// every row) rather than silently doing nothing.
 			// Clicking the ARMED row again puts the brush down - the palette's
 			// half of "a way to disarm the brush" (Esc is the other).
-			if (CategoryPlaceable(r.cat) && m_sel.index == r.index && m_sel.cat == r.cat)
+			const std::vector<PaletteItem> items = CategoryItems(r.cat);
+			if (r.index < 0 || r.index >= static_cast<int>(items.size())) return true;
+			const PaletteItem& item = items[static_cast<size_t>(r.index)];
+			if (CategoryPlaceable(r.cat) && RowArmed(r.cat, item))
 				Disarm();
-			else if (CategoryPlaceable(r.cat)) m_sel = {r.cat, r.index};
-			else if (onConfigure) {
-				const std::vector<PaletteItem> items = CategoryItems(r.cat);
-				if (r.index >= 0 && r.index < static_cast<int>(items.size()))
-					onConfigure(r.cat, items[r.index].id);
-			}
+			else if (CategoryPlaceable(r.cat)) m_sel = {r.cat, item.id};
+			else if (onConfigure) onConfigure(r.cat, item.id);
 		}
 		else if (r.kind == PaletteRow::Kind::NewButton && onNewAsset)
 			onNewAsset(r.cat);
@@ -722,12 +733,10 @@ bool MapEditor::OnRightClick(float mx, float my, const gfx::Rect& panel) {
 // default (Placement.h). Floor when nothing is armed — the caller then has no
 // placement to make anyway.
 Mount MapEditor::BrushMount() const {
-	if (m_sel.index < 0 || !CategoryPlaceable(m_sel.cat)) return Mount::Floor;
-	const std::vector<PaletteItem> items = CategoryItems(m_sel.cat);
-	if (m_sel.index >= static_cast<int>(items.size())) return Mount::Floor;
+	if (!Armed() || !CategoryPlaceable(m_sel.cat)) return Mount::Floor;
 	const char* key = CategoryCatalogKey(m_sel.cat);
 	const Catalog* cat = m_world->GetProject().CatalogForKey(key);
-	return MountFor(key, cat ? cat->Find(items[m_sel.index].id) : nullptr);
+	return MountFor(key, cat ? cat->Find(m_sel.id) : nullptr);
 }
 
 bool MapEditor::BrushTakesFaceAt(int cx, int cz) const {
@@ -790,8 +799,7 @@ void MapEditor::ApplyBrush(int cx, int cz, bool dragging, const WallFace& face,
 		if (!dragging && !remote && onRouteWaypoint) onRouteWaypoint(m_routeId, cx, cz);
 		return;
 	}
-	if (m_sel.index < 0) return; // nothing armed yet
-	using SS = DungeonWorld::SurfaceSel;
+	if (!Armed()) return; // nothing armed yet
 	auto log = [&](const std::string& s) {
 		if (m_world->onMessage) m_world->onMessage(s);
 	};
@@ -803,7 +811,10 @@ void MapEditor::ApplyBrush(int cx, int cz, bool dragging, const WallFace& face,
 	// remote edits are conservatively treated as changed (a same-value remote
 	// paint costs one no-op undo step at worst).
 	const bool ownStep = !m_strokeOpen;
-	if (ownStep) m_world->BeginUndoStep();
+	if (ownStep) {
+		m_world->BeginUndoStep();
+		BeginGesture();
+	}
 	const u32 rev0 = m_world->Map().Revision();
 	bool changed = false;
 
@@ -812,7 +823,8 @@ void MapEditor::ApplyBrush(int cx, int cz, bool dragging, const WallFace& face,
 	case PaletteCat::Floors:
 	case PaletteCat::Ceilings:
 	case PaletteCat::Themes: {
-		PaintCell(cx, cz, remote, stem);
+		PaintPlan plan = PlanPaint();
+		PaintCell(cx, cz, remote, stem, plan);
 		// Remote edits are conservatively "changed" (see the bracket note).
 		changed = remote || m_world->Map().Revision() != rev0;
 		m_lastX = cx; // the shift-rectangle gesture anchors on the last paint
@@ -829,9 +841,15 @@ void MapEditor::ApplyBrush(int cx, int cz, bool dragging, const WallFace& face,
 	case PaletteCat::SurfaceFeatures:
 	case PaletteCat::Fixtures: {
 		if (dragging) break; // placement is a single click
+		// The armed type, looked up once for the click (its label for the lines
+		// below); a type deleted under the brush puts the brush down.
 		const std::vector<PaletteItem> items = CategoryItems(m_sel.cat);
-		if (m_sel.index < 0 || m_sel.index >= static_cast<int>(items.size())) break;
-		const std::string& id = items[m_sel.index].id;
+		const PaletteItem* row = ArmedRow(items);
+		if (!row) {
+			BrushGone();
+			break;
+		}
+		const std::string& id = row->id;
 		bool ok = false;
 		// THE SAME resolver the hover ghost drew from, so the click lands exactly
 		// where the preview said it would (Placement.h). A refusal carries its own
@@ -840,7 +858,7 @@ void MapEditor::ApplyBrush(int cx, int cz, bool dragging, const WallFace& face,
 		const Placement place = pre ? *pre : ResolveBrush(cx, cz, face);
 		if (!place.valid) {
 			log(loc::Format(place.refusalKey ? place.refusalKey : "map.place.blocked",
-							items[m_sel.index].label));
+							row->label));
 			break;
 		}
 		const bool wallBrush = place.mount == Mount::Wall;
@@ -909,32 +927,36 @@ void MapEditor::ApplyBrush(int cx, int cz, bool dragging, const WallFace& face,
 		else
 			ok = remote ? m_world->AddDecorationRemote(stem, id, cx, cz)
 						: m_world->AddDecoration(id, cx, cz, Direction::South);
-		log(loc::Format(ok ? "map.place.done" : "map.place.blocked",
-						items[m_sel.index].label));
+		log(loc::Format(ok ? "map.place.done" : "map.place.blocked", row->label));
 		changed = ok;
 		break;
 	}
 	case PaletteCat::Stairs: {
 		if (dragging) break; // placement is a single click
-		const std::vector<PaletteItem> items = CategoryItems(m_sel.cat);
-		if (m_sel.index < 0 || m_sel.index >= static_cast<int>(items.size())) break;
+		const CatalogEntry* stair = m_world->GetProject().stairs.Find(m_sel.id);
+		if (!stair) {
+			BrushGone();
+			break;
+		}
 		// One entry for any viewed level (each side lands live or in a stash);
 		// it does all the messaging itself (success names the paired level;
 		// each failure mode has its own specific line).
-		changed = m_world->AddStairAt(stem, items[m_sel.index].id, cx, cz);
+		changed = m_world->AddStairAt(stem, m_sel.id, cx, cz);
 		// A way out leads to a world-map location, which only the owner knows:
 		// ask now, while the placement is fresh (play-test #1).
-		if (changed && !remote && onExitPlaced &&
-			CatalogBool(m_world->GetProject().stairs.Find(items[m_sel.index].id), "exit",
-						false))
+		if (changed && !remote && onExitPlaced && CatalogBool(stair, "exit", false))
 			onExitPlaced(cx, cz);
 		break;
 	}
 	case PaletteCat::Doors: {
 		if (dragging) break; // placement is a single click
 		const std::vector<PaletteItem> items = CategoryItems(m_sel.cat);
-		if (m_sel.index < 0 || m_sel.index >= static_cast<int>(items.size())) break;
-		const std::string& id = items[m_sel.index].id;
+		const PaletteItem* row = ArmedRow(items);
+		if (!row) {
+			BrushGone();
+			break;
+		}
+		const std::string& id = row->id;
 		// Doors go through the resolver like everything else now. They used to
 		// call AddDoor and let IT find the doorway, which gave the same answer —
 		// both bottom out in DungeonMap::DoorwayFacing — but by coincidence
@@ -945,13 +967,13 @@ void MapEditor::ApplyBrush(int cx, int cz, bool dragging, const WallFace& face,
 		const Placement place = pre ? *pre : ResolveBrush(cx, cz, face);
 		if (!place.valid) {
 			log(loc::Format(place.refusalKey ? place.refusalKey : "map.place.blocked",
-							items[m_sel.index].label));
+							row->label));
 			break;
 		}
 		const bool ok = remote ? m_world->AddDoorRemote(stem, id, place.x, place.z)
 							   : m_world->AddDoor(id, place.x, place.z, place.facing);
 		if (ok)
-			log(loc::Format("map.place.done", items[m_sel.index].label));
+			log(loc::Format("map.place.done", row->label));
 		changed = ok;
 		break;
 	}
@@ -982,6 +1004,7 @@ void MapEditor::ResetSession() {
 void MapEditor::BeginStroke() {
 	if (m_strokeOpen) return;
 	m_world->BeginUndoStep();
+	BeginGesture();
 	m_strokeOpen = true;
 	m_strokeChanged = false;
 }
@@ -990,14 +1013,6 @@ void MapEditor::EndStroke() {
 	if (!m_strokeOpen) return;
 	m_strokeOpen = false;
 	m_world->CommitUndoStep(m_strokeChanged);
-}
-
-void MapEditor::PaintThemeCell(int cx, int cz, bool remote, const std::string& stem) {
-	const std::vector<PaletteItem> items = CategoryItems(PaletteCat::Themes);
-	if (m_sel.index < 0 || m_sel.index >= static_cast<int>(items.size())) return;
-	const DungeonMap& map = m_view.ViewedMap();
-	if (cx < 0 || cz < 0 || cx >= map.Width() || cz >= map.Height()) return;
-	PaintThemeAs(items[m_sel.index].id, cx, cz, map.IsWalkable(cx, cz), remote, stem);
 }
 
 void MapEditor::PaintThemeAs(const std::string& id, int cx, int cz, bool open, bool remote,
@@ -1022,36 +1037,78 @@ void MapEditor::PaintThemeAs(const std::string& id, int cx, int cz, bool open, b
 	}
 }
 
-std::string MapEditor::ArmedId() const {
-	if (m_sel.index < 0) return {};
-	const std::vector<PaletteItem> items = CategoryItems(m_sel.cat);
-	return m_sel.index < static_cast<int>(items.size()) ? items[m_sel.index].id : std::string();
+MapEditor::PaintPlan MapEditor::PlanPaint() {
+	using SS = DungeonWorld::SurfaceSel;
+	PaintPlan plan;
+	plan.id = m_sel.id;
+	if (!Armed() || !PaintableCat(m_sel.cat)) {
+		plan.variant = -1; // nothing to paint with
+		return plan;
+	}
+	plan.theme = m_sel.cat == PaletteCat::Themes; // a theme sets a whole look
+	plan.sel = m_sel.cat == PaletteCat::Walls    ? SS::Wall
+			   : m_sel.cat == PaletteCat::Floors ? SS::Floor
+												 : SS::Ceiling;
+	// The type itself, once: one its catalog no longer holds (another world
+	// opened under the brush) puts the brush down rather than painting nothing.
+	const CatalogEntry* def = plan.theme ? m_world->GetProject().themes.Find(m_sel.id)
+										 : m_world->SurfaceCatalog(plan.sel).Find(m_sel.id);
+	if (!def) {
+		BrushGone();
+		plan.variant = -1;
+		return plan;
+	}
+	if (plan.theme) plan.members = DungeonWorld::ThemeMembersOf(*def);
+	return plan;
 }
 
-void MapEditor::PaintCell(int cx, int cz, bool remote, const std::string& stem) {
+bool MapEditor::KeepsStart(int cx, int cz, Cell want) {
+	if (!DungeonWorld::RaisesStart(m_view.ViewedMap(), cx, cz, want)) return false;
+	if (!m_startSaid && m_world->onMessage)
+		m_world->onMessage(loc::FormatLine("map.paint.start", cx, cz));
+	m_startSaid = true;
+	return true;
+}
+
+void MapEditor::PaintCell(int cx, int cz, bool remote, const std::string& stem,
+						  PaintPlan& plan) {
 	using SS = DungeonWorld::SurfaceSel;
-	if (!PaintableCat(m_sel.cat)) return; // placement never reaches here
-	if (m_sel.cat == PaletteCat::Themes) { // a theme sets a whole look
-		PaintThemeCell(cx, cz, remote, stem);
+	if (plan.variant && *plan.variant == -1) return; // cannot paint (see PlanPaint)
+	const DungeonMap& map = m_view.ViewedMap();
+	if (cx < 0 || cz < 0 || cx >= map.Width() || cz >= map.Height()) return;
+	if (plan.theme) {
+		// The surfaces this square shows, and only those the theme speaks for:
+		// an empty member leaves that surface exactly as it is.
+		const bool open = map.IsWalkable(cx, cz);
+		const SS surfaces[2] = {open ? SS::Floor : SS::Wall, SS::Ceiling};
+		const int count = open ? 2 : 1;
+		bool any = false;
+		for (int i = 0; i < count; ++i)
+			any = any || !plan.members[static_cast<size_t>(surfaces[i])].empty();
+		if (!any) return;
+		if (!plan.variant) plan.variant = m_world->EnsureThemeVariant(stem, plan.id);
+		if (*plan.variant == -1) return;
+		for (int i = 0; i < count; ++i) {
+			if (plan.members[static_cast<size_t>(surfaces[i])].empty()) continue;
+			if (remote) m_world->EditVariantRemote(stem, cx, cz, surfaces[i], *plan.variant);
+			else m_world->EditVariant(cx, cz, surfaces[i], *plan.variant);
+		}
 		return;
 	}
-	const SS sel = m_sel.cat == PaletteCat::Walls    ? SS::Wall
-				   : m_sel.cat == PaletteCat::Floors ? SS::Floor
-													 : SS::Ceiling;
-	// Resolve the armed ROW to a catalog id, then to the level's VARIANT INDEX.
-	// The row index is a position in the displayed list (which the "Catalogue"
-	// toggle changes), NOT the variant index — so we key off the id and let the
-	// world enrol a catalogue-view type the level lacks (append-only; a type
-	// already present keeps its index). -1 = its baked assets are missing.
-	const std::vector<PaletteItem> items = CategoryItems(m_sel.cat);
-	if (m_sel.index < 0 || m_sel.index >= static_cast<int>(items.size())) return;
-	const int variant = m_world->EnsureSurfaceVariant(stem, sel, items[m_sel.index].id);
-	if (variant < 0) return;
+	const SS sel = plan.sel;
 	// The texture brush owns the CELL TYPE too: painting a wall texture on a
 	// floor square raises the wall, a floor/ceiling texture carves solid rock
 	// walkable, then the variant lands on the converted square — these ARE
 	// the structural brushes (the old Structure Wall/Floor rows folded in).
+	// Never on the start square, which a level without cannot load (C348).
 	const Cell want = sel == SS::Wall ? Cell::Wall : Cell::Floor;
+	if (KeepsStart(cx, cz, want)) return;
+	// The armed id to the level's VARIANT INDEX, once a gesture: the world
+	// enrols a type the level lacks (append-only; a type already present keeps
+	// its index). -1 = its baked assets are missing.
+	if (!plan.variant) plan.variant = m_world->EnsureSurfaceVariant(stem, sel, plan.id);
+	const int variant = *plan.variant;
+	if (variant < 0) return;
 	if (remote) {
 		m_world->EditCellRemote(stem, cx, cz, want); // no-op when already right
 		m_world->EditVariantRemote(stem, cx, cz, sel, variant);
@@ -1071,7 +1128,7 @@ void MapEditor::PaintCell(int cx, int cz, bool remote, const std::string& stem) 
 }
 
 void MapEditor::PaintRect(int cx, int cz) {
-	if (m_sel.index < 0) return;
+	if (!Armed()) return;
 	// Placement categories (and a rect with no anchor yet) act as a plain click.
 	if (!PaintableCat(m_sel.cat) || m_lastX < 0) {
 		ApplyBrush(cx, cz, /*dragging*/ false);
@@ -1081,7 +1138,7 @@ void MapEditor::PaintRect(int cx, int cz) {
 }
 
 void MapEditor::PaintRectBetween(int ax, int az, int bx, int bz) {
-	if (m_sel.index < 0) return;
+	if (!Armed()) return;
 	if (!PaintableCat(m_sel.cat)) { // placement acts as a plain click
 		ApplyBrush(bx, bz, /*dragging*/ false);
 		return;
@@ -1124,7 +1181,7 @@ const char* MapEditor::ToolName(Tool t) {
 }
 
 void MapEditor::FloodFill(int cx, int cz) {
-	if (m_sel.index < 0) return;
+	if (!Armed()) return;
 	if (!PaintableCat(m_sel.cat)) { // placement acts as a plain click
 		ApplyBrush(cx, cz, /*dragging*/ false);
 		return;
@@ -1175,9 +1232,11 @@ void MapEditor::FloodFill(int cx, int cz) {
 	const bool remote = m_view.Browsing();
 	const std::string& stem = m_view.ViewedLevel();
 	m_world->BeginUndoStep();
+	BeginGesture();
 	const u32 rev0 = m_world->Map().Revision();
+	PaintPlan plan = PlanPaint(); // the armed id, looked up once for the fill
 	m_world->BeginChunkBatch(); // each touched chunk rebuilds once, at the end
-	for (const auto& [x, z] : region) PaintCell(x, z, remote, stem);
+	for (const auto& [x, z] : region) PaintCell(x, z, remote, stem, plan);
 	m_world->EndChunkBatch();
 	m_world->CommitUndoStep(remote || m_world->Map().Revision() != rev0);
 	m_lastX = cx;
@@ -1190,15 +1249,20 @@ void MapEditor::PaintCells(std::span<const std::pair<int, int>> cells) {
 	const bool remote = m_view.Browsing();
 	const std::string stem = m_view.ViewedLevel(); // a copy: nothing here re-browses
 	m_world->BeginUndoStep();
+	BeginGesture();
 	const u32 rev0 = m_world->Map().Revision();
+	// The armed id, looked up ONCE for the whole set (C352): it was re-resolved
+	// through the category's list - rebuilt whole - for every square, which a
+	// Fill level over the Catalogue view made hundreds of thousands of times.
+	PaintPlan plan = PlanPaint();
 	m_world->BeginChunkBatch(); // each touched chunk rebuilds once, at the end
-	for (const auto& [x, z] : cells) PaintCell(x, z, remote, stem);
+	for (const auto& [x, z] : cells) PaintCell(x, z, remote, stem, plan);
 	m_world->EndChunkBatch();
 	m_world->CommitUndoStep(remote || m_world->Map().Revision() != rev0);
 }
 
 void MapEditor::AreaFill(int cx, int cz) {
-	if (m_sel.index < 0) return;
+	if (!Armed()) return;
 	if (!PaintableCat(m_sel.cat)) { // placement acts as a plain click
 		ApplyBrush(cx, cz, /*dragging*/ false);
 		return;
@@ -1227,7 +1291,7 @@ void MapEditor::AreaFill(int cx, int cz) {
 }
 
 void MapEditor::FillLevel() {
-	if (m_sel.index < 0 || !PaintableCat(m_sel.cat)) return;
+	if (!Armed() || !PaintableCat(m_sel.cat)) return;
 	const DungeonMap& map = m_view.ViewedMap();
 	const bool walls = m_sel.cat == PaletteCat::Walls;
 	const bool themed = m_sel.cat == PaletteCat::Themes; // every square, both kinds
@@ -1256,11 +1320,11 @@ void MapEditor::PickAt(int cx, int cz) {
 		slot >= 0 && slot < static_cast<int>(map.ThemeCount())) {
 		const std::string& id = map.ThemeId(slot);
 		const std::vector<PaletteItem> items = CategoryItems(PaletteCat::Themes);
-		for (int i = 0; i < static_cast<int>(items.size()); ++i)
-			if (items[i].id == id) {
-				m_sel = {PaletteCat::Themes, i};
+		for (const PaletteItem& it : items)
+			if (it.id == id) {
+				m_sel = {PaletteCat::Themes, id};
 				if (m_world->onMessage)
-					m_world->onMessage(loc::FormatLine("map.pick.done", items[i].label));
+					m_world->onMessage(loc::FormatLine("map.pick.done", it.label));
 				return;
 			}
 	}
@@ -1273,20 +1337,19 @@ void MapEditor::PickAt(int cx, int cz) {
 											   : SS::Ceiling;
 	const int v = ResolvedVariant(cx, cz, static_cast<int>(sel));
 	if (v < 0) return; // empty palette
-	// v is the picked cell's VARIANT index (into the level palette); the armed
-	// selection is a ROW index into the displayed list, which the "Catalogue"
-	// view reorders. Map variant → id → the row showing that id.
+	// v is the picked cell's VARIANT index (into the level palette); the brush
+	// holds the TYPE, so map variant -> id, and the row showing that id names it.
 	const std::vector<std::string>& pal = sel == SS::Wall	? map.WallPalette()
 										  : sel == SS::Floor ? map.FloorPalette()
 															 : map.CeilingPalette();
 	if (v >= static_cast<int>(pal.size())) return;
 	const std::string& id = pal[v];
 	const std::vector<PaletteItem> items = CategoryItems(cat);
-	for (int i = 0; i < static_cast<int>(items.size()); ++i)
-		if (items[i].id == id) {
-			m_sel = {cat, i};
+	for (const PaletteItem& it : items)
+		if (it.id == id) {
+			m_sel = {cat, id};
 			if (m_world->onMessage)
-				m_world->onMessage(loc::FormatLine("map.pick.done", items[i].label));
+				m_world->onMessage(loc::FormatLine("map.pick.done", it.label));
 			return;
 		}
 }
@@ -1378,13 +1441,14 @@ bool MapEditor::EraseAt(int cx, int cz, const WallFace& face) {
 		// The last rung resets the surface overrides - and a square that had
 		// none is unchanged. It used to take an undo step regardless ("the
 		// ladder always acts"), so a Ctrl+Z after it took back nothing, the
-		// paint rule's mistake (a no-op is not an edit).
+		// paint rule's mistake (a no-op is not an edit) - and wiped the redo
+		// history with it (code-review C353). Nor does it SAY it reset one.
 		const u32 rev = m_world->Map().Revision();
 		m_world->EditVariant(cx, cz, SS::Wall, -1);
 		m_world->EditVariant(cx, cz, SS::Floor, -1);
 		m_world->EditVariant(cx, cz, SS::Ceiling, -1);
 		changed = m_world->Map().Revision() != rev;
-		log(loc::Format("map.erase.reset", cx, cz));
+		log(loc::Format(changed ? "map.erase.reset" : "map.erase.none", cx, cz));
 	}
 	m_world->CommitUndoStep(changed);
 	return changed;
@@ -1470,10 +1534,6 @@ void MapEditor::RenderBody(gfx::SpriteBatch& batch, const ui::Theme& theme,
 		}
 	};
 	std::vector<PaletteItem> items; // the current category's items
-	// A row standing for another section's type (PaletteItem::ref) lights when
-	// THAT type is armed - once per draw, since ArmedId resolves a section.
-	const PaletteCat armedCat = ArmedCat();
-	const std::string armedId = ArmedId();
 	// A name that does not fit is trimmed with ".." - back to a whole UTF-8
 	// character, never mid-way through one - and, when its row is the hovered
 	// one (`hoverIndex`), says itself in full in a tooltip (RenderOverlay).
@@ -1541,9 +1601,11 @@ void MapEditor::RenderBody(gfx::SpriteBatch& batch, const ui::Theme& theme,
 		case PaletteRow::Kind::Item: {
 			if (r.index < 0 || r.index >= static_cast<int>(items.size())) break;
 			const PaletteItem& item = items[r.index];
-			const bool active = (m_sel.cat == r.cat && m_sel.index == r.index) ||
-								(!item.ref.empty() && armedCat == RowCat(r.cat, item) &&
-								 armedId == item.id) ||
+			// The armed brush's row is found BY ID (C352) - a row standing for
+			// another section's type (PaletteItem::ref) lights when THAT type is
+			// armed - so a level with another palette, an undone add or a
+			// deleted earlier entry cannot move the highlight onto another type.
+			const bool active = RowArmed(r.cat, item) ||
 								(r.cat == PaletteCat::Styles && item.ref.empty() &&
 								 item.id == m_style) ||
 								(r.cat == PaletteCat::Shapes && item.id == m_stamp);

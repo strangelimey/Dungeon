@@ -1848,7 +1848,15 @@ public:
 	// per-frame call. Whatever the repaint strands is pruned with it — fixtures
 	// (DungeonMap::PruneFixturesForCell) and dynamic entities / decorations
 	// (PruneEntitiesForCell) — so live state always matches the new grid.
+	// A wall on the level's START square is refused (RaisesStart), here and in
+	// EditCellRemote: the writer emits 'P' whatever the square is, so a painted
+	// start reverted on reload, and a resize could then crop it (code-review
+	// C348). The editor's brushes ask first, to say so.
 	void EditCell(int x, int z, Cell cell);
+	// True when setting square (x,z) of `map` to `cell` would close its start.
+	static bool RaisesStart(const DungeonMap& map, int x, int z, Cell cell) {
+		return cell == Cell::Wall && x == map.StartX() && z == map.StartZ();
+	}
 
 	// A themes.cat entry's member per surface (its `wall` / `floor` / `ceiling`
 	// ids, empty = none). The one reader of that format, for the map parser's

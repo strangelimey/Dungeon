@@ -111,9 +111,11 @@ MapEditor::ShapeResult MapEditor::ApplyShape(const carve::Shape& shape) {
 	for (const carve::Square& q : shape.open)
 		if (inside(q.x, q.z)) opened.insert({q.x, q.z});
 	const Party& party = m_world->GetParty();
+	BeginGesture();
 	for (const auto& [x, z] : shape.solid)
 		if (inside(x, z) && !opened.count({x, z}) &&
-			!(!remote && x == party.GridX() && z == party.GridZ())) // never wall the party in
+			!(!remote && x == party.GridX() && z == party.GridZ()) && // never wall the party in
+			!KeepsStart(x, z, Cell::Wall)) // ...nor close the start (C348)
 			raised.insert({x, z});
 	const auto openAfter = [&](int x, int z) {
 		if (raised.count({x, z})) return false;
