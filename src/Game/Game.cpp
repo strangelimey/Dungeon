@@ -503,9 +503,11 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 		ApplyDisplaySettings();
 		// The Video tab's staging was seeded when GameUI built the page, BEFORE
 		// that apply - which may have shrunk a saved Windowed size into the work
-		// area or left Windowed altogether - so it is seeded again from the window
-		// as the apply left it (code-review batch 68).
-		m_ui.RestageVideo();
+		// area, left Windowed altogether or moved the window to its saved monitor -
+		// so it is seeded again from the window as the apply left it (code-review
+		// batch 68), and the page rebuilt: its Frame Rate labels read the refresh
+		// rate of the monitor the window is on, which was the boot's (C199).
+		m_ui.RefreshDisplays(true);
 	}
 }
 
@@ -1961,6 +1963,9 @@ void Game::UpdateAllocTest(float dt, bool steady) {
 	// window's first armed frame its effect list rose in an armed frame of it:
 	// -Effects' proof that an effect strip grew inside the window (code-review
 	// C219, C228). An empty roster prints a bare `-`.
+	// displays= is the display list's re-reads in measured frames: -DisplayChange's
+	// proof that a WM_DISPLAYCHANGE's re-read and page rebuild were checked
+	// (code-review batch 69).
 	MoveAction lastMove{};
 	const unsigned moves =
 		m_world ? m_world->GetParty().ActCount(lastMove) - m_allocTestActsAt : 0u;
@@ -1970,12 +1975,12 @@ void Game::UpdateAllocTest(float dt, bool steady) {
 	const std::string line =
 		std::format("alloctest RESULT={} frames={} violations={} violating_frames={} "
 					"transitions={} moves={} prompts={} helps={} falls={} levers={} niches={} "
-					"spellrows={},{} effectsrose={}{}",
+					"spellrows={},{} effectsrose={} displays={}{}",
 					timedOut ? "SKIP" : (violations == 0 ? "PASS" : "FAIL"),
 					m_allocTestFrames, violations, badFrames, m_allocTestTransitions, moves,
 					m_allocTestPrompts, m_allocTestHelps, m_allocTestFalls, m_allocTestLevers,
 					m_allocTestNiches, m_allocTestSheetSpells, m_allocTestCardSpells,
-					rose.empty() ? "-" : rose,
+					rose.empty() ? "-" : rose, m_allocTestDisplays,
 					timedOut ? " reason=never_reached_a_steady_frame" : "");
 	log::Info("{}", line);
 	m_console.Print(line);
@@ -2033,6 +2038,8 @@ void Game::Update(float dt) {
 	// window's bakes had ever reached, so a first longer bake can be seen.
 	const size_t sheetSpellsAtTop = m_ui.SheetSpellRowsMost();
 	const size_t cardSpellsAtTop = m_ui.CardSpellRowsMost();
+	// And -DisplayChange's: the display list's re-reads (a WM_DISPLAYCHANGE).
+	const int displaysAtTop = m_ui.DisplayRefreshes();
 
 	UpdateStates(dt);
 
@@ -2091,6 +2098,7 @@ void Game::Update(float dt) {
 			m_allocTestSheetSpells = std::max(m_allocTestSheetSpells, s);
 		if (const size_t c = m_ui.CardSpellRowsMost(); c > cardSpellsAtTop)
 			m_allocTestCardSpells = std::max(m_allocTestCardSpells, c);
+		m_allocTestDisplays += m_ui.DisplayRefreshes() - displaysAtTop;
 	}
 }
 
@@ -2142,6 +2150,21 @@ void Game::UpdateStates(float dt) {
 		const Quality q = *m_pendingQuality;
 		m_pendingQuality.reset();
 		SetQuality(q);
+	}
+	// A display change (a monitor plugged in or out, a dock reordering them, a
+	// mode switched) re-reads the Video tab's one display list, here at the top
+	// of a frame - Window only counts the message (code-review C199). It reads
+	// the hardware, builds a list and REBUILDS the Settings page from it, which
+	// is what an OS event costs: excused, the way GameSettings::Save is, and
+	// never per frame. The rebuild runs INSIDE the excuse: the message can land
+	// in an armed Playing frame (a monitor plugged in mid-play), and the call
+	// below, outside it, charged the whole page to the guard (AllocTest
+	// -DisplayChange posts the message inside the window).
+	if (m_window.DisplayChanges() != m_seenDisplayChanges) {
+		m_seenDisplayChanges = m_window.DisplayChanges();
+		const alloc::Excused excuse;
+		m_ui.RefreshDisplays(true);
+		m_ui.ApplyPendingVideoRebuild();
 	}
 	// A Video-tab adapter/monitor change last frame repopulates the settings page
 	// now, for the same reason: the rebuild destroys the dropdown that triggered it.

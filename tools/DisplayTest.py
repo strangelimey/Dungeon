@@ -13,8 +13,8 @@
 #              that size; a native-size client is shrunk until its frame fills
 #              the chosen monitor's WORK AREA; re-staging as opening Settings does
 #              (`video restage`) then stages the shrunk window, not the size asked
-#              for; a size that fits is centred in it; the same on the adapter's
-#              last monitor - only where there is more than one, so a one-monitor
+#              for; a size that fits is centred in it; the same on the display
+#              list's last monitor - only where there is more than one, so a one-monitor
 #              machine SKIPS that check and the verdict line's `monitors=` says
 #              how many were there; and nothing a script applies is saved -
 #              settings.ini's display keys end as they began. It needs a Windowed
@@ -30,10 +30,22 @@
 #              being headless with no script, it QUITS ON ITS OWN once its boot
 #              load lands (it used to idle unseen until something killed it). A
 #              child still running at the end is killed by its id, and fails.
+#   WARP       tools\EvalScripts\displaywarp.eval, headless on `-warp` (code-review
+#              batch 69). WARP has no outputs of its own - a hybrid laptop's
+#              discrete GPU has none either - so this is where the monitors must
+#              come from the DESKTOP, not the rendering adapter (C198): the
+#              running adapter is listed and staged (C197), the monitor and
+#              resolution lists are not empty, and Borderless through `video
+#              apply` covers the staged monitor. A monitor that is not there
+#              (`video ghost`) is dropped, and a real one staged, by the re-read a
+#              posted WM_DISPLAYCHANGE sets off (C199); and the staged monitor's
+#              device name and the GPU's identity survive settings.ini's text both
+#              ways (`video ini` - the text, never the player's file).
 #
-# --selftest runs both scripts with every `video apply` and `video restart` line
-# cut, and demands EXACTLY the checks resting on them fail (NOT_CUT names the
-# rest, which must still pass), so no check is met by nothing happening.
+# --selftest runs the scripts with every `video apply`, `video restart`, `video
+# displaychange` and `video ini` line cut, and demands EXACTLY the checks
+# resting on them fail (NOT_CUT names the rest, which must still pass), so no
+# check is met by nothing happening.
 #
 # Exit: 0 PASS (or, under --selftest, exactly the expected checks failed);
 # 1 FAIL; 2 nothing ran (no build); 3 refused - this worktree's game is running;
@@ -56,18 +68,24 @@ LOG = os.path.join(ROOT, r"build\debug\bin\dungeon.log")
 INI = os.path.join(ROOT, r"build\debug\bin\settings.ini")
 PLACEMENT = os.path.join(ROOT, r"tools\EvalScripts\display.eval")
 RELAUNCH = os.path.join(ROOT, r"tools\EvalScripts\relaunch.eval")
+WARP = os.path.join(ROOT, r"tools\EvalScripts\displaywarp.eval")
 WORLD = "dt_demo"
 TOOL = "displaytest"
 CHILD_WAIT_S = 90
-DISPLAY_KEYS = ("adapter", "output", "reswidth", "resheight", "fullscreen")
+DISPLAY_KEYS = ("adapter_id", "monitor", "reswidth", "resheight", "fullscreen")
+GHOST = r"\\.\DN-GHOST"
+CUT = ("video apply", "video restart", "video displaychange", "video ini")
 
-# The checks that rest on no `video apply` and no `video restart`: with those
-# lines cut (--selftest) these, and ONLY these, may still pass.
+# The checks that rest on none of the CUT lines: with those lines cut
+# (--selftest) these, and ONLY these, may still pass.
 NOT_CUT = {
 	"an untouched staging is the window as it is: Windowed, its own client size",
 	"a script's apply is never saved: settings.ini's display keys are as they began",
 	"and every status read the same saved choice",
 	"the placement script ran to its verdict, its refusals refused",
+	"a WARP boot lists and stages the running adapter, and its monitor and resolution "
+	"lists are not empty",
+	"the WARP script ran to its verdict",
 	"the real worlds and the style library are byte for byte as the run found them "
 	"(or as a killed run's backup held them)",
 	"and git status under assets/projects and assets/library shows nothing new since "
@@ -111,7 +129,9 @@ def fields(line):
 
 def statuses(log_text):
 	"""Each `video status` the script ran, in order, with the command it came
-	after: [(previous command, {"staged": {...}, "running": {...}, "saved": line})]."""
+	after: [(previous command, {"staged": {...}, "running": {...}, "saved": line,
+	"displays": {...}, "monitors": [index...], "mon": {index: {...}}})] - a
+	monitor line's fields end at its free-text name=."""
 	out, last, cur = [], None, None
 	for l in log_text.splitlines():
 		if "console: " not in l:
@@ -131,11 +151,16 @@ def statuses(log_text):
 		for kind in ("staged", "running"):
 			if said.startswith(f"video {kind}: "):
 				cur[kind] = fields(said)
+				cur[kind + "_line"] = said
 		if said.startswith("video saved: "):
 			cur["saved"] = said
+		if said.startswith("video displays: "):
+			cur["displays"] = fields(said)
 		m = re.match(r"video monitor (\d+): ", said)
 		if m:
 			cur.setdefault("monitors", []).append(int(m.group(1)))
+			cur.setdefault("mon", {})[int(m.group(1))] = dict(
+				re.findall(r"(\w+)=(\S+)", said.split(" name=", 1)[0]))
 	return out
 
 
@@ -268,6 +293,91 @@ def placement(script):
 
 
 # ---------------------------------------------------------------------------
+# WARP
+# ---------------------------------------------------------------------------
+
+def num(text, default=-1):
+	return int(text) if text is not None and re.fullmatch(r"-?\d+", text) else default
+
+
+def warp(script):
+	print("WARP - the monitors are the desktop's, not the rendering GPU's (C198, C199, C197)")
+	code, text = harness_game.run_eval(EXE, ROOT, LOG, [script], ["-warp"], timeout=300)
+	for f in harness_game.fatal_lines(text):
+		print(f"         game FATAL: {f}")
+	sts = statuses(text)
+	first = sts[0] if sts else {}
+
+	# The boot: WARP is listed (it is not hardware, so it is added as the one
+	# RUNNING) and staged, and the monitors are every one on the desktop.
+	st, run, disp, mon = (first.get("staged", {}), first.get("running", {}),
+						  first.get("displays", {}), first.get("mon", {}))
+	staged_mon = mon.get(num(st.get("monitor")), {})
+	real = {m.get("device") for m in mon.values()}
+	check(num(run.get("adapter")) >= 0 and st.get("adapter") == run.get("adapter")
+		  and "adaptername=WARP" in first.get("running_line", "")
+		  and num(disp.get("monitors"), 0) >= 1 and len(mon) == num(disp.get("monitors"), 0)
+		  and num(staged_mon.get("modes"), 0) >= 1 and staged_mon.get("device") == st.get("device"),
+		  "a WARP boot lists and stages the running adapter, and its monitor and resolution "
+		  "lists are not empty",
+		  f"adapter staged {st.get('adapter')} running {run.get('adapter')}; "
+		  f"{disp.get('monitors')} monitor(s); staged monitor {st.get('monitor')} with "
+		  f"{staged_mon.get('modes')} mode(s); running: {first.get('running_line', '-')[:120]}")
+
+	s = after(sts, "video apply borderless")
+	st, run, mon = s.get("staged", {}), s.get("running", {}), s.get("mon", {})
+	desk = rect(mon.get(num(st.get("monitor")), {}).get("desktop"))
+	check(st.get("mode") == "borderless" and run.get("mode") == "borderless" and desk is not None
+		  and rect(run.get("window")) == desk and run.get("device") == st.get("device"),
+		  "Borderless applies through `video apply` on WARP: the window covers the staged monitor",
+		  f"running {run.get('mode')} window {run.get('window')} on {run.get('device')}, "
+		  f"staged {st.get('device')} desktop {desk}")
+
+	# The ghost, then the display change that must drop it.
+	g = after(sts, "video ghost")
+	c = after(sts, "video displaychange")
+	gst, cst, gd, cd = (g.get("staged", {}), c.get("staged", {}), g.get("displays", {}),
+						c.get("displays", {}))
+	n0 = num(disp.get("monitors"), 0)
+	check(gst.get("device") == GHOST and num(gd.get("monitors")) == n0 + 1
+		  and num(cd.get("monitors")) == n0
+		  and num(cd.get("displaychanges"), 0) > num(gd.get("displaychanges"), 0)
+		  and num(cd.get("refreshes"), 0) > num(gd.get("refreshes"), 0)
+		  and cst.get("device") in real and GHOST not in {m.get("device") for m in c.get("mon", {}).values()},
+		  "a display change re-reads the list: the monitor that is not there is gone and a real "
+		  "one is staged",
+		  f"ghost staged {gst.get('device')} with {gd.get('monitors')} monitor(s); after the "
+		  f"change {cd.get('monitors')} monitor(s), changes {gd.get('displaychanges')} -> "
+		  f"{cd.get('displaychanges')}, refreshes {gd.get('refreshes')} -> {cd.get('refreshes')}, "
+		  f"staged {cst.get('device')}")
+
+	ini = next((l.split("console: ", 1)[1] for l in text.splitlines()
+				if "console: video ini: " in l), "")
+	f = dict(re.findall(r"(\w+)=(\S+)", ini.split(" adapter=", 1)[0]))
+	adapter = ini.split(" adapter=", 1)[1] if " adapter=" in ini else ""
+	check(bool(ini) and f.get("monitor") == cst.get("device") and f.get("monitorread") == f.get("monitor")
+		  and f.get("monitorsame") == "1" and f.get("adaptersame") == "1"
+		  and re.match(r"[0-9a-f]+:[0-9a-f]+:[0-9a-f]+:[0-9a-f]+ \S", adapter) is not None,
+		  "the staged monitor's device name and the GPU's identity survive settings.ini's text "
+		  "both ways", f"{ini or 'no video ini line'} (staged {cst.get('device')})")
+
+	# The script ran to its verdict, and the debug layer raised nothing at what the
+	# run did call: making the WARP device and resizing the hidden swapchain
+	# (Borderless, then Windowed). NOT frames in flight under that resize - the run
+	# is headless, so no frame is ever drawn or submitted, and a resize drain cut
+	# out of SetFullscreen would pass here. A drawn run that goes Borderless would
+	# cover a monitor of whoever is at the machine, so that is left unchecked.
+	verdict = next((l for l in text.splitlines() if "eval RESULT=" in l), "")
+	d3d = [l for l in text.splitlines() if "d3d12 error" in l]
+	check(harness_game.finished(code, text) and "eval RESULT=PASS" in verdict and not d3d,
+		  "the WARP script ran to its verdict",
+		  f"exit {code}: {verdict.split('eval ', 1)[-1] if verdict else 'no verdict line'}; "
+		  f"d3d12 errors: {len(d3d)} {d3d[:1]}")
+	if "eval RESULT=FAIL" in verdict:
+		harness_game.report_failed_script(text, "displaywarp.eval")
+
+
+# ---------------------------------------------------------------------------
 # RELAUNCH
 # ---------------------------------------------------------------------------
 
@@ -389,11 +499,13 @@ def main():
 	harness_game.scratch_world(ROOT, WORLD)
 	tmp = tempfile.mkdtemp(prefix="displaytest-")
 	try:
-		place, again = PLACEMENT, RELAUNCH
+		place, again, soft = PLACEMENT, RELAUNCH, WARP
 		if selftest:
-			place = cut_copy(PLACEMENT, tmp, ("video apply",))
-			again = cut_copy(RELAUNCH, tmp, ("video restart",))
+			place = cut_copy(PLACEMENT, tmp, CUT)
+			again = cut_copy(RELAUNCH, tmp, CUT)
+			soft = cut_copy(WARP, tmp, CUT)
 		placement(place)
+		warp(soft)
 		relaunch(again)
 	finally:
 		shutil.rmtree(tmp, ignore_errors=True)

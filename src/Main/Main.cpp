@@ -12,6 +12,7 @@
 #include "Core/Time.h"
 #include "Game/Game.h"
 #include "Game/GameSettings.h"
+#include "Graphics/DisplayEnum.h" // ResolveAdapterLuid - the saved GPU, this run
 #include "Graphics/GraphicsDevice.h"
 #include "Graphics/Renderer.h"
 #include "Graphics/SpriteBatch.h"
@@ -172,8 +173,12 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
 	}
 	Window window(desc);
 
-	gfx::GraphicsDevice device(window.Handle(), window.Width(), window.Height(),
-							   boot.adapterLuid, warp);
+	// The saved GPU is saved by what it IS (settings.ini adapter_id=); this
+	// run's LUID for it is read off the installed adapters now, since a LUID
+	// does not survive a reboot (code-review C197). Not found = auto, logged.
+	const u64 adapterLuid = warp ? 0 : gfx::ResolveAdapterLuid(boot.adapterId);
+	gfx::GraphicsDevice device(window.Handle(), window.Width(), window.Height(), adapterLuid,
+							   warp);
 	gfx::Renderer renderer(device);
 	gfx::SpriteBatch spriteBatch(device);
 	audio::AudioEngine audioEngine;

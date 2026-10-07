@@ -187,14 +187,22 @@ void Game::WireModuleCallbacks() {
 	// place; an adapter change can't (the device is bound to its GPU), so it
 	// persists the choice and relaunches.
 	m_ui.onVideoApply = [this](const DisplayChoice& choice, bool persist) {
-		ApplyDisplay(choice);
+		// Saved only once it HAS applied (code-review C199): a refused Exclusive
+		// used to stay saved and be tried again at every boot.
+		if (!ApplyDisplay(choice)) return false;
 		// A script's apply (`video apply` in an eval) is applied and never
 		// saved, like its `lang`: the harnesses share the settings.ini of the
 		// build Michael plays, and a run that died mid-script must not leave
 		// his game booting in its display mode.
-		if (!persist) return;
-		m_settings.adapterLuid = choice.adapterLuid;
-		m_settings.displayOutput = choice.output;
+		if (!persist) return true;
+		// The monitor BY DEVICE NAME - the one the window is on now, which is
+		// the chosen one unless that was gone (ApplyDisplay then used this one).
+		// Never an index into a list a dock or a cable reorders. The adapter is
+		// not touched: an in-place apply did not change it.
+		const gfx::DisplayList& list = m_ui.Displays();
+		const int on = list.MonitorIndexOf(m_window.Monitor());
+		m_settings.displayMonitor =
+			on >= 0 ? list.monitors[static_cast<size_t>(on)].device : choice.monitor;
 		m_settings.fullscreen = choice.mode;
 		// Windowed saves the size the window GOT: one its monitor's work area
 		// cannot hold is shrunk to fit (code-review C196), and the next boot
@@ -203,10 +211,18 @@ void Game::WireModuleCallbacks() {
 		m_settings.displayWidth = static_cast<int>(windowed ? m_window.Width() : choice.width);
 		m_settings.displayHeight = static_cast<int>(windowed ? m_window.Height() : choice.height);
 		m_settings.Save();
+		return true;
 	};
 	m_ui.onAdapterRestart = [this](const DisplayChoice& choice) {
-		m_settings.adapterLuid = choice.adapterLuid;
-		m_settings.displayOutput = choice.output;
+		// The GPU by what it IS, never its LUID, which the relaunch would still
+		// match but a reboot would not (C197). WARP is never saved as a choice.
+		const gfx::DisplayList& list = m_ui.Displays();
+		const int a = list.AdapterIndex(choice.adapterLuid);
+		const gfx::AdapterInfo* adapter = a >= 0 ? &list.adapters[static_cast<size_t>(a)] : nullptr;
+		m_settings.adapterId = adapter && !adapter->software
+								   ? gfx::EncodeAdapterIdentity(adapter->identity)
+								   : std::string();
+		m_settings.displayMonitor = choice.monitor;
 		m_settings.displayWidth = static_cast<int>(choice.width);
 		m_settings.displayHeight = static_cast<int>(choice.height);
 		m_settings.fullscreen = choice.mode;

@@ -31,6 +31,7 @@
 
 #include <functional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace dungeon::gfx {
@@ -59,7 +60,8 @@ struct SrvHandle {
 class GraphicsDevice {
 public:
 	// preferredAdapterLuid selects a specific GPU by packed LUID (see
-	// DisplayEnum::PackLuid); 0 = auto-pick the highest-performance adapter.
+	// DisplayEnum::PackLuid) - THIS run's, resolved from the saved identity
+	// (gfx::ResolveAdapterLuid); 0 = auto-pick the highest-performance adapter.
 	// forceWarp skips every hardware adapter for WARP, the software
 	// rasterizer (Main's `-warp`): a run whose GPU work is slow enough that
 	// frames really are still in flight when a lifetime bug frees what they
@@ -87,6 +89,11 @@ public:
 	// tab compares this to a staged choice to decide whether a restart is
 	// needed — switching adapters requires recreating the device).
 	u64 AdapterLuid() const { return m_adapterLuid; }
+	// What that adapter says it is - what settings.ini saves (`adapter_id=`),
+	// since the LUID above does not survive a reboot (code-review C197).
+	// Software = WARP, which is never saved as a choice.
+	const AdapterIdentity& AdapterIdentityInfo() const { return m_adapterIdentity; }
+	bool AdapterIsSoftware() const { return m_adapterSoftware; }
 	struct GpuMemoryInfo {
 		u64 usedBytes = 0;
 		u64 budgetBytes = 0;
@@ -143,12 +150,18 @@ public:
 
 	void Resize(u32 width, u32 height);
 
-	// Enters/leaves DXGI exclusive full-screen on the given output index of the
-	// active adapter. Windowed and Borderless modes leave exclusive state and
-	// are driven by the window's geometry instead (the ensuing WM_SIZE calls
-	// Resize). For Exclusive, width/height request a display mode; 0,0 keeps the
-	// output's current mode. No-op transitions are cheap.
-	void SetFullscreen(bool exclusive, u32 outputIndex, u32 width, u32 height);
+	// Enters/leaves DXGI exclusive full-screen on the monitor with that GDI
+	// device name ("\\.\DISPLAY2"), whichever adapter it hangs off (code-review
+	// C198: an output index into the RENDERING adapter's outputs named nothing on
+	// a hybrid laptop, whose discrete GPU has none). That monitor's output is
+	// tried as the target and, refused, the output the window is on - so the
+	// caller puts the window on that monitor first. Windowed and Borderless
+	// modes leave exclusive state and are driven by the window's geometry
+	// instead (the ensuing WM_SIZE calls Resize). For Exclusive, width/height
+	// request a display mode; 0,0 keeps the output's current mode. Returns
+	// whether the swapchain holds the asked-for state after it - a refused
+	// Exclusive is logged with its HRESULT, and the caller saves nothing (C199).
+	bool SetFullscreen(bool exclusive, std::string_view monitorDevice, u32 width, u32 height);
 	// Whether the swapchain holds exclusive full-screen now (the dev console's
 	// `video status`: what is RUNNING, not what was asked).
 	bool IsExclusive() const;
@@ -206,6 +219,8 @@ private:
 	ComPtr<IDXGIAdapter3> m_adapter; // retained for video-memory queries + outputs
 	std::string m_adapterName;
 	u64 m_adapterLuid = 0;
+	AdapterIdentity m_adapterIdentity;
+	bool m_adapterSoftware = false;
 	HWND__* m_hwnd = nullptr;       // for full-screen window association
 	u32 m_swapFlags = 0;           // swapchain create + ResizeBuffers flags
 	ComPtr<ID3D12Device> m_device;

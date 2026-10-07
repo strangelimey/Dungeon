@@ -82,6 +82,11 @@ only the default):
   and refuses a PASS unless the verdict line counts a transition
   (`transitions=`). It does NOT cover the frames just after a resume: they fall
   inside the guard's 120-frame warm-up
+- `.\tools\AllocTest.ps1 -DisplayChange` - a WM_DISPLAYCHANGE posted to the
+  window three times inside the window: the display list's re-read and the
+  Settings page rebuilt from it run in an armed Playing frame, inside one
+  excuse (code-review batch 69). It refuses a PASS unless the verdict line
+  counts a re-read in a measured frame (`displays=`)
 - `.\tools\AllocTest.ps1 -Exit` - on crypt1, inside the window: a click on the
   log's Help button (its movement-keys line allocates nothing and is excused
   nothing - a line the player reads is not reporting), a step onto the exit

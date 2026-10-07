@@ -42,6 +42,8 @@ GraphicsDevice::GraphicsDevice(HWND__* hwnd, u32 width, u32 height,
 										IID_PPV_ARGS(&m_device)))) {
 			m_adapterName = str::Narrow(desc.Description);
 			m_adapterLuid = PackLuid(desc.AdapterLuid.HighPart, desc.AdapterLuid.LowPart);
+			m_adapterIdentity = {desc.VendorId, desc.DeviceId, desc.SubSysId, desc.Revision,
+								 m_adapterName};
 			ComPtr<IDXGIAdapter1>(a).As(&m_adapter); // IDXGIAdapter3 for queries/outputs
 			log::Info("GPU: {}", m_adapterName);
 			return true;
@@ -49,7 +51,8 @@ GraphicsDevice::GraphicsDevice(HWND__* hwnd, u32 width, u32 height,
 		return false;
 	};
 
-	// A specific adapter was requested (Settings → Video): match it by LUID.
+	// A specific adapter was requested (Settings → Video): match it by LUID -
+	// this run's, which Main resolved from the saved identity (ResolveAdapterLuid).
 	if (preferredAdapterLuid != 0 && !forceWarp) {
 		for (UINT i = 0; m_factory->EnumAdapters1(i, &adapter) != DXGI_ERROR_NOT_FOUND;
 			 ++i) {
@@ -82,6 +85,18 @@ GraphicsDevice::GraphicsDevice(HWND__* hwnd, u32 width, u32 height,
 								IID_PPV_ARGS(&m_device)));
 		warp.As(&m_adapter);
 		m_adapterName = "WARP (software)";
+		// Its LUID and ids too, so the Video tab can list and stage the adapter
+		// that is RUNNING (code-review C197) - it has no outputs, which is what
+		// makes `-warp` the check that monitors do not come from it (C198).
+		m_adapterSoftware = true;
+		if (ComPtr<IDXGIAdapter1> warp1; SUCCEEDED(warp.As(&warp1))) {
+			DXGI_ADAPTER_DESC1 desc{};
+			if (SUCCEEDED(warp1->GetDesc1(&desc))) {
+				m_adapterLuid = PackLuid(desc.AdapterLuid.HighPart, desc.AdapterLuid.LowPart);
+				m_adapterIdentity = {desc.VendorId, desc.DeviceId, desc.SubSysId, desc.Revision,
+									 m_adapterName};
+			}
+		}
 		if (forceWarp)
 			log::Info("Using WARP software rasterizer (-warp)");
 		else
@@ -299,13 +314,13 @@ void GraphicsDevice::RecreateSwapChainBuffers() {
 }
 
 // ----------------------------------------------------------------------------
-// Full-screen control. Exclusive mode targets a specific output (monitor) of
-// the active adapter and optionally requests a display mode; the SetFullscreen
-// state change provokes a WM_SIZE → Resize, which rebuilds the back buffers.
-// Windowed/Borderless just drop any exclusive state — the window's geometry
-// (Window::SetWindowed / SetBorderless) does the rest.
+// Full-screen control. Exclusive mode targets a monitor - found by its device
+// name among EVERY adapter's outputs - and optionally requests a display mode;
+// the SetFullscreen state change provokes a WM_SIZE → Resize, which rebuilds
+// the back buffers. Windowed/Borderless just drop any exclusive state - the
+// window's geometry (Window::SetWindowed / SetBorderless) does the rest.
 // ----------------------------------------------------------------------------
-void GraphicsDevice::SetFullscreen(bool exclusive, u32 outputIndex, u32 width,
+bool GraphicsDevice::SetFullscreen(bool exclusive, std::string_view monitorDevice, u32 width,
 								   u32 height) {
 	WaitIdle();
 
@@ -320,12 +335,33 @@ void GraphicsDevice::SetFullscreen(bool exclusive, u32 outputIndex, u32 width,
 			// ResizeBuffers post-transition. The caller resizes the window next.
 			RecreateSwapChainBuffers();
 		}
-		return;
+		return true;
 	}
 
-	// Exclusive: pick the target output and (optionally) the display mode.
+	// Exclusive: the target output - the monitor's, on whichever adapter lists
+	// it (a hybrid laptop's panels hang off the integrated GPU while this
+	// device may run on the discrete one, which has no outputs: C198).
 	ComPtr<IDXGIOutput> output;
-	if (m_adapter) m_adapter->EnumOutputs(outputIndex, &output);
+	if (!monitorDevice.empty()) {
+		const std::wstring want = str::Widen(monitorDevice);
+		ComPtr<IDXGIAdapter1> a;
+		for (UINT i = 0; !output && m_factory->EnumAdapters1(i, &a) != DXGI_ERROR_NOT_FOUND; ++i) {
+			ComPtr<IDXGIOutput> o;
+			for (UINT j = 0; a->EnumOutputs(j, &o) != DXGI_ERROR_NOT_FOUND; ++j) {
+				DXGI_OUTPUT_DESC od{};
+				if (SUCCEEDED(o->GetDesc(&od)) && want == od.DeviceName) {
+					output = o;
+					break;
+				}
+				o.Reset();
+			}
+			a.Reset();
+		}
+		if (!output)
+			log::Warn("Exclusive full-screen: no adapter lists the monitor {} - the output "
+					  "the window is on is used",
+					  monitorDevice);
+	}
 
 	if (width > 0 && height > 0) {
 		DXGI_MODE_DESC mode{};
@@ -334,9 +370,19 @@ void GraphicsDevice::SetFullscreen(bool exclusive, u32 outputIndex, u32 width,
 		mode.Format = kBackBufferFormat;
 		m_swapchain->ResizeTarget(&mode); // size the window to the mode first
 	}
-	if (FAILED(m_swapchain->SetFullscreenState(TRUE, output.Get()))) {
-		log::Warn("Exclusive full-screen failed; staying windowed");
-		return;
+	HRESULT hr = m_swapchain->SetFullscreenState(TRUE, output.Get());
+	if (FAILED(hr) && output) {
+		// A monitor of ANOTHER adapter can be refused as the target; DXGI then
+		// takes the output the window is on, which the caller put on it.
+		log::Warn("Exclusive full-screen on {} as the target failed (hr {:#010x}) - "
+				  "trying the output the window is on",
+				  monitorDevice, static_cast<u32>(hr));
+		hr = m_swapchain->SetFullscreenState(TRUE, nullptr);
+	}
+	if (FAILED(hr)) {
+		log::Warn("Exclusive full-screen failed (hr {:#010x}); staying windowed",
+				  static_cast<u32>(hr));
+		return false;
 	}
 	// Re-issue the mode after the transition (recommended DXGI pattern) so the
 	// resolution actually takes; the resulting WM_SIZE rebuilds the buffers.
@@ -351,6 +397,7 @@ void GraphicsDevice::SetFullscreen(bool exclusive, u32 outputIndex, u32 width,
 	// when the fullscreen size matches the prior window size, so do it here or the
 	// next Present aborts (DXGI #117).
 	RecreateSwapChainBuffers();
+	return true;
 }
 
 bool GraphicsDevice::IsExclusive() const {

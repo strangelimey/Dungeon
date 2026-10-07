@@ -51,6 +51,8 @@
 # the GL token a normal map's name ends in, which decides an import's green
 # flip. Both are names in, a verdict out - the standard library and nothing
 # else - so the rules are checked where they ship.
+# Graphics/AdapterIdentity.cpp (code-review C197): which installed GPU a saved
+# adapter_id= names, across reboots that renumber every LUID - pure, no DXGI.
 add_executable(RollTest
 	Main.cpp
 	${CMAKE_SOURCE_DIR}/src/Game/DamageLedger.cpp
@@ -68,6 +70,7 @@ add_executable(RollTest
 	${CMAKE_SOURCE_DIR}/src/Game/LightProfile.cpp
 	${CMAKE_SOURCE_DIR}/src/Game/Trail.cpp
 	${CMAKE_SOURCE_DIR}/src/Graphics/LightTiles.cpp
+	${CMAKE_SOURCE_DIR}/src/Graphics/AdapterIdentity.cpp
 	${CMAKE_SOURCE_DIR}/src/Assets/NodeTransform.cpp
 	${CMAKE_SOURCE_DIR}/src/Assets/ImportFiles.cpp
 	${CMAKE_SOURCE_DIR}/src/Assets/PbrMaps.cpp

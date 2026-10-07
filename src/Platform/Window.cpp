@@ -96,6 +96,12 @@ void Window::SetBorderless(int x, int y, u32 width, u32 height) {
 				 static_cast<int>(height), ShowFlags());
 }
 
+void Window::PostDisplayChange() const {
+	// What Windows sends: the primary's bit depth and size as they are now.
+	const int w = GetSystemMetrics(SM_CXSCREEN), h = GetSystemMetrics(SM_CYSCREEN);
+	PostMessageW(reinterpret_cast<HWND>(m_hwnd), WM_DISPLAYCHANGE, 32, MAKELPARAM(w, h));
+}
+
 ScreenRect Window::FrameRect() const {
 	RECT r{};
 	GetWindowRect(reinterpret_cast<HWND>(m_hwnd), &r);
@@ -174,6 +180,12 @@ i64 Window::HandleMessage(u32 msg, u64 wparam, i64 lparam) {
 		}
 		return 0;
 	}
+
+	case WM_DISPLAYCHANGE:
+		++m_displayChanges; // Game re-reads the display list next frame (C199)
+		log::Info("display change: {}x{} at {} bpp (the display list is re-read)",
+				  LOWORD(lparam), HIWORD(lparam), static_cast<u32>(wparam));
+		return 0;
 
 	case WM_SYSKEYDOWN:
 		// Alt+F4 goes on to DefWindowProc, which makes it WM_CLOSE - in every

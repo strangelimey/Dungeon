@@ -231,19 +231,30 @@ struct GameSettings {
 	std::string generatorKnobs;
 
 	// --- display (Settings → Video) ---------------------------------------------
-	// The chosen GPU (packed LUID, 0 = auto), the monitor (output index on that
-	// adapter), the resolution (0 = the window default / the monitor's native for
-	// borderless), and the presentation mode. Read at boot by Main to construct
-	// the device/window; an adapter change is applied by relaunching the exe.
-	u64 adapterLuid = 0;
-	int displayOutput = 0;
+	// The chosen GPU, by what the hardware says it is (gfx::AdapterIdentity's
+	// spelling, "" = auto; ini adapter_id=) - never its LUID, which a reboot
+	// renumbers (code-review C197) - resolved to this run's LUID by Main before
+	// the device exists. The monitor by its GDI device name ("\\.\DISPLAY2",
+	// "" = the one the window is on; ini monitor=) - never an index into a list
+	// that a dock or a cable reorders (C199). The resolution (0 = the window
+	// default / the monitor's native for borderless) and the presentation mode.
+	// An adapter change is applied by relaunching the exe. An old ini's
+	// `adapter=` (a LUID) and `output=` (an index) are not read: neither named
+	// anything reliably, which is what this replaced.
+	std::string adapterId;
+	std::string displayMonitor;
 	int displayWidth = 0, displayHeight = 0;
 	gfx::FullscreenMode fullscreen = gfx::FullscreenMode::Windowed;
 
 	// settings.ini round-trip (the exe's directory). Load keeps the defaults
 	// for anything missing or malformed; a first run with no file is fine.
+	// Text / Parse are the file's contents without the file - what Save writes
+	// and Load reads - so `video ini` checks the round trip without touching the
+	// settings.ini the player's build uses.
 	void Load();
 	void Save() const;
+	std::string Text() const;
+	void Parse(const std::string& text);
 
 	// Quality-derived asset suffixes.
 	const char* MeshSuffix() const;    // "low" / "med" / "high" (worn blocks)

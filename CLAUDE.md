@@ -1654,13 +1654,24 @@ kPresentIntervals → GraphicsDevice::SetPresentInterval: present sync interval
 1..4 = full-refresh VSync down to refresh/4, a tear-free divisor cap that cuts
 GPU load; options labelled with the live rate from GraphicsDevice::RefreshHz;
 ini presentinterval=). Above quality/lights the Video tab has the
-DISPLAY block: adapter (GPU), monitor (DXGI output), resolution, and display
-mode (Windowed/Borderless/Exclusive fullscreen). The list comes from
-gfx::EnumerateAdapters (Graphics/DisplayEnum.*, a device-independent DXGI walk,
-also read by Main at boot); adapter/monitor render as a plain Label when only
-one exists, else a DropDown. The selection is STAGED (GameUI::m_selAdapter/
-Output/Size/Mode, separate from GameSettings; re-seeded each time the page
-opens, GameUI::RestageVideo) and committed by an Apply button -
+DISPLAY block: adapter (GPU), monitor, resolution, and display
+mode (Windowed/Borderless/Exclusive fullscreen). ONE display list
+(GameUI::Displays, a gfx::DisplayList from gfx::EnumerateDisplays in
+Graphics/DisplayEnum.*, a device-independent DXGI + GDI walk) holds the GPUs and,
+SEPARATELY, every MONITOR on the desktop - each adapter's outputs, deduplicated
+by GDI device name, primary first - because a monitor is not the RENDERING
+GPU's (code-review C198: a hybrid laptop's discrete GPU has no outputs, so the
+lists were empty and Borderless did nothing; `-warp` reproduces that on any
+machine). The running adapter is always in the list (WARP is added) and is what
+is staged (C197). The list is re-read when Settings opens and on
+WM_DISPLAYCHANGE (Window counts it, Game::UpdateStates polls -> GameUI::
+RefreshDisplays; C199 - it was read once, at boot). That re-read and the page
+rebuild it causes can land in an armed Playing frame, so BOTH run inside one
+alloc::Excused scope (`AllocTest.ps1 -DisplayChange` posts the message inside
+its window; verdict field `displays=`). Adapter/monitor render as a
+plain Label when only one exists, else a DropDown. The selection is STAGED
+(GameUI::m_selAdapter/Output/Size/Mode, separate from GameSettings; re-seeded
+each time the page opens, GameUI::RestageVideo) and committed by an Apply button -
 only Video uses Apply, every other control is live. The staged resolution is a
 SIZE, not an index into the monitor's modes: Windowed stages the window's
 client AS IT IS, and the Resolution list shows it among the modes when no mode
@@ -1671,12 +1682,20 @@ Game_Display.cpp, → Window::SetWindowed / SetBorderless or
 GraphicsDevice::SetFullscreen, all of which resize the swapchain through the
 usual onResize path); a Windowed window is centred in the CHOSEN monitor's
 WORK AREA (gfx::OutputInfo::work*, the desktop less the taskbar) and shrunk
-until its frame fits it, and the size it got is what is saved. An adapter
+until its frame fits it, and the size it got is what is saved. ApplyDisplay finds
+the monitor by DEVICE NAME (one gone is the one the window is on), Exclusive
+targets that monitor's output on whichever adapter lists it (placing the window
+there first, so a refused cross-adapter target falls back to the window's
+output) and logs a refusal's HRESULT, and a choice is SAVED only once it has
+applied (C199). An adapter
 change can't be done in place (the device is bound to its GPU), so it pops a
 Yes/No confirm modal (GameUI::m_confirmUi, drawn over the page; Esc = No) and
 on confirm persists + relaunches the exe (Game::RestartApp via
-platform::Process); the new process binds the chosen adapter by LUID
-(GraphicsDevice ctor's preferredAdapterLuid). The relaunch (code-review C398)
+platform::Process); the GPU is saved by what it IS - vendor / device / subsystem
+/ revision ids and the description, Graphics/AdapterIdentity.h, pure, in
+RollTest - since a LUID does not survive a reboot (C197), and Main resolves it to
+this run's LUID before the device exists (gfx::ResolveAdapterLuid; not found =
+auto, logged). The relaunch (code-review C398)
 starts THIS exe by its own path (paths::ExecutablePath) with this run's
 arguments - `-project` keeps its world - LESS any `-eval` and its scripts (the
 child would run them again, and one ending in a restart would never stop),
@@ -1688,17 +1707,25 @@ lands (Main -> Game::QuitOnceLoaded), rather than idle unseen until killed.
 The staging is seeded again from what is live whenever Settings opens
 (GameUI::RefreshSettingsPage, both menus' entry) and once after the boot's
 ApplyDisplaySettings. Dev: `video status` (a line each for STAGED, RUNNING - read off
-the device and the window, never the settings - and SAVED, then the staged
-adapter's monitors with their work areas), `video apply [windowed|borderless|
+the device and the window, never the settings - and SAVED, a `video displays`
+line - counts, re-reads, display changes - then every monitor with its work
+area, mode count and device name), `video apply [windowed|borderless|
 exclusive] [<w>x<h>|native] [monitor <n>|last]` (stages as the tab's controls
 would, then the tab's own Apply; a SCRIPT's apply is applied and never saved,
-like its `lang`, and a hidden window refuses Exclusive), `video restage` (what
-opening Settings does), `video restart`. Checked by `tools\DisplayTest.py`
+like its `lang`, a hidden window refuses Exclusive, and one that did not take is
+refused), `video restage` (what opening Settings does), `video restart`, `video
+displaychange` (posts a real WM_DISPLAYCHANGE), `video ghost` (lists and stages a
+monitor that is not there) and `video ini` (the staged monitor and the GPU
+identity through settings.ini's TEXT both ways - GameSettings::Text / Parse,
+never the player's file). Checked by `tools\DisplayTest.py`
 (CheckAll `display`, full tier: a shown window moved over every monitor - the
 last-monitor check is SKIPPED on a one-monitor machine and the verdict line's
 `monitors=` says how many there were; it REFUSES, exit 2, a settings.ini saving
-Borderless or Exclusive - and a relaunch whose child keeps `-project`, appends
-after the parent's whole log and quits by itself).
+Borderless or Exclusive - a headless `-warp` run, displaywarp.eval, where the
+monitor and resolution lists must still be full, Borderless must cover the staged
+monitor, a display change must drop the ghost and `video ini` must round-trip -
+and a relaunch whose child keeps `-project`, appends after the parent's whole
+log and quits by itself).
 Changing the adapter/monitor dropdown also repopulates the dependent lists by
 rebuilding the settings page next frame (GameUI::m_videoRebuildPending →
 ApplyPendingVideoRebuild, deferred like the language switch since the rebuild
@@ -1735,11 +1762,13 @@ hud_<panel>_pos/_scale/_opacity, hud_layout, hud_locked (barscale/baropacity
 still load, into the party bar's pair),
 theme_<name>=r,g,b,a, key_<action>=vkey, look_sensitivity/look_hold/look_return/
 look_move=<float> and look_curve/look_move_curve=<easing index>,
-adapter=<packed LUID, 0=auto>,
-output=<index>, reswidth=/resheight=<0=window default>, fullscreen=0/1/2;
-sliders save on release, pickers when their popup closes, key binds and language
-immediately, display fields on Apply). Main reads the display fields BEFORE the
-window/device exist (its own GameSettings::Load, same file Game re-loads).
+adapter_id=<vendor:device:subsys:rev description, empty=auto>,
+monitor=<GDI device name, empty=the window's>, reswidth=/resheight=<0=window
+default>, fullscreen=0/1/2 - an old ini's adapter= (a LUID) and output= (an index)
+are not read; sliders save on release, pickers when their popup closes, key binds
+and language immediately, display fields on an Apply that took). Main reads the
+display fields BEFORE the window/device exist (its own GameSettings::Load, same
+file Game re-loads), and resolves adapter_id to this run's LUID there.
 Quality hot-swaps in place (WaitIdle + rebuild); Ultra falls back per-material
 to 2k with a warning if 4k not installed. Every set loaded at a tier swaps -
 the surfaces and every prop set (DungeonWorld::ReloadPropTextures, in place);

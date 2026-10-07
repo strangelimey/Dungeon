@@ -103,50 +103,53 @@ std::string RelaunchCommandLine() {
 
 void Game::ApplyDisplaySettings() {
 	DisplayChoice choice;
-	choice.adapterLuid = m_settings.adapterLuid;
-	choice.output = m_settings.displayOutput;
+	choice.adapterLuid = m_device.AdapterLuid(); // the boot already chose it
+	choice.monitor = m_settings.displayMonitor;
 	choice.width = static_cast<u32>(std::max(0, m_settings.displayWidth));
 	choice.height = static_cast<u32>(std::max(0, m_settings.displayHeight));
 	choice.mode = m_settings.fullscreen;
 	ApplyDisplay(choice);
 }
 
-void Game::ApplyDisplay(const DisplayChoice& choice) {
-	// Resolve the active adapter's outputs so we can position a borderless window
-	// or target a monitor for exclusive full-screen.
-	const std::vector<gfx::AdapterInfo> adapters = gfx::EnumerateAdapters();
-	const gfx::AdapterInfo* active = nullptr;
-	for (const gfx::AdapterInfo& a : adapters)
-		if (a.luid == m_device.AdapterLuid()) {
-			active = &a;
-			break;
-		}
-	const int out = choice.output;
-	const gfx::OutputInfo* output =
-		(active && out >= 0 && out < static_cast<int>(active->outputs.size()))
-			? &active->outputs[static_cast<size_t>(out)]
-			: nullptr;
+bool Game::ApplyDisplay(const DisplayChoice& choice) {
+	// The monitor, BY DEVICE NAME, in the one display list - every monitor,
+	// whichever GPU it hangs off (C198: looked up among the RENDERING adapter's
+	// outputs, a hybrid laptop's discrete GPU had none, and Borderless did
+	// nothing). One the list no longer has (unplugged, renamed by a dock) is the
+	// monitor the window is on, said in the log; with no list at all, none.
+	const gfx::DisplayList& list = m_ui.Displays();
+	int at = list.MonitorIndex(choice.monitor);
+	if (at < 0) {
+		at = list.MonitorIndexOf(m_window.Monitor());
+		if (!choice.monitor.empty())
+			log::Warn("display: the monitor {} is not connected - using the one the window is on ({})",
+					  choice.monitor,
+					  at >= 0 ? list.monitors[static_cast<size_t>(at)].device : std::string("none"));
+	}
+	const gfx::OutputInfo* output = at >= 0 ? &list.monitors[static_cast<size_t>(at)] : nullptr;
 
 	switch (choice.mode) {
 	case gfx::FullscreenMode::Windowed: {
 		const u32 w = choice.width > 0 ? choice.width : m_window.Width();
 		const u32 h = choice.height > 0 ? choice.height : m_window.Height();
-		m_device.SetFullscreen(false, 0, 0, 0); // drop any exclusive state first
+		m_device.SetFullscreen(false, {}, 0, 0); // drop any exclusive state first
 		// Centred in the CHOSEN monitor's work area and shrunk to fit it (code-
 		// review C196: it centred on the primary whatever Monitor said). With no
-		// output to name - a GPU with none - the window's own monitor.
+		// monitor to name, the window's own.
 		ScreenRect work;
 		if (output) work = {output->workX, output->workY, output->workWidth, output->workHeight};
 		m_window.SetWindowed(w, h, output ? &work : nullptr);
-		break;
+		return true;
 	}
 	case gfx::FullscreenMode::Borderless: {
-		m_device.SetFullscreen(false, 0, 0, 0);
-		if (output)
-			m_window.SetBorderless(output->x, output->y,
-								   static_cast<u32>(output->width),
-								   static_cast<u32>(output->height));
-		break;
+		m_device.SetFullscreen(false, {}, 0, 0);
+		if (!output) {
+			log::Warn("display: Borderless has no monitor to cover - nothing is applied");
+			return false;
+		}
+		m_window.SetBorderless(output->x, output->y, static_cast<u32>(output->width),
+							   static_cast<u32>(output->height));
+		return true;
 	}
 	case gfx::FullscreenMode::Exclusive: {
 		// A HIDDEN window (`-headless`) never holds a monitor: Exclusive goes
@@ -154,7 +157,7 @@ void Game::ApplyDisplay(const DisplayChoice& choice) {
 		// at (code-review C391; the boot already skips a saved mode for it).
 		if (m_window.IsHidden()) {
 			log::Info("display: Exclusive is not taken by a hidden window");
-			break;
+			return false;
 		}
 		u32 w = choice.width;
 		u32 h = choice.height;
@@ -162,10 +165,22 @@ void Game::ApplyDisplay(const DisplayChoice& choice) {
 			w = static_cast<u32>(output->width);
 			h = static_cast<u32>(output->height);
 		}
-		m_device.SetFullscreen(true, static_cast<u32>(out > 0 ? out : 0), w, h);
-		break;
+		// The window goes onto the monitor FIRST: a monitor of another adapter
+		// may be refused as the target, and DXGI then takes the output the
+		// window is on (GraphicsDevice::SetFullscreen).
+		if (output)
+			m_window.SetBorderless(output->x, output->y, static_cast<u32>(output->width),
+								   static_cast<u32>(output->height));
+		if (!m_device.SetFullscreen(true, output ? std::string_view(output->device) : std::string_view(),
+									w, h)) {
+			log::Warn("display: Exclusive was refused - the window stays Borderless on that "
+					  "monitor, and the choice is not saved");
+			return false;
+		}
+		return true;
 	}
 	}
+	return false;
 }
 
 // ============================================================================
@@ -187,7 +202,7 @@ bool Game::RestartApp() {
 	// Leave any exclusive full-screen so the new process can claim the display -
 	// after the start, so a failed one left the display as it was. The child does
 	// nothing until this process has gone (Main's `-relaunched` wait).
-	m_device.SetFullscreen(false, 0, 0, 0);
+	m_device.SetFullscreen(false, {}, 0, 0);
 	m_quitRequested = true;
 	return true;
 }
@@ -197,66 +212,74 @@ bool Game::RestartApp() {
 // ============================================================================
 
 void Game::PrintVideoStatus() {
-	const std::vector<gfx::AdapterInfo>& adapters = m_ui.VideoAdapters();
+	const gfx::DisplayList& list = m_ui.Displays();
 	const auto adapterAt = [&](int i) -> const gfx::AdapterInfo* {
-		return i >= 0 && i < static_cast<int>(adapters.size()) ? &adapters[static_cast<size_t>(i)]
-																: nullptr;
+		return i >= 0 && i < static_cast<int>(list.adapters.size())
+				   ? &list.adapters[static_cast<size_t>(i)]
+				   : nullptr;
 	};
-	const auto outputAt = [](const gfx::AdapterInfo* a, int o) -> const gfx::OutputInfo* {
-		return a && o >= 0 && o < static_cast<int>(a->outputs.size())
-				   ? &a->outputs[static_cast<size_t>(o)]
+	const auto monitorAt = [&](int i) -> const gfx::OutputInfo* {
+		return i >= 0 && i < static_cast<int>(list.monitors.size())
+				   ? &list.monitors[static_cast<size_t>(i)]
 				   : nullptr;
 	};
 
 	// STAGED: what the Video tab's Apply would commit. `work` is the chosen
-	// monitor's work area - where a Windowed window must land.
+	// monitor's work area - where a Windowed window must land; `device` is what
+	// an Apply saves of it.
 	const DisplayChoice staged = m_ui.StagedVideo();
 	const gfx::AdapterInfo* stagedA = adapterAt(m_ui.StagedAdapterIndex());
-	const gfx::OutputInfo* stagedO = outputAt(stagedA, staged.output);
+	const gfx::OutputInfo* stagedO = monitorAt(staged.output);
 	m_console.Print(std::format(
-		"video staged: adapter={} monitor={} mode={} size={}x{} work={} adaptername={}",
-		stagedA ? m_ui.StagedAdapterIndex() : -1, staged.output, ModeName(staged.mode),
-		staged.width, staged.height,
+		"video staged: adapter={} monitor={} mode={} size={}x{} work={} device={} adaptername={}",
+		stagedA ? m_ui.StagedAdapterIndex() : -1, stagedO ? staged.output : -1,
+		ModeName(staged.mode), staged.width, staged.height,
 		stagedO ? RectText(stagedO->workX, stagedO->workY, stagedO->workWidth, stagedO->workHeight)
 				: std::string("-"),
-		stagedA ? stagedA->name : std::string("-")));
+		stagedO ? stagedO->device : std::string("-"), stagedA ? stagedA->name : std::string("-")));
 
 	// RUNNING: read off the device and the window, never the settings - a
 	// script's apply is not saved, and a size the work area could not hold was
-	// shrunk. -1 = not in the lists (WARP; a window on a monitor of another GPU).
-	int runA = -1;
-	for (size_t i = 0; i < adapters.size(); ++i)
-		if (adapters[i].luid == m_device.AdapterLuid()) runA = static_cast<int>(i);
-	int runO = -1;
-	if (const gfx::AdapterInfo* a = adapterAt(runA)) {
-		const void* monitor = m_window.Monitor();
-		for (size_t o = 0; o < a->outputs.size(); ++o)
-			if (a->outputs[o].monitor == monitor) runO = static_cast<int>(o);
-	}
+	// shrunk. The monitor is the one the window is on, whichever GPU it hangs
+	// off; -1 = not in the list.
+	const int runA = list.AdapterIndex(m_device.AdapterLuid());
+	const int runO = list.MonitorIndexOf(m_window.Monitor());
+	const gfx::OutputInfo* runOut = monitorAt(runO);
 	const gfx::FullscreenMode runMode = m_device.IsExclusive() ? gfx::FullscreenMode::Exclusive
 										: m_window.IsBorderless() ? gfx::FullscreenMode::Borderless
 																  : gfx::FullscreenMode::Windowed;
 	m_console.Print(std::format(
-		"video running: adapter={} monitor={} mode={} size={}x{} window={} hidden={} adaptername={}",
+		"video running: adapter={} monitor={} mode={} size={}x{} window={} hidden={} device={} "
+		"adaptername={}",
 		runA, runO, ModeName(runMode), m_window.Width(), m_window.Height(),
-		RectText(m_window.FrameRect()), m_window.IsHidden() ? 1 : 0, m_device.AdapterName()));
+		RectText(m_window.FrameRect()), m_window.IsHidden() ? 1 : 0,
+		runOut ? runOut->device : std::string("-"), m_device.AdapterName()));
 
-	// SAVED: settings.ini's display fields (adapter 0 = auto).
+	// SAVED: settings.ini's display fields - the monitor by device name and the
+	// GPU by what it is ("auto" for either left unset). The identity is free
+	// text, so it ends the line.
 	m_console.Print(std::format(
-		"video saved: adapter={} monitor={} mode={} size={}x{}",
-		m_settings.adapterLuid ? std::format("{:016x}", m_settings.adapterLuid) : std::string("auto"),
-		m_settings.displayOutput, ModeName(m_settings.fullscreen), m_settings.displayWidth,
-		m_settings.displayHeight));
+		"video saved: monitor={} mode={} size={}x{} adapter={}",
+		m_settings.displayMonitor.empty() ? std::string("auto") : m_settings.displayMonitor,
+		ModeName(m_settings.fullscreen), m_settings.displayWidth, m_settings.displayHeight,
+		m_settings.adapterId.empty() ? std::string("auto") : m_settings.adapterId));
 
-	// The staged adapter's monitors, which `video apply ... monitor <n>` picks from.
-	if (stagedA)
-		for (size_t o = 0; o < stagedA->outputs.size(); ++o) {
-			const gfx::OutputInfo& out = stagedA->outputs[o];
-			m_console.Print(std::format("video monitor {}: desktop={} work={} name={}", o,
-										RectText(out.x, out.y, out.width, out.height),
-										RectText(out.workX, out.workY, out.workWidth, out.workHeight),
-										out.name));
-		}
+	// The list itself: how many of each, and how often it has been re-read
+	// (opening Settings, a display change) - `video displaychange` must move it.
+	m_console.Print(std::format("video displays: adapters={} monitors={} refreshes={} "
+								"displaychanges={}",
+								list.adapters.size(), list.monitors.size(), m_ui.DisplayRefreshes(),
+								m_window.DisplayChanges()));
+
+	// Every monitor, which `video apply ... monitor <n>` picks from.
+	for (size_t o = 0; o < list.monitors.size(); ++o) {
+		const gfx::OutputInfo& out = list.monitors[o];
+		m_console.Print(std::format(
+			"video monitor {}: desktop={} work={} modes={} primary={} device={} name={}", o,
+			RectText(out.x, out.y, out.width, out.height),
+			RectText(out.workX, out.workY, out.workWidth, out.workHeight), out.modes.size(),
+			out.primary ? 1 : 0, out.device, out.name));
+	}
 }
 
 void Game::RegisterDisplayCommands() {
@@ -266,13 +289,62 @@ void Game::RegisterDisplayCommands() {
 		 .params = "status\n"
 				   "apply [windowed|borderless|exclusive] [<w>x<h>|native] [monitor <n>|last]\n"
 				   "restage\n"
-				   "restart",
+				   "restart\n"
+				   "displaychange\n"
+				   "ghost\n"
+				   "ini",
 		 .summary = "the Video tab's display choice: show it, stage and apply it (a script's is "
-					"not saved), re-stage it as opening Settings does, or relaunch"},
+					"not saved), re-stage it as opening Settings does, relaunch, or check the "
+					"display list and the saved monitor"},
 		[this](const std::vector<std::string>& args) {
 			const std::string verb = args.empty() ? "status" : args[0];
 			if (verb == "status" && args.size() <= 1) {
 				PrintVideoStatus();
+				return;
+			}
+			if (verb == "displaychange" && args.size() == 1) {
+				// The real message through the real pump: the list is re-read at
+				// the top of the next frame, as for a monitor plugged in (C199).
+				m_window.PostDisplayChange();
+				m_console.Print(std::format("video: WM_DISPLAYCHANGE posted - the display list "
+											"(read {} time(s)) is re-read next frame",
+											m_ui.DisplayRefreshes()));
+				return;
+			}
+			if (verb == "ghost" && args.size() == 1) {
+				m_ui.StageGhostMonitor();
+				const DisplayChoice s = m_ui.StagedVideo();
+				m_console.Print(std::format("video: a monitor that is not there ({}) is listed and "
+											"staged as monitor {} - a display change must drop it",
+											s.monitor, s.output));
+				return;
+			}
+			if (verb == "ini" && args.size() == 1) {
+				// The staged monitor and the running GPU written as Save writes
+				// them and read back as Load reads them - the text, never the file,
+				// which is the settings.ini the player's build uses.
+				const DisplayChoice s = m_ui.StagedVideo();
+				if (s.monitor.empty()) {
+					m_console.Refuse("no monitor is staged - nothing to round-trip");
+					return;
+				}
+				GameSettings out = m_settings;
+				out.displayMonitor = s.monitor;
+				out.adapterId = gfx::EncodeAdapterIdentity(m_device.AdapterIdentityInfo());
+				GameSettings back;
+				back.Parse(out.Text());
+				const bool monitorSame = back.displayMonitor == out.displayMonitor;
+				const bool adapterSame = back.adapterId == out.adapterId;
+				// The identity is free text, so it ends the line (as read back).
+				const std::string line = std::format(
+					"video ini: monitor={} monitorread={} monitorsame={} adaptersame={} adapter={}",
+					out.displayMonitor, back.displayMonitor.empty() ? "-" : back.displayMonitor,
+					monitorSame ? 1 : 0, adapterSame ? 1 : 0, back.adapterId);
+				if (!monitorSame || !adapterSame) {
+					m_console.Refuse(line);
+					return;
+				}
+				m_console.Print(line);
 				return;
 			}
 			if (verb == "restage" && args.size() == 1) {
@@ -318,12 +390,8 @@ void Game::RegisterDisplayCommands() {
 				} else if (a == "monitor" && i + 1 < args.size()) {
 					const std::string& n = args[++i];
 					if (n == "last") {
-						const std::vector<gfx::AdapterInfo>& list = m_ui.VideoAdapters();
-						const int sel = m_ui.StagedAdapterIndex();
-						const int count = sel >= 0 && sel < static_cast<int>(list.size())
-											  ? static_cast<int>(list[static_cast<size_t>(sel)].outputs.size())
-											  : 0;
-						monitor = count - 1; // -1 when there is none: StageVideo refuses it
+						// -1 when there is none: StageVideo refuses it.
+						monitor = static_cast<int>(m_ui.Displays().monitors.size()) - 1;
 					} else {
 						int v = -1;
 						const auto r = std::from_chars(n.data(), n.data() + n.size(), v);
@@ -338,7 +406,7 @@ void Game::RegisterDisplayCommands() {
 					return;
 				}
 			}
-			if (m_ui.VideoAdapters().empty()) {
+			if (m_ui.Displays().adapters.empty()) {
 				m_console.Refuse("no display adapter was enumerated - the Video tab has nothing to apply");
 				return;
 			}
@@ -362,10 +430,16 @@ void Game::RegisterDisplayCommands() {
 			}
 			// A script's apply is applied and never saved (see onVideoApply).
 			const bool persist = !EvalRunning();
-			m_ui.ApplyVideo(persist);
-			m_console.Print(std::format("video: applied {} {}x{} on monitor {} - {}",
+			if (!m_ui.ApplyVideo(persist)) {
+				m_console.Refuse(std::format("{} on monitor {} did not take (see the log) - nothing "
+											 "is saved",
+											 ModeName(staged.mode), staged.monitor));
+				return;
+			}
+			m_console.Print(std::format("video: applied {} {}x{} on monitor {} ({}) - {}",
 										ModeName(staged.mode), staged.width, staged.height,
-										staged.output, persist ? "saved" : "a script's, not saved"));
+										staged.output, staged.monitor,
+										persist ? "saved" : "a script's, not saved"));
 		});
 }
 

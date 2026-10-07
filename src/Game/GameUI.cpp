@@ -599,38 +599,41 @@ void GameUI::BuildSettings() {
 		vf->Space(ui::Len::Fixed(kSetGroup));
 		vf->Row<ui::Label>(ui::Len::Fixed(kSetLabel), loc::Tr(key))->dim = true;
 	};
+	const std::vector<gfx::AdapterInfo>& adapters = m_displays.adapters;
+	const std::vector<gfx::OutputInfo>& monitors = m_displays.monitors;
 	const gfx::AdapterInfo* selAdapter =
-		(!m_adapters.empty() && m_selAdapter < static_cast<int>(m_adapters.size()))
-			? &m_adapters[static_cast<size_t>(m_selAdapter)]
+		(m_selAdapter >= 0 && m_selAdapter < static_cast<int>(adapters.size()))
+			? &adapters[static_cast<size_t>(m_selAdapter)]
 			: nullptr;
 	const gfx::OutputInfo* selOutput =
-		(selAdapter && m_selOutput < static_cast<int>(selAdapter->outputs.size()))
-			? &selAdapter->outputs[static_cast<size_t>(m_selOutput)]
+		(m_selOutput >= 0 && m_selOutput < static_cast<int>(monitors.size()))
+			? &monitors[static_cast<size_t>(m_selOutput)]
 			: nullptr;
 
 	// Adapter (GPU): a dropdown when several exist, otherwise just its name.
 	videoLabel("settings.adapter");
-	if (m_adapters.size() > 1) {
+	if (adapters.size() > 1) {
 		std::vector<std::string> names;
-		for (const gfx::AdapterInfo& a : m_adapters) names.push_back(a.name);
+		for (const gfx::AdapterInfo& a : adapters) names.push_back(a.name);
 		vf->Row<ui::DropDown>(
 			ui::Len::Fixed(kSetCtrl), std::move(names),
 			m_selAdapter, [this](int index) {
 				Click();
 				if (index == m_selAdapter) return;
-				m_selAdapter = index; // monitor/resolution lists depend on it
-				m_selOutput = 0;      // the staged size stays (the list shows it)
+				// The monitors do not depend on it (they are the desktop's, C198);
+				// the page shows the pick, and Apply asks to restart.
+				m_selAdapter = index;
 				m_videoRebuildPending = true;
 			});
 	} else {
 		vf->Row<ui::Label>(ui::Len::Fixed(kSetCtrl),
-						   selAdapter ? selAdapter->name : std::string("—"));
+						   selAdapter ? selAdapter->name : std::string("-"));
 	}
-	// Monitor (output) of the selected adapter.
+	// Monitor: every monitor on the desktop, whichever GPU it hangs off.
 	videoLabel("settings.monitor");
-	if (selAdapter && selAdapter->outputs.size() > 1) {
+	if (monitors.size() > 1) {
 		std::vector<std::string> names;
-		for (const gfx::OutputInfo& o : selAdapter->outputs) names.push_back(o.name);
+		for (const gfx::OutputInfo& o : monitors) names.push_back(o.name);
 		vf->Row<ui::DropDown>(
 			ui::Len::Fixed(kSetCtrl), std::move(names),
 			m_selOutput, [this](int index) {
@@ -641,9 +644,9 @@ void GameUI::BuildSettings() {
 			});
 	} else {
 		vf->Row<ui::Label>(ui::Len::Fixed(kSetCtrl),
-						   selOutput ? selOutput->name : std::string("—"));
+						   selOutput ? selOutput->name : std::string("-"));
 	}
-	// Resolution supported by the adapter/monitor combination - and the STAGED
+	// Resolution supported by the monitor - and the STAGED
 	// size among them even when the monitor lists no such mode (a Windowed
 	// window dragged to any size), in its place by area, so the page never shows
 	// a size that is not the one Apply would commit (code-review C196).
@@ -1439,30 +1442,28 @@ void GameUI::SyncMaxLights() {
 // Video tab: adapter / monitor / resolution / display-mode selection.
 // ============================================================================
 
-// Stage = the live settings, resolved against the enumerated hardware. Called
-// when the page is built fresh (open or language rebuild) — NOT on the deferred
-// repopulate, which must preserve the user's in-progress choice.
+// Stage = what is LIVE, resolved against the display list. Called when the page
+// is built fresh (open or language rebuild) - NOT on the deferred repopulate,
+// which must preserve the user's in-progress choice.
 void GameUI::SeedVideoStaging() {
-	if (m_adapters.empty()) m_adapters = gfx::EnumerateAdapters();
+	if (m_displays.adapters.empty() && m_displays.monitors.empty()) RefreshDisplayList();
 
-	// Adapter: the saved LUID, or (for "auto" = 0) the running device's adapter.
-	const u64 want =
-		m_settings.adapterLuid != 0 ? m_settings.adapterLuid : m_device.AdapterLuid();
-	m_selAdapter = 0;
-	for (size_t i = 0; i < m_adapters.size(); ++i)
-		if (m_adapters[i].luid == want) {
-			m_selAdapter = static_cast<int>(i);
-			break;
-		}
+	// Adapter: the one RUNNING (code-review C197). It is the saved one whenever
+	// that resolved; when it did not - the GPU is gone, or the saved choice was a
+	// LUID a reboot renumbered - staging the saved one (or the list's first, as
+	// this used to) made an untouched Apply offer a restart onto a GPU nobody
+	// chose. RefreshDisplayList keeps the running adapter in the list.
+	m_selAdapter = std::max(0, m_displays.AdapterIndex(m_device.AdapterLuid()));
 
-	const gfx::AdapterInfo* a =
-		m_adapters.empty() ? nullptr : &m_adapters[static_cast<size_t>(m_selAdapter)];
-
-	// Monitor.
-	m_selOutput = 0;
-	if (a && m_settings.displayOutput >= 0 &&
-		m_settings.displayOutput < static_cast<int>(a->outputs.size()))
-		m_selOutput = m_settings.displayOutput;
+	// Monitor: the one the window is on - where an untouched Apply leaves it -
+	// else the saved one, else the primary (the list's first).
+	m_selOutput = m_displays.MonitorIndexOf(m_window.Monitor());
+	if (m_selOutput < 0) m_selOutput = m_displays.MonitorIndex(m_settings.displayMonitor);
+	if (m_selOutput < 0) m_selOutput = 0;
+	const gfx::OutputInfo* o =
+		m_selOutput < static_cast<int>(m_displays.monitors.size())
+			? &m_displays.monitors[static_cast<size_t>(m_selOutput)]
+			: nullptr;
 
 	m_selMode = m_settings.fullscreen;
 
@@ -1477,20 +1478,53 @@ void GameUI::SeedVideoStaging() {
 	} else if (m_settings.displayWidth > 0 && m_settings.displayHeight > 0) {
 		m_selSize = {static_cast<u32>(m_settings.displayWidth),
 					 static_cast<u32>(m_settings.displayHeight)};
-	} else if (a && m_selOutput < static_cast<int>(a->outputs.size())) {
-		const gfx::OutputInfo& o = a->outputs[static_cast<size_t>(m_selOutput)];
-		m_selSize = {static_cast<u32>(o.width), static_cast<u32>(o.height)};
+	} else if (o) {
+		m_selSize = {static_cast<u32>(o->width), static_cast<u32>(o->height)};
 	} else {
 		m_selSize = {m_window.Width(), m_window.Height()};
 	}
 }
 
+// The display list, read again: the hardware GPUs, the RUNNING adapter added
+// when it is not one of them (WARP - so the tab can show and stage what runs,
+// and an untouched Apply is an in-place one), and every monitor.
+void GameUI::RefreshDisplayList() {
+	m_displays = gfx::EnumerateDisplays();
+	if (m_displays.AdapterIndex(m_device.AdapterLuid()) < 0) {
+		gfx::AdapterInfo running;
+		running.luid = m_device.AdapterLuid();
+		running.name = m_device.AdapterName();
+		running.identity = m_device.AdapterIdentityInfo();
+		running.software = m_device.AdapterIsSoftware();
+		m_displays.adapters.push_back(std::move(running));
+	}
+	++m_displayRefreshes;
+}
+
+void GameUI::RefreshDisplays(bool rebuild) {
+	// What the page shows of the list: a re-read that changed nothing it shows
+	// costs no rebuild (an ordinary open of Settings).
+	const auto shown = [this] {
+		std::string s;
+		for (const gfx::AdapterInfo& a : m_displays.adapters) s += std::format("{:x};", a.luid);
+		for (const gfx::OutputInfo& m : m_displays.monitors) {
+			s += std::format("{}:{}x{}:{};", m.device, m.width, m.height, m.modes.size());
+		}
+		return s;
+	};
+	const std::string before = shown();
+	RefreshDisplayList();
+	if (rebuild || shown() != before) m_videoRebuildPending = true;
+	RestageVideo();
+}
+
 // What opening the Settings page does to it - from the title and the pause menu
 // alike, and `video restage`, so a check of the one is a check of the others:
-// the Party Colors rows follow the party, and a fresh edit stages what is live.
+// the Party Colors rows follow the party, and a fresh edit stages what is live
+// on the displays as they are now (C199: the list was read once, at boot).
 void GameUI::RefreshSettingsPage() {
 	SyncMemberColorPickers();
-	RestageVideo(); // the page rebuilds next frame when the staging moved
+	RefreshDisplays(); // the page rebuilds next frame when the list or staging moved
 }
 
 void GameUI::RestageVideo() {
@@ -1499,16 +1533,18 @@ void GameUI::RestageVideo() {
 	const DisplayChoice now = StagedVideo();
 	// Only a staging that MOVED rebuilds the page (it shows the staged values),
 	// so an ordinary open costs nothing.
-	if (now.adapterLuid != before.adapterLuid || now.output != before.output ||
+	if (now.adapterLuid != before.adapterLuid || now.monitor != before.monitor ||
 		now.width != before.width || now.height != before.height || now.mode != before.mode)
 		m_videoRebuildPending = true;
 }
 
 DisplayChoice GameUI::StagedVideo() const {
 	DisplayChoice c;
-	if (m_selAdapter >= 0 && m_selAdapter < static_cast<int>(m_adapters.size()))
-		c.adapterLuid = m_adapters[static_cast<size_t>(m_selAdapter)].luid;
+	if (m_selAdapter >= 0 && m_selAdapter < static_cast<int>(m_displays.adapters.size()))
+		c.adapterLuid = m_displays.adapters[static_cast<size_t>(m_selAdapter)].luid;
 	c.output = m_selOutput;
+	if (m_selOutput >= 0 && m_selOutput < static_cast<int>(m_displays.monitors.size()))
+		c.monitor = m_displays.monitors[static_cast<size_t>(m_selOutput)].device;
 	c.width = m_selSize.width;
 	c.height = m_selSize.height;
 	c.mode = m_selMode;
@@ -1517,20 +1553,17 @@ DisplayChoice GameUI::StagedVideo() const {
 
 std::string GameUI::StageVideo(std::optional<gfx::FullscreenMode> mode,
 							   std::optional<gfx::DisplayMode> size, std::optional<int> output) {
-	const gfx::AdapterInfo* a =
-		(m_selAdapter >= 0 && m_selAdapter < static_cast<int>(m_adapters.size()))
-			? &m_adapters[static_cast<size_t>(m_selAdapter)]
-			: nullptr;
-	const int outputs = a ? static_cast<int>(a->outputs.size()) : 0;
-	if (output && (*output < 0 || *output >= outputs))
-		return std::format("monitor {} - the staged adapter has {}", *output, outputs);
+	const std::vector<gfx::OutputInfo>& monitors = m_displays.monitors;
+	const int count = static_cast<int>(monitors.size());
+	if (output && (*output < 0 || *output >= count))
+		return std::format("monitor {} - the display list has {}", *output, count);
 	if (mode) m_selMode = *mode;
 	if (output) m_selOutput = *output;
 	if (size) {
 		if (size->width > 0 && size->height > 0) {
 			m_selSize = *size;
-		} else if (m_selOutput < outputs) {
-			const gfx::OutputInfo& o = a->outputs[static_cast<size_t>(m_selOutput)];
+		} else if (m_selOutput >= 0 && m_selOutput < count) {
+			const gfx::OutputInfo& o = monitors[static_cast<size_t>(m_selOutput)];
 			m_selSize = {static_cast<u32>(o.width), static_cast<u32>(o.height)};
 		} else {
 			return "no monitor to take a native size from";
@@ -1540,20 +1573,37 @@ std::string GameUI::StageVideo(std::optional<gfx::FullscreenMode> mode,
 	return {};
 }
 
-void GameUI::OnVideoApply(bool persist) {
-	if (m_adapters.empty() || m_selAdapter >= static_cast<int>(m_adapters.size()))
-		return;
+void GameUI::StageGhostMonitor() {
+	// Somewhere no monitor is, so nothing could ever be placed on it by mistake.
+	gfx::OutputInfo ghost;
+	ghost.device = "\\\\.\\DN-GHOST";
+	ghost.adapter = "(none - a monitor unplugged after the list was read)";
+	ghost.x = ghost.workX = -100000;
+	ghost.y = ghost.workY = -100000;
+	ghost.width = ghost.workWidth = 1024;
+	ghost.height = ghost.workHeight = 768;
+	ghost.modes = {{1024, 768}};
+	ghost.name = std::format("Display {} (1024x768)", m_displays.monitors.size() + 1);
+	m_displays.monitors.push_back(std::move(ghost));
+	m_selOutput = static_cast<int>(m_displays.monitors.size()) - 1;
+	m_videoRebuildPending = true;
+}
+
+bool GameUI::OnVideoApply(bool persist) {
+	if (m_displays.adapters.empty() || m_selAdapter < 0 ||
+		m_selAdapter >= static_cast<int>(m_displays.adapters.size()))
+		return false;
 	const DisplayChoice choice = StagedVideo();
 
 	if (choice.adapterLuid != m_device.AdapterLuid()) {
 		// A GPU change can't be done in place; confirm, then persist + relaunch.
 		OpenConfirm(loc::Tr("confirm.restart.title"), loc::Tr("confirm.restart.body"),
 					[this, choice] { onAdapterRestart(choice); });
-		return;
+		return false;
 	}
 
 	// Same GPU: monitor / resolution / mode apply in place.
-	onVideoApply(choice, persist);
+	return onVideoApply(choice, persist);
 }
 
 void GameUI::OpenConfirm(const std::string& title, const std::string& body,

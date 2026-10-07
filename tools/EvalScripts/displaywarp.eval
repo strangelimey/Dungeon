@@ -1,0 +1,35 @@
+; displaywarp.eval - the display list, read apart from the GPU that renders
+; (code-review C198, C199, C197). JUDGED by tools\DisplayTest.py, which runs it
+; HEADLESS on `-warp` - the software rasterizer, which has no outputs of its own,
+; exactly like a hybrid laptop's discrete GPU - and reads each `video status`
+; after the line before it:
+;
+;   boot        the running adapter (WARP) is listed and staged, and the monitor
+;               and resolution lists are NOT empty: monitors are every adapter's
+;               outputs, not the rendering one's (on a hybrid laptop they were
+;               empty, and Borderless did nothing).
+;   borderless  `video apply borderless` takes: the window covers the staged
+;               monitor's desktop rect (hidden, it is only resized - C391).
+;   ghost       a monitor that is not there is put in the list and staged - the
+;               list a cable pulled after it was read would hold...
+;   change      ...and a WM_DISPLAYCHANGE, posted to the window and taken by the
+;               real pump, re-reads the list: the ghost is gone and a real
+;               monitor is staged again.
+;   ini         the staged monitor's device name and the GPU's identity survive
+;               settings.ini's text both ways (written as Save writes, read as
+;               Load reads - the text, never the player's file).
+;
+; Every apply here is a SCRIPT's, so it is applied and never saved. No world is
+; needed for any of it; the game is started first only because a script must
+; end playing to reach its verdict.
+newgame
+video status
+video apply borderless
+video status
+video ghost
+video status
+video displaychange
+video status
+video ini
+video apply windowed 1280x720
+video status

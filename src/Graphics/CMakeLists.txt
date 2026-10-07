@@ -1,4 +1,5 @@
 add_library(Graphics STATIC
+	AdapterIdentity.cpp
 	D3DUtil.cpp
 	DisplayEnum.cpp
 	GpuProfiler.cpp

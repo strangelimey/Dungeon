@@ -55,10 +55,14 @@ struct SaveSlot;   // Game/SaveGame.h - one listed save
 
 // A display selection the Video tab commits: GameSettings' display fields, as
 // one value (the Apply button hands it to Game, which applies it and - unless a
-// script asked - saves it). `output` indexes the adapter's outputs.
+// script asked - saves it once it HAS applied). `output` indexes the display
+// list's monitors - every monitor, whichever GPU it hangs off (code-review
+// C198) - and `monitor` is that one's device name, which is what is saved
+// (C199); applied, the device name is what is looked up, never the index.
 struct DisplayChoice {
 	u64 adapterLuid = 0;
 	int output = 0;
+	std::string monitor;
 	u32 width = 0, height = 0;
 	gfx::FullscreenMode mode = gfx::FullscreenMode::Windowed;
 };
@@ -101,20 +105,34 @@ public:
 	// script reaches OnVideoApply - the Apply button's own path - with no click.
 	DisplayChoice StagedVideo() const;
 	int StagedAdapterIndex() const { return m_selAdapter; }
-	const std::vector<gfx::AdapterInfo>& VideoAdapters() const { return m_adapters; }
+	// The ONE display list (code-review C199): the GPUs - plus the running one
+	// when it is not among them (WARP) - and every monitor. Read when the page
+	// is first built, again whenever Settings opens and on WM_DISPLAYCHANGE.
+	const gfx::DisplayList& Displays() const { return m_displays; }
+	// How many times it has been re-read since boot (the `video` readout).
+	int DisplayRefreshes() const { return m_displayRefreshes; }
+	// Re-reads the list and re-stages from what is live. The page is rebuilt
+	// next frame when either moved, or always with `rebuild` (a display change:
+	// the Frame Rate labels read the refresh rate, which no list shows).
+	void RefreshDisplays(bool rebuild = false);
 	// Stages what is given, as picking it in the tab would (the page shows it from
 	// the next frame); a size of 0x0 is the staged monitor's own. Returns "" or
-	// why it cannot (a monitor the staged adapter does not have).
+	// why it cannot (a monitor the list does not have).
 	std::string StageVideo(std::optional<gfx::FullscreenMode> mode,
 						   std::optional<gfx::DisplayMode> size, std::optional<int> output);
+	// `video ghost`: adds a monitor that is NOT there to the list and stages it -
+	// the list a cable pulled after it was read would hold - so a check can see
+	// a display change's re-read drop it and stage a real one again.
+	void StageGhostMonitor();
 	// The Apply button. `persist` false - a script's apply - applies, never saves.
-	void ApplyVideo(bool persist) { OnVideoApply(persist); }
+	bool ApplyVideo(bool persist) { return OnVideoApply(persist); }
 	// Seeds the staging again from what is LIVE, as opening the Settings page
-	// does: the saved choice, a Windowed size taken from the window as it is now
-	// (code-review C196), and the page rebuilt next frame when that moved it.
+	// does: the RUNNING adapter (C197), the monitor the window is on, a Windowed
+	// size taken from the window as it is now (C196), and the page rebuilt next
+	// frame when that moved it.
 	void RestageVideo();
 	// What OPENING the Settings page does (both menus' entry, and `video
-	// restage`): the Party Colors rows synced, then RestageVideo.
+	// restage`): the Party Colors rows synced, then RefreshDisplays.
 	void RefreshSettingsPage();
 
 	// --- per-frame updates (which page runs is the app state's call) ------------
@@ -613,8 +631,9 @@ public:
 	// Video tab Apply with only monitor/resolution/mode changed: apply in place.
 	// `persist` is false for a script's apply (`video apply` in an eval): applied,
 	// never saved, like a script's `lang` - the harnesses share the settings.ini
-	// of the build Michael plays.
-	std::function<void(const DisplayChoice&, bool persist)> onVideoApply;
+	// of the build Michael plays. Returns whether the choice TOOK - it is saved
+	// only then (code-review C199).
+	std::function<bool(const DisplayChoice&, bool persist)> onVideoApply;
 	// Video tab Apply with the adapter changed (confirmed): persist + relaunch.
 	std::function<void(const DisplayChoice&)> onAdapterRestart;
 
@@ -639,14 +658,17 @@ private:
 	void BuildPauseMenu();
 	void BuildCharacterSheet();
 	// Video tab: seed the staged adapter/monitor/resolution/mode selection from
-	// the live settings + enumerated hardware (call when opening/rebuilding the
-	// page for a fresh edit, not on the deferred repopulate). A Windowed size is
-	// the window's client as it is NOW, never the saved one or the list's first.
+	// what is live + the display list (call when opening/rebuilding the page for
+	// a fresh edit, not on the deferred repopulate). A Windowed size is the
+	// window's client as it is NOW, never the saved one or the list's first.
 	void SeedVideoStaging();
+	// Re-reads m_displays (see Displays), the running adapter kept in it.
+	void RefreshDisplayList();
 	// Commit the staged Video selection: in-place for monitor/res/mode, or open
 	// the restart-confirm dialog when the adapter changed. `persist` false (a
-	// script's) applies without saving.
-	void OnVideoApply(bool persist = true);
+	// script's) applies without saving. True when it applied in place; false
+	// when it did not take, or the restart question was opened instead.
+	bool OnVideoApply(bool persist = true);
 	// Builds the centered Yes/No modal (m_confirmUi) and arms it.
 	// The button labels default to the adapter restart's own ("Restart" /
 	// "Cancel"); a question passes plain Yes / No.
@@ -1046,10 +1068,11 @@ private:
 	// settings TabControl (kept so a repopulate can restore the active tab), and
 	// the STAGED selection — held separately from m_settings so the Apply button
 	// commits it (and survives the deferred adapter/monitor repopulate).
-	std::vector<gfx::AdapterInfo> m_adapters;
+	gfx::DisplayList m_displays; // see Displays
+	int m_displayRefreshes = 0;
 	ui::TabControl* m_settingsTabs = nullptr;
 	int m_selAdapter = 0;
-	int m_selOutput = 0;
+	int m_selOutput = 0; // into m_displays.monitors
 	// The staged SIZE, not an index into the monitor's mode list: a Windowed
 	// window is whatever size it was dragged to, which no mode need match. It
 	// used to be an index, and a size matching no mode staged the list's first -

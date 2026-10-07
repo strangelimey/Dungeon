@@ -1026,12 +1026,16 @@ private:
 	// + resolution) to the window and swapchain in place, at boot.
 	void ApplyDisplaySettings();
 	// Applies a display choice in place - the Video tab's Apply for anything
-	// but an adapter change, and the boot's through ApplyDisplaySettings. A
-	// Windowed one is centred in the chosen monitor's WORK AREA and shrunk to
-	// fit it (Window::SetWindowed, code-review C196); an Exclusive one is not
-	// taken at all by a hidden (`-headless`) window, which must never hold a
-	// monitor (C391).
-	void ApplyDisplay(const DisplayChoice& choice);
+	// but an adapter change, and the boot's through ApplyDisplaySettings. The
+	// monitor is looked up by its DEVICE NAME in the one display list, every
+	// monitor whichever GPU it hangs off (code-review C198/C199); one no longer
+	// there is the monitor the window is on. A Windowed one is centred in the
+	// chosen monitor's WORK AREA and shrunk to fit it (Window::SetWindowed,
+	// C196); an Exclusive one is not taken at all by a hidden (`-headless`)
+	// window, which must never hold a monitor (C391). Returns whether it took:
+	// the caller saves a choice only then (C199 - a refused Exclusive used to
+	// stay saved, and come back at every boot).
+	bool ApplyDisplay(const DisplayChoice& choice);
 	// The `video status` readout (Game_DevCommands): what the Video tab has
 	// STAGED, what is RUNNING - read off the device and the window, never the
 	// settings - and what is SAVED, a line each, plus a line per monitor.
@@ -1212,6 +1216,11 @@ private:
 	// never saw (code-review C220).
 	size_t m_allocTestSheetSpells = 0;
 	size_t m_allocTestCardSpells = 0;
+	// AllocTest -DisplayChange's, counted the same way: re-reads of the display
+	// list (GameUI::DisplayRefreshes) in a measured frame - its evidence that a
+	// WM_DISPLAYCHANGE's re-read and the Settings page rebuilt from it were
+	// checked (code-review batch 69).
+	int m_allocTestDisplays = 0;
 	// The party's Act count when the window opened (Party::ActCount): the
 	// verdict's moves= is the difference, -Walk's evidence that it moved.
 	unsigned m_allocTestActsAt = 0;
@@ -1639,6 +1648,9 @@ private:
 	// Child process launched to restart the game on an adapter change (it
 	// outlives us; we quit right after it starts, and only then).
 	platform::Process m_restart;
+	// Window::DisplayChanges as last seen: a frame that finds it moved re-reads
+	// the display list (GameUI::RefreshDisplays, code-review C199).
+	u32 m_seenDisplayChanges = 0;
 
 	// The map overlay's panel in the given surface's pixel space (window pixels
 	// for input, device pixels for drawing): full-screen in Editor mode (it

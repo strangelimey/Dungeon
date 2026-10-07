@@ -74,6 +74,7 @@
 #include "Game/Trail.h"
 #include "Game/Resource.h"
 #include "Game/Roll.h"
+#include "Graphics/AdapterIdentity.h"
 #include "Graphics/Camera.h"
 #include "Graphics/LightTiles.h"
 
@@ -3433,6 +3434,71 @@ int main(int argc, char** argv) {
 			}
 		Check("GL-named normal maps not read as GL", wrongGl, 0, 0);
 		Check("other normal maps read as GL", wrongDx, 0, 0);
+	}
+
+	// --- a saved GPU (Graphics/AdapterIdentity.cpp) -----------------------------
+	// settings.ini names the chosen adapter by what the hardware says it is, not
+	// by its LUID, which a reboot renumbers (code-review C197). The machine here
+	// is invented: an integrated GPU listed FIRST and the chosen discrete one
+	// second, which is the order that made the old code stage index 0 - the GPU
+	// nobody chose - when the saved LUID matched nothing.
+	{
+		namespace gfx = dungeon::gfx;
+		std::printf("\nA saved GPU (Graphics/AdapterIdentity.cpp)\n");
+		using gfx::AdapterIdentity;
+		const AdapterIdentity igpu{0x8086, 0xa7a0, 0x0b031028, 0x4, "Intel(R) Iris(R) Xe Graphics"};
+		const AdapterIdentity dgpu{0x10de, 0x2820, 0x0b031028, 0xa1, "NVIDIA GeForce RTX 4070 Laptop GPU"};
+		const std::vector<AdapterIdentity> machine{igpu, dgpu};
+
+		// The spelling round-trips, the description's spaces and colons included.
+		AdapterIdentity named = dgpu;
+		named.description = "Vendor: Model 3 (rev: b)";
+		const std::string text = gfx::EncodeAdapterIdentity(named);
+		AdapterIdentity back;
+		const bool read = gfx::DecodeAdapterIdentity(text, back);
+		CheckTrue("an identity reads back as written",
+				  read && back.vendorId == named.vendorId && back.deviceId == named.deviceId &&
+					  back.subSysId == named.subSysId && back.revision == named.revision &&
+					  back.description == named.description);
+		CheckTrue("its spelling is the four hex ids, then the description",
+				  text == "10de:2820:b031028:a1 Vendor: Model 3 (rev: b)");
+		AdapterIdentity untouched = igpu;
+		CheckTrue("a spelling that is not one does not read",
+				  !gfx::DecodeAdapterIdentity("10de:2820:b031028", untouched) &&
+					  !gfx::DecodeAdapterIdentity("10de:2820:zz:a1 x", untouched) &&
+					  !gfx::DecodeAdapterIdentity("10de:2820:1ffffffff:a1 x", untouched) &&
+					  !gfx::DecodeAdapterIdentity("", untouched) &&
+					  untouched.description == igpu.description);
+		CheckTrue("nothing saved encodes as nothing (auto)",
+				  gfx::EncodeAdapterIdentity(AdapterIdentity{}).empty());
+
+		// Resolution: the saved discrete GPU is the SECOND adapter, whatever
+		// order the list comes in.
+		const auto resolve = [&](const AdapterIdentity& saved, const std::vector<AdapterIdentity>& list) {
+			return gfx::ResolveAdapterIdentity(saved, list);
+		};
+		CheckTrue("the saved GPU resolves to itself, not the list's first",
+				  resolve(dgpu, machine) == 1);
+		CheckTrue("...in either order", resolve(dgpu, {dgpu, igpu}) == 0);
+		CheckTrue("...read back from its saved spelling",
+				  gfx::DecodeAdapterIdentity(gfx::EncodeAdapterIdentity(dgpu), back) &&
+					  resolve(back, machine) == 1);
+		AdapterIdentity reworded = dgpu;
+		reworded.description = "NVIDIA GeForce RTX 4070 Laptop GPU (driver 999)";
+		CheckTrue("a driver that rewords the description still finds it",
+				  resolve(reworded, machine) == 1);
+		AdapterIdentity exactTwin = dgpu, otherRev = dgpu;
+		otherRev.revision = 0xa2;
+		CheckTrue("an exact match beats a nearer-the-front one at another revision",
+				  resolve(exactTwin, {otherRev, dgpu}) == 1);
+		CheckTrue("the same chip at another revision is still found",
+				  resolve(dgpu, {igpu, otherRev}) == 1);
+		CheckTrue("two identical cards resolve to the first, every run",
+				  resolve(dgpu, {igpu, dgpu, dgpu}) == 1);
+		CheckTrue("a GPU no longer installed resolves to none (auto)", resolve(dgpu, {igpu}) == -1);
+		CheckTrue("another vendor's chip with the same device id is not it",
+				  resolve(AdapterIdentity{0x1002, 0x2820, 0, 0, "x"}, machine) == -1);
+		CheckTrue("nothing saved resolves to none (auto)", resolve(AdapterIdentity{}, machine) == -1);
 	}
 
 	// --- verdict ------------------------------------------------------------

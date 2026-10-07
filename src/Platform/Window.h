@@ -88,6 +88,16 @@ public:
 	// Invoked when the client area changes size (not called for minimize).
 	std::function<void(u32, u32)> onResize;
 
+	// How many WM_DISPLAYCHANGE messages have arrived - a monitor plugged in or
+	// out, a dock reordering them, a resolution or refresh changed. A COUNT the
+	// game polls once a frame (Game::UpdateStates -> GameUI::RefreshDisplays,
+	// code-review C199) rather than a callback, so the display list is re-read
+	// at the top of a frame, never inside the message pump or a widget's walk.
+	// PostDisplayChange posts one to this window, as Windows would (`video
+	// displaychange`): the real message, through the real pump.
+	u32 DisplayChanges() const { return m_displayChanges; }
+	void PostDisplayChange() const;
+
 	// The pointer's shape over the client area. The game sets it every frame
 	// from what the pointer is over (a floating HUD panel's move grip wants the
 	// four-way arrow, its resize grip the diagonal; the map editor's dock edges
@@ -112,6 +122,7 @@ private:
 	bool m_closed = false;
 	bool m_hidden = false; // WindowDesc::hidden, kept: see IsHidden
 	bool m_borderless = false; // see IsBorderless
+	u32 m_displayChanges = 0;  // see DisplayChanges
 	// True while UpdateCapture runs our own ReleaseCapture — Windows SENDS
 	// WM_CAPTURECHANGED to the releasing window synchronously, and that
 	// self-inflicted one must NOT clear the button edges (the release edge

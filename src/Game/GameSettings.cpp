@@ -129,6 +129,23 @@ void ParseIniString(const std::string& text, const std::string& key,
 	if (end > start) value = text.substr(start, end - start);
 }
 
+// Reads key=<the rest of its line> - for a value that is not a NAME: a monitor's
+// device name ("\\.\DISPLAY2") or a GPU's identity, whose description has spaces
+// and colons. The key must START its line, since such a value could hold
+// another key's spelling. Trailing '\r' and spaces are not the value. A missing
+// key keeps the caller's default; a present, empty one sets "" (auto).
+void ParseIniLine(const std::string& text, const std::string& key, std::string& value) {
+	for (size_t pos = text.find(key); pos != std::string::npos; pos = text.find(key, pos + 1)) {
+		if (pos != 0 && text[pos - 1] != '\n') continue;
+		const size_t start = pos + key.size();
+		size_t end = text.find('\n', start);
+		if (end == std::string::npos) end = text.size();
+		while (end > start && (text[end - 1] == '\r' || text[end - 1] == ' ')) --end;
+		value = text.substr(start, end - start);
+		return;
+	}
+}
+
 // Reads key=<0/1> from the ini text. A missing value keeps the caller's
 // default; any non-'0' character reads as true.
 void ParseIniBool(const std::string& text, const std::string& key, bool& value) {
@@ -158,11 +175,13 @@ void ParseIniPair(const std::string& text, const std::string& key, float& x, flo
 void GameSettings::Load() {
 	auto bytes = assets::ReadBinaryFile(paths::ExecutableDir() + "\\settings.ini");
 	if (!bytes) { // first run: keep the defaults
-		RefreshKeyNames(); // ...and name their keys, as the end below does
+		RefreshKeyNames(); // ...and name their keys, as Parse's end does
 		return;
 	}
-	const std::string text(bytes->begin(), bytes->end());
+	Parse(std::string(bytes->begin(), bytes->end()));
+}
 
+void GameSettings::Parse(const std::string& text) {
 	const size_t qpos = text.find("quality=");
 	if (qpos != std::string::npos && qpos + 8 < text.size()) {
 		const char digit = text[qpos + 8];
@@ -267,8 +286,8 @@ void GameSettings::Load() {
 												: end - start);
 	}
 
-	ParseIniInt(text, "adapter=", adapterLuid);
-	ParseIniInt(text, "output=", displayOutput);
+	ParseIniLine(text, "adapter_id=", adapterId);
+	ParseIniLine(text, "monitor=", displayMonitor);
 	ParseIniInt(text, "reswidth=", displayWidth);
 	ParseIniInt(text, "resheight=", displayHeight);
 	int fs = static_cast<int>(fullscreen);
@@ -295,15 +314,7 @@ void GameSettings::Load() {
 	RefreshKeyNames(); // the Help line's names, read here rather than in play
 }
 
-void GameSettings::Save() const {
-	// Persisting a change the player just MADE - a dock minimized, a HUD panel
-	// dropped where they dragged it - lands inside a frame the allocation guard
-	// arms (ui-panels P3a found the second; the first was there already). It
-	// formats the whole file and writes it, so it cannot be allocation-free, and
-	// it runs on one click or one release, never per frame: it excuses itself,
-	// as reporting code does. Anything calling Save EVERY frame would still be a
-	// bug - the count of excused allocations shows it.
-	const alloc::Excused excuse;
+std::string GameSettings::Text() const {
 	std::string text = std::format(
 		"quality={}\nmaxlights={}\npresentinterval={}\nlanguage={}\nvolume={:.2f}\n",
 		static_cast<int>(quality), maxPointLights, presentInterval, language, volume);
@@ -353,9 +364,22 @@ void GameSettings::Save() const {
 	text += std::format("hud_locked={}\nhud_layout={}\n", hudLocked ? 1 : 0, hudLayout);
 	text += std::format("gen_knobs={}\n", generatorKnobs);
 	text += std::format(
-		"adapter={}\noutput={}\nreswidth={}\nresheight={}\nfullscreen={}\n",
-		adapterLuid, displayOutput, displayWidth, displayHeight,
+		"adapter_id={}\nmonitor={}\nreswidth={}\nresheight={}\nfullscreen={}\n",
+		adapterId, displayMonitor, displayWidth, displayHeight,
 		static_cast<int>(fullscreen));
+	return text;
+}
+
+void GameSettings::Save() const {
+	// Persisting a change the player just MADE - a dock minimized, a HUD panel
+	// dropped where they dragged it - lands inside a frame the allocation guard
+	// arms (ui-panels P3a found the second; the first was there already). It
+	// formats the whole file and writes it, so it cannot be allocation-free, and
+	// it runs on one click or one release, never per frame: it excuses itself,
+	// as reporting code does. Anything calling Save EVERY frame would still be a
+	// bug - the count of excused allocations shows it.
+	const alloc::Excused excuse;
+	const std::string text = Text();
 	if (!assets::WriteBinaryFile(paths::ExecutableDir() + "\\settings.ini",
 								 text.data(), text.size()))
 		log::Warn("Could not write settings.ini");

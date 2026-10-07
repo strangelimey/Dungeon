@@ -21,6 +21,7 @@
 #   .\tools\AllocTest.ps1 -Hand              # the hand spells: light, douse, flare, fill, pebble
 #   .\tools\AllocTest.ps1 -Light             # the Sowilo lights: cast, stacked, grown, a flare's dazzle
 #   .\tools\AllocTest.ps1 -Pause             # Esc to the pause menu and back
+#   .\tools\AllocTest.ps1 -DisplayChange     # a WM_DISPLAYCHANGE mid-play: the list re-read, Settings rebuilt
 #   .\tools\AllocTest.ps1 -Exit              # Help clicked, an exit stair's "Leave?" answered No, a pit fall
 #   .\tools\AllocTest.ps1 -Lever             # a quest token lifted twice, a sets= lever, one revealing a secret niche
 #   .\tools\AllocTest.ps1 -Sheet             # the sheet: hover, tabs, item dialog
@@ -243,6 +244,16 @@
 # frames just after a resume: they fall inside the guard's 120-frame warm-up, so
 # a resume path that allocates there passes (code-review C216; a -Cold mode that
 # arms them is phase 2's).
+#
+# -DisplayChange IS AN OS EVENT IN AN ARMED FRAME (code-review batch 69). A
+# WM_DISPLAYCHANGE - a monitor plugged in, a dock reordering them - re-reads the
+# display list and rebuilds the Settings page at the top of the next frame,
+# whatever the state, so in play it lands in a frame armed as steady. That work
+# is excused (Game::UpdateStates), and the rebuild has to be inside the excuse:
+# it once ran on the line after it and charged the whole page to the guard,
+# which no eval script could see (a scripted run is never armed). This posts the
+# real message to the window three times inside the window, and refuses a PASS
+# unless the verdict line counts a re-read in a measured frame (`displays=`).
 #
 # -Exit IS -Pause's CASE WITH NO STATE CHANGE, AND A PIT (code-review C210,
 # C217). An exit stair asks "Leave?" while the state stays Playing, so the
@@ -545,6 +556,8 @@ param(
 	[switch]$Light,
 	# Pauses (Esc) and resumes inside the window. See the note above.
 	[switch]$Pause,
+	# Posts WM_DISPLAYCHANGE to the window inside the window. See the note above.
+	[switch]$DisplayChange,
 	# Clicks the log's Help button, steps onto crypt1's exit stair and answers
 	# its "Leave?" No, then falls down a pit, inside the window. See above.
 	[switch]$Exit,
@@ -686,7 +699,7 @@ if ($AllSpells -and $memberCount -lt 2) { throw '-AllSpells teaches member 1 and
 
 # -PartyPage starts no game, and every other mode needs one.
 if ($PartyPage) {
-	$withGame = @('Wounded', 'Melee', 'Cast', 'Impact', 'Hand', 'Light', 'Pause', 'Exit', 'Lever', 'Sheet', 'All',
+	$withGame = @('Wounded', 'Melee', 'Cast', 'Impact', 'Hand', 'Light', 'Pause', 'DisplayChange', 'Exit', 'Lever', 'Sheet', 'All',
 		'Panels', 'Minimal', 'Walk', 'Lights', 'Items', 'Packs', 'Throw', 'Glass', 'Party', 'Wear', 'Effects', 'GrowRoster') |
 		Where-Object { $PSBoundParameters.ContainsKey($_) }
 	if ($withGame) { throw "-PartyPage runs on the title screen with no game; it does not combine with -$($withGame -join ', -')" }
@@ -2959,6 +2972,17 @@ try {
 		Send-Click $script:restX $script:restY
 	}
 
+	# -DisplayChange: the real message (WM_DISPLAYCHANGE, 0x7E: 32 bits per pixel,
+	# a 1920x1080 lParam - the game reads neither, it only counts the message),
+	# after the console close plus the warm-up, three times.
+	if ($DisplayChange) {
+		for ($cycle = 1; $cycle -le 3; $cycle++) {
+			Start-Sleep -Seconds 3
+			if (Select-String -Path $log -Pattern 'alloctest RESULT=' -Quiet) { break }
+			Send-Message 0x7E 32 ((1080 -shl 16) -bor 1920)
+		}
+	}
+
 	if ($Pause) {
 		for ($cycle = 1; $cycle -le 3; $cycle++) {
 			Start-Sleep -Seconds 3
@@ -3412,6 +3436,17 @@ try {
 		Write-Host "  transitions inside the window: $transitions"
 		if ($transitions -le 0 -and $result -eq 'PASS') {
 			Write-Host 'no Esc landed in an armed frame - the pause transition was not measured' -ForegroundColor Yellow
+			$result = 'UNMEASURED'
+		}
+	}
+
+	# And for -DisplayChange: no re-read in a measured frame means no message
+	# landed in one, and the rebuild it exists for was not measured.
+	if ($DisplayChange) {
+		$displays = if ($line -match '\bdisplays=(\d+)') { [int]$Matches[1] } else { 0 }
+		Write-Host "  display-list re-reads inside the window: $displays"
+		if ($displays -le 0 -and $result -eq 'PASS') {
+			Write-Host 'no WM_DISPLAYCHANGE was handled in a measured frame - the re-read was not measured' -ForegroundColor Yellow
 			$result = 'UNMEASURED'
 		}
 	}
