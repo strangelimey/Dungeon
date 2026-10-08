@@ -603,19 +603,22 @@ void DevConsole::DrawProfileSection(const PanelCtx& pc, float top, const Profile
 			});
 		{
 			if (fb.valid && fb.bound != FrameBudget::Bound::Unknown) {
-				// Coloured by what it asks of you: display-bound is the
-				// healthy answer and stays quiet, the other two are things to
-				// go and look at. GPU takes the same purple as the VRAM gauge.
+				// Coloured by the PROCESSOR it names, in that processor's one
+				// colour (DevConsole_Panel.h): CPU-bound in the cpu figure's blue
+				// beside it, GPU-bound in the gpu's. Display-bound is the healthy
+				// answer and stays quiet. The CPU verdict used to be drawn in the
+				// RAM gauge's amber and the GPU's in the VRAM gauge's purple, each
+				// a colour that already meant something else (code-review C271).
 				const char* face = "";
 				Vec4 col = kDim;
 				switch (fb.bound) {
 				case FrameBudget::Bound::Cpu:
 					face = "bound by CPU";
-					col = {0.85f, 0.70f, 0.40f, 1.0f};
+					col = kCpuColor;
 					break;
 				case FrameBudget::Bound::Gpu:
 					face = "bound by GPU";
-					col = {0.80f, 0.55f, 0.85f, 1.0f};
+					col = kGpuColor;
 					break;
 				case FrameBudget::Bound::Display:
 					face = "bound by display";
@@ -865,8 +868,7 @@ void DevConsole::DrawProfileSection(const PanelCtx& pc, float top, const Profile
 				const gfx::Rect plot{gx, gy + line, gw, graphH - line};
 				if (ser)
 					DrawSeriesGraph(batch, plot, ser->samples, kProfHistory, m_profHead,
-									peak > 0.0001f ? peak : 0.0001f,
-									{0.45f, 0.70f, 0.95f, 1.0f});
+									peak > 0.0001f ? peak : 0.0001f, kShareColor);
 				else
 					DrawSeriesGraph(batch, plot, nullptr, 0, 0, 0.0f, kDim);
 			}
@@ -944,8 +946,7 @@ void DevConsole::DrawProfileSection(const PanelCtx& pc, float top, const Profile
 		//
 		// 1px, which the UI rules allow only for hairlines — a fractional
 		// gridline blurs across two columns and stops being a line.
-		const Vec4 kGridUnder{1.0f, 1.0f, 1.0f, 0.10f};
-		const Vec4 kGridOver{1.0f, 1.0f, 1.0f, 0.16f};
+		// (kGridUnder / kGridOver, DevConsole_Panel.h.)
 		auto barQuarters = [&](const gfx::Rect& r, const Vec4& c) {
 			for (int q = 1; q < 4; ++q)
 				batch.DrawRect({r.x + r.w * (static_cast<float>(q) * 0.25f), r.y, 1.0f,
@@ -992,8 +993,8 @@ void DevConsole::DrawProfileSection(const PanelCtx& pc, float top, const Profile
 			// Alpha found by looking, not by taste: 0.07 was invisible at 1:1
 			// and only showed up magnified, which is a decoration rather than
 			// a cue. This is the lightest value that survives a glance without
-			// competing with the gridlines (0.16) inside it.
-			const Vec4 kGroupFrame{1.0f, 1.0f, 1.0f, 0.11f};
+			// competing with the gridlines (0.16) inside it. kGroupFrame,
+			// DevConsole_Panel.h.
 			for (int i = 0; i < profRowCount; ++i) {
 				const ProfRow& pr = profRows[i];
 				if (pr.header) continue;
@@ -1176,7 +1177,7 @@ void DevConsole::DrawProfileSection(const PanelCtx& pc, float top, const Profile
 						const float px =
 							barX - pad - kPipW - static_cast<float>(d) * (kPipW + pipGap);
 						if (px < pipLimit) break;
-						batch.DrawRect({px, pipY, kPipW, pipH}, {1.0f, 1.0f, 1.0f, 0.22f});
+						batch.DrawRect({px, pipY, kPipW, pipH}, kDepthPip);
 					}
 				}
 
@@ -1297,7 +1298,7 @@ void DevConsole::DrawProfileSection(const PanelCtx& pc, float top, const Profile
 			// Near-opaque on purpose: it is a panel over a busy readout, and
 			// a translucent one would leave the numbers behind it legible
 			// through the numbers in front.
-			batch.DrawRect(r, {0.10f, 0.10f, 0.13f, 0.97f});
+			batch.DrawRect(r, kTooltipBg);
 			ui::DrawBorder(batch, r, kBorder);
 		};
 

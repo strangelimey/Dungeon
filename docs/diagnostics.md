@@ -267,6 +267,10 @@ nothing is built untested.
    reason the profile series keeps the max: the one event worth seeing must not
    be averaged away by the three around it. The section only exists once
    something has gone wrong — a permanently empty strip trains you to skip it.
+   A click names the newest event OF the cell's kind, so it reports what the mark
+   shows: it named the newest of any kind, and a stall with its restart in one
+   cell drew as the stall and reported the restart (code-review C380; HealthTest
+   `healthmark`).
 6. **The harness - DONE.** `tools\HealthTest.ps1`: eight cases (seven when it
    was built), each breaking the real game and then reading `dungeon.log`,
    because that is the surface a crash is meant to be found on. Nothing

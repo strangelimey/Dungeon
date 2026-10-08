@@ -2376,13 +2376,22 @@ hang and a reboot must each leave EVIDENCE.
   failed, on the profile graphs' x-axis (240 samples x 50 ms = 12 s), marks
   coloured by kind, oldest at the left, CLICK A MARK for the event and its
   stack (it snaps to the nearest mark within 4 cells — a cell is about a pixel).
-  A cell keeps the MOST SEVERE kind in its window, not the last. Deliberately
+  A cell keeps the MOST SEVERE kind in its window, not the last, and a click
+  names the newest event OF THAT KIND - a stall and its restart in one cell drew
+  as the stall and reported the restart (code-review C380). Deliberately
   its own strip rather than rows on the profile graphs: those are per NODE while
   health is per THREAD, and the profiler is compiled out of plain builds while
   this is not. The section only exists once something has gone wrong. Plus the
   THREADS panel's `!N ~M` column (exceptions/stalls — without it a worker that
   threw 18 times reads `sleeping · it 18 · 2.00hz`, every column normal), and
-  `health` / `health <thread>` / `health probe <id|name>`.
+  `health` / `health <thread>` / `health probe <id|name>`. THE PANEL'S CLIP IS
+  AN INPUT CLIP (C379): its sections lay out at full height and only drawing was
+  scissored, so a THREADS row past the panel's foot took clicks unseen under the
+  scrollback (halt, kill, boot; a section toggle rewrote settings.ini). Below
+  `m_panelH` nothing is hovered or clicked; `consolepanel` reports the panel, the
+  first control laid out under it and the presses it turned away. Every colour
+  the panel draws is NAMED ONCE, by meaning, in DevConsole_Panel.h (C271: the
+  CPU verdict was drawn in the RAM gauge's amber) - a new readout picks a name.
 - CHECKED, NOT ASSUMED. `DiagTest.exe` (tools/DiagTest) exercises the ring
   directly - 71 checks, including the one that matters: four writers hammering
   one slot while a reader walks it, every event self-describing so a torn read
@@ -2400,7 +2409,7 @@ hang and a reboot must each leave EVIDENCE.
   its stack once). And the crash handlers' QUIET record (test 13): in the
   record, not in the log, until LogRecorded writes it once with its stack - and
   no part of the repeat collapse. `tools\HealthTest.
-  ps1` breaks the REAL game fifteen ways and reads dungeon.log and nothing else -
+  ps1` breaks the REAL game seventeen ways and reads dungeon.log and nothing else -
   if the answer is not in the file you open after a crash, it does not count.
   `-SelfTest` skips every injection and REQUIRES every case to fail on EACH of
   its expectations (no pattern met, no dump) and for no other reason - a harness
@@ -2419,16 +2428,26 @@ hang and a reboot must each leave EVIDENCE.
   `devassert` / `devfault` / `devterminate` remove it and die AT ONCE, before
   any call fails, so the removal reaches the log only through the fatal note -
   one case per place a report runs it, each anchored to that report's last own
-  line. Two of the fifteen (`uiclip`, `uinest`; code-review C208) read what a caught
+  line. Two of the seventeen (`uiclip`, `uinest`; code-review C208) read what a caught
   throw leaves BEHIND - the UI walk's clip, which a throw used to leave in force
   in every context, so a later click outside it was lost. Each checks its own
   premise: `uiclip`'s throw names the clip in force and the button outside it
   only when both hold (a scroll area that stops overflowing clips nothing, and
   the click would land under the old walk too), `uinest` refuses a tree that
-  did not nest two clips.
-  Dev: `crashpoke <throw|uiclip|worker|fault|overflow|assert|devremoved
-  [assert|fault|terminate]>`, `dredpoke`, `clippoke`, `threadwedge`,
-  `threadkill <id|name>`, `threadspawn <ms>`.
+  did not nest two clips. Two more click the console's panel for real:
+  `healthmark` (a mark holding a stall and its restart, `crashpoke stallpair`,
+  found by `health strip`, must name the stall) and `panelclick` (a THREADS
+  button laid out under the panel's foot must change no worker; only the count
+  of presses turned away moves). It clicks a worker's ROW, never a section
+  expander - THREADS is the last section and in this case the content above
+  its header is shorter than the panel, so no saving control lies down there -
+  "writes no settings.ini" is the same gate by construction, NOT something
+  the click checks (`settings saves` in `consolepanel`, GameSettings::
+  SaveCount, matches either way).
+  Dev: `crashpoke <throw|uiclip|worker|stallpair|fault|overflow|assert|
+  devremoved [assert|fault|terminate]>`, `dredpoke`, `clippoke`, `threadwedge`,
+  `threadkill <id|name>`, `threadspawn <ms> [count]`, `health strip <thread>`,
+  `consolepanel [perf|profile|threads open|shut]` (a section opened unsaved).
 
 ## Map overlay / editor (MapView)
 

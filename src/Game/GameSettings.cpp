@@ -314,6 +314,13 @@ void GameSettings::Parse(const std::string& text) {
 	RefreshKeyNames(); // the Help line's names, read here rather than in play
 }
 
+namespace {
+// Main thread only, like every caller of Save.
+u64 g_saveCount = 0;
+} // namespace
+
+u64 GameSettings::SaveCount() { return g_saveCount; }
+
 std::string GameSettings::Text() const {
 	std::string text = std::format(
 		"quality={}\nmaxlights={}\npresentinterval={}\nlanguage={}\nvolume={:.2f}\n",
@@ -371,6 +378,7 @@ std::string GameSettings::Text() const {
 }
 
 void GameSettings::Save() const {
+	++g_saveCount;
 	// Persisting a change the player just MADE - a dock minimized, a HUD panel
 	// dropped where they dragged it - lands inside a frame the allocation guard
 	// arms (ui-panels P3a found the second; the first was there already). It

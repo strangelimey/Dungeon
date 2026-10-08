@@ -255,6 +255,10 @@ struct GameSettings {
 	void Save() const;
 	std::string Text() const;
 	void Parse(const std::string& text);
+	// How many times this process has written settings.ini, from any instance.
+	// A readout (`consolepanel`), so a harness can see that something did NOT
+	// save - a click the console's input clip turned away (code-review C379).
+	static u64 SaveCount();
 
 	// Quality-derived asset suffixes.
 	const char* MeshSuffix() const;    // "low" / "med" / "high" (worn blocks)

@@ -6,6 +6,7 @@
 #include "Game/DevConsole_Panel.h"
 
 #include "Core/Diagnostics.h"
+#include "Core/Log.h"
 #include "Core/StackTrace.h"
 
 #include <algorithm>
@@ -69,9 +70,19 @@ void DevConsole::SampleHealth() {
 		}
 		if (!row) continue; // more failing threads than the strip has rows
 
+		// The window is counted from the per-kind COUNTERS alone, never from the
+		// record's `written` (`total`): an event claims its index first and is
+		// counted only once its slot is written, so a snapshot can catch the two
+		// a whole event apart - a restart claimed and not yet counted, its stall
+		// counted - and the window then drew as the stall while `total - 1` was
+		// the restart (code-review C380). One writer counts its events in the
+		// order it claimed their indices, so the events counted up to the last
+		// sample are indices [0, before) and this window's [before, before + added).
+		u64 before = 0;
 		u64 added = 0;
 		int worst = -1;
 		for (int k = 0; k < diag::kKindCount; ++k) {
+			before += row->prev[k];
 			const u64 delta = all[i].counts[k] - row->prev[k];
 			row->prev[k] = all[i].counts[k];
 			if (delta == 0) continue;
@@ -84,8 +95,30 @@ void DevConsole::SampleHealth() {
 		HealthCell& cell = row->cells[m_profHead];
 		cell.count = static_cast<u8>(added > 255 ? 255 : added);
 		cell.kind = worst < 0 ? 0xFF : static_cast<u8>(worst);
-		// The newest event's index, so a click can find it again in the ring.
-		cell.lastIndex = added > 0 ? static_cast<u32>(all[i].total - 1) : 0;
+		cell.lastIndex = 0;
+		cell.lost = false;
+		if (worst < 0) continue;
+		// The newest event OF THE KIND THE CELL IS DRAWN IN, so a click reports what
+		// the mark shows (code-review C380). ALWAYS read from the ring and matched
+		// by kind, newest first among this window's indices - never assumed to be
+		// the window's last index, which is the assumption the race above broke.
+		// An event of the kind no longer in the ring (it wrapped) is `lost`. Two
+		// writers on one thread's slot at once (the thread and its supervisor) may
+		// count out of index order; then the event found is still of this kind,
+		// at worst one a window over.
+		const u64 windowFrom = before;
+		const u64 windowTo = before + added;
+		diag::EventView ev[diag::kEventsPerThread];
+		const int read = diag::ReadEvents(all[i].slot, ev, diag::kEventsPerThread);
+		cell.lost = true;
+		for (int e = read - 1; e >= 0; --e) { // OLDEST first in the array: walk it back
+			if (ev[e].index >= windowTo) continue; // recorded since the snapshot
+			if (ev[e].index < windowFrom) break;
+			if (static_cast<int>(ev[e].kind) != worst) continue;
+			cell.lastIndex = static_cast<u32>(ev[e].index);
+			cell.lost = false;
+			break;
+		}
 	}
 }
 
@@ -110,13 +143,35 @@ void DevConsole::ReportHealthCell(int row, int cell) {
 		return;
 	}
 	const HealthCell& c = r.cells[best];
+	const char* kindName =
+		c.kind < diag::kKindCount ? diag::KindName(static_cast<diag::Kind>(c.kind)) : "event";
+	// The window's count rides on the line, so a reader (and HealthTest's
+	// `healthmark`) sees whether the mark held one event or several.
+	const std::string inWindow =
+		c.count > 1 ? std::format(" ({} events in that window; this is the newest {})", c.count,
+								  kindName)
+					: std::string();
+	if (c.lost) {
+		const std::string line = std::format(
+			"'{}': the newest {} of that window had left the record before it was sampled{} - "
+			"`health {}` for what is left",
+			r.name, kindName, inWindow, r.name);
+		Print(line);
+		log::Info("health mark: {}", line);
+		return;
+	}
 
 	diag::EventView ev[diag::kEventsPerThread];
 	const int n = diag::ReadEvents(r.slot, ev, diag::kEventsPerThread);
 	for (int i = 0; i < n; ++i) {
 		if (ev[i].index != c.lastIndex) continue;
-		Print(std::format("'{}' #{} {} tick {}: {}", r.name, ev[i].index,
-						  diag::KindName(ev[i].kind), ev[i].iteration, ev[i].message));
+		const std::string head = std::format("'{}' #{} {} tick {}{}: {}", r.name, ev[i].index,
+											 diag::KindName(ev[i].kind), ev[i].iteration,
+											 inWindow, ev[i].message);
+		Print(head);
+		// And to the log: what a click on a mark names is evidence, read
+		// afterwards from dungeon.log like a probe's (HealthTest `healthmark`).
+		log::Info("health mark: {}", head);
 		// The same plumbing rule the log uses, so a stack reads identically
 		// wherever it is shown - a WALKED one (a stall, a kill) whole, as the log
 		// and the probe print it. `shown` counts frames that SURVIVED the filter -
@@ -128,15 +183,15 @@ void DevConsole::ReportHealthCell(int row, int cell) {
 			Print("    " + frame);
 			++shown;
 		}
-		if (c.count > 1)
-			Print(std::format("  ({} events in that window; this is the newest)", c.count));
 		return;
 	}
 	// The ring is 16 deep and the timeline is 12 seconds: an old mark can easily
 	// outlive the event it points at. Saying so beats printing a neighbour.
-	Print(std::format("'{}': event #{} has scrolled out of the record ({} in that "
-					  "window) — `health {}` for what is left",
-					  r.name, c.lastIndex, c.count, r.name));
+	const std::string gone =
+		std::format("'{}': {} #{} has scrolled out of the record{} - `health {}` for what is left",
+					r.name, kindName, c.lastIndex, inWindow, r.name);
+	Print(gone);
+	log::Info("health mark: {}", gone);
 }
 
 // HEALTH sits between PROFILE and THREADS, and only exists once something has
@@ -181,20 +236,17 @@ void DevConsole::DrawHealthSection(const PanelCtx& p, float top) {
 		hy += line;
 
 		if (m_healthExpanded) {
-			// One colour per kind, matching the THREADS panel's vocabulary so a
-			// red mark and a red state mean the same thing in both places.
-			const Vec4 kExc{0.95f, 0.45f, 0.30f, 1.0f};
-			const Vec4 kStall{0.90f, 0.75f, 0.30f, 1.0f};
-			const Vec4 kBoot{0.45f, 0.75f, 0.95f, 1.0f};
-			const Vec4 kDead{0.80f, 0.45f, 0.85f, 1.0f};
+			// One colour per kind, the palette's (DevConsole_Panel.h), which the
+			// THREADS panel draws its states in too - so a mark and a state of one
+			// colour mean the same thing in both places.
 			auto kindColor = [&](u8 k) -> Vec4 {
 				switch (static_cast<diag::Kind>(k)) {
 				case diag::Kind::Fatal:
-				case diag::Kind::Fault: return {1.0f, 0.35f, 0.35f, 1.0f};
-				case diag::Kind::Killed: return kDead;
-				case diag::Kind::Stall: return kStall;
-				case diag::Kind::Restart: return kBoot;
-				default: return kExc;
+				case diag::Kind::Fault: return kFatalColor;
+				case diag::Kind::Killed: return kKilledColor;
+				case diag::Kind::Stall: return kStallColor;
+				case diag::Kind::Restart: return kRestartColor;
+				default: return kExceptionColor;
 				}
 			};
 
@@ -235,6 +287,20 @@ void DevConsole::DrawHealthSection(const PanelCtx& p, float top) {
 			m_font->Draw(batch, "now", stripX + stripW - nowW, hy, kDim);
 		}
 	}
+}
+
+bool DevConsole::HealthStripRect(std::string_view thread, gfx::Rect& out) const {
+	for (const HealthHit& h : m_healthHits) {
+		if (h.row < 0 || h.row >= m_healthRowCount || thread != m_healthRows[h.row].name)
+			continue;
+		// Only a strip ON the panel: one laid out under its foot takes no click
+		// (C379), so a harness aiming at it would be aiming at nothing.
+		if (h.strip.y < 0.0f || h.strip.y + h.strip.h > m_panelH) return false;
+		const float s = m_hitScale > 0.0f ? m_hitScale : 1.0f;
+		out = {h.strip.x / s, h.strip.y / s, h.strip.w / s, h.strip.h / s};
+		return true;
+	}
+	return false;
 }
 
 void DevConsole::HealthClick(float mx, float my) {

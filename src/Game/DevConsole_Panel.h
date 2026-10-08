@@ -23,7 +23,14 @@ namespace dungeon::game {
 
 namespace devcon {
 
-// Console palette (dev-facing, not themed).
+// --- the console palette (dev-facing, not themed) ------------------------------
+// EVERY COLOUR THE PANEL DRAWS IS NAMED HERE, ONCE, BY WHAT IT MEANS (code-review
+// C271). The sections are read together, so a reader is entitled to assume one
+// colour means one thing wherever it appears; a section that retypes an RGB
+// value is how the CPU verdict came to be drawn in the RAM gauge's amber beside
+// the blue cpu figure. A new readout picks a meaning from this list, or adds one.
+
+// The frame of the thing.
 constexpr Vec4 kBackground{0.03f, 0.03f, 0.05f, 0.92f};
 constexpr Vec4 kPerfBg{0.06f, 0.06f, 0.09f, 1.0f};
 constexpr Vec4 kBorder{0.35f, 0.38f, 0.48f, 1.0f};
@@ -32,6 +39,70 @@ constexpr Vec4 kDim{0.55f, 0.58f, 0.66f, 1.0f};
 constexpr Vec4 kAccent{0.55f, 0.85f, 0.55f, 1.0f};
 constexpr Vec4 kWarn{0.95f, 0.65f, 0.35f, 1.0f}; // a readout near a hard ceiling
 constexpr Vec4 kGaugeBg{0.13f, 0.13f, 0.17f, 1.0f};
+constexpr Vec4 kTooltipBg{0.10f, 0.10f, 0.13f, 0.97f}; // near-opaque over a busy readout
+constexpr Vec4 kSelectBg{0.24f, 0.27f, 0.36f, 1.0f};   // the type-ahead's chosen row
+// The profile list's hairlines (DevConsole_Profile.cpp says why each is drawn
+// and why at that strength): ms gridlines behind and over the bars, and the
+// faint frame round one thread's group of rows.
+constexpr Vec4 kGridUnder{1.0f, 1.0f, 1.0f, 0.10f};
+constexpr Vec4 kGridOver{1.0f, 1.0f, 1.0f, 0.16f};
+constexpr Vec4 kGroupFrame{1.0f, 1.0f, 1.0f, 0.11f};
+constexpr Vec4 kDepthPip{1.0f, 1.0f, 1.0f, 0.22f}; // a nested row's depth ticks
+
+// THE TWO PROCESSORS GET ONE COLOUR EACH, WHEREVER THEY APPEAR. The gauges at the
+// top of the panel and the frame budget below them describe the same two pieces
+// of silicon. The budget's first palette painted CPU work in the gauges' RAM
+// amber and Present in the gauges' CPU blue, which made the biggest block on the
+// bar look like CPU time - the exact misreading the bar was built to prevent.
+// The GPU's is the console's own green, which is why it is defined as kAccent.
+constexpr Vec4 kCpuColor{0.45f, 0.70f, 0.95f, 1.0f};
+constexpr Vec4 kGpuColor = kAccent;
+
+// The other gauges, one colour per measure.
+constexpr Vec4 kFpsColor = kAccent; // the headline gauge, in the console's green
+constexpr Vec4 kRamColor{0.85f, 0.70f, 0.40f, 1.0f};
+constexpr Vec4 kWorkingSetColor{0.95f, 0.42f, 0.28f, 1.0f}; // this process, inside RAM
+constexpr Vec4 kVramColor{0.80f, 0.55f, 0.85f, 1.0f};
+constexpr Vec4 kSrvColor{0.60f, 0.75f, 0.90f, 1.0f};
+constexpr Vec4 kUiArenaColor{0.45f, 0.85f, 0.75f, 1.0f};
+
+// The frame budget's four, three of them derived from the processors' rule:
+//   cpu     = the CPU's colour, because it IS CPU time
+//   gpu     = the GPU's colour, likewise
+//   wait    = the GPU's colour DIMMED - time the CPU lost to the GPU, so it
+//             belongs to the GPU's story without being GPU work
+//   present = neutral grey, because it is not work at all. Idle should look
+//             idle rather than borrow a colour that means something ran.
+constexpr Vec4 kBudgetCpuColor = kCpuColor;
+constexpr Vec4 kBudgetGpuColor = kGpuColor;
+constexpr Vec4 kBudgetWaitColor{0.34f, 0.52f, 0.36f, 1.0f};
+constexpr Vec4 kBudgetPresentColor{0.44f, 0.44f, 0.48f, 1.0f};
+// The frame cap: idle like Present, so grey like Present - but a LIGHTER grey,
+// since the two sit side by side in the same bar and must be told apart. Lighter
+// rather than darker because this colour also draws the `bound by cap` verdict,
+// and a darker grey was very nearly unreadable as text on a dark panel.
+constexpr Vec4 kBudgetCapColor{0.60f, 0.61f, 0.68f, 1.0f};
+
+// The ordinary per-node share bar AND every per-node graph, GPU zones included -
+// deliberately NOT the CPU's blue. Once blue means "CPU time", a blue bar on the
+// `present` row (the CPU doing nothing) says the opposite of the grey segment
+// standing for that same measurement in the frame bar above it. A generic
+// proportion or timing needs a colour that claims nothing: a muted steel.
+constexpr Vec4 kShareColor{0.42f, 0.52f, 0.62f, 1.0f};
+
+// What went wrong with a thread - the HEALTH strip's marks AND the THREADS
+// panel's states and `!N ~M` column, so a mark and a state of one colour mean the
+// same thing in both places.
+constexpr Vec4 kExceptionColor{0.95f, 0.45f, 0.30f, 1.0f}; // it threw
+constexpr Vec4 kStallColor{0.90f, 0.75f, 0.30f, 1.0f};     // a tick outran its watchdog
+constexpr Vec4 kRestartColor{0.45f, 0.75f, 0.95f, 1.0f};   // rebooted
+constexpr Vec4 kKilledColor{0.80f, 0.45f, 0.85f, 1.0f};    // force-terminated, quarantined
+constexpr Vec4 kFatalColor{1.0f, 0.35f, 0.35f, 1.0f};      // a fault, an assert
+// A worker held back BY HAND rather than failing: halted, or the governor easing
+// every cadence. Its own colour, because a halt drawn in the stall's amber read as
+// a worker in trouble.
+constexpr Vec4 kHeldColor{0.55f, 0.85f, 0.95f, 1.0f};
+constexpr Vec4 kDangerColor{0.90f, 0.50f, 0.50f, 1.0f}; // a control that cannot be undone softly (kill)
 
 // --- the profile panel's rows -----------------------------------------------
 // Flattened ahead of drawing because the panel's HEIGHT has to be known before

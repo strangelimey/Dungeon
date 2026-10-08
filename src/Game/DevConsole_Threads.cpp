@@ -45,7 +45,7 @@ void DevConsole::DrawThreadsSection(const PanelCtx& p, float top,
 		const float gov = m_threadMgr.GlobalThrottle();
 		if (gov != 1.0f)
 			m_font->Draw(batch, std::format("governor {:.2f}x", gov), width * 0.15f, ty,
-						{0.55f, 0.85f, 0.95f, 1.0f});
+						kHeldColor);
 
 		// Collapsed, the header still has to answer the question the panel exists
 		// for at a glance: is anything WRONG? A count of workers plus any that are
@@ -70,10 +70,6 @@ void DevConsole::DrawThreadsSection(const PanelCtx& p, float top,
 	if (!workers.empty() && m_threadsExpanded) {
 		float ty = top + line * 1.4f + p.sy;
 
-		const Vec4 kPaused{0.90f, 0.75f, 0.30f, 1.0f};
-		const Vec4 kStalled{0.95f, 0.45f, 0.30f, 1.0f};
-		const Vec4 kQuar{0.80f, 0.45f, 0.85f, 1.0f};
-		const Vec4 kKill{0.90f, 0.50f, 0.50f, 1.0f};
 		const float bw = line * 2.6f, bh = line, bgap = line * 0.4f;
 
 		auto button = [&](const gfx::Rect& r, const std::string& label, const Vec4& col) {
@@ -93,10 +89,14 @@ void DevConsole::DrawThreadsSection(const PanelCtx& p, float top,
 		for (const threads::WorkerInfo& w : workers) {
 			const bool quar = w.state == threads::State::Quarantined;
 			const bool dead = w.state == threads::State::Dead || quar;
-			const Vec4 stCol = quar ? kQuar
+			// The HEALTH strip's colours (DevConsole_Panel.h): a stalled worker in
+			// the stall's amber, a quarantined one in the kill's purple - and a
+			// halted one in the held colour, since a halt is a hand on the worker,
+			// not a fault in it.
+			const Vec4 stCol = quar ? kKilledColor
 							 : w.state == threads::State::Dead ? kDim
-							 : w.state == threads::State::Stalled ? kStalled
-							 : w.paused ? kPaused
+							 : w.state == threads::State::Stalled ? kStallColor
+							 : w.paused ? kHeldColor
 							 : kAccent;
 			m_font->Draw(batch, w.name, labelX, ty, kText);
 			m_font->Draw(batch, threads::StateName(w.state), width * 0.15f, ty, stCol);
@@ -128,7 +128,7 @@ void DevConsole::DrawThreadsSection(const PanelCtx& p, float top,
 				m_font->Draw(batch,
 							 stalls > 0 ? std::format("!{} ~{}", bad, stalls)
 										: std::format("!{}", bad),
-							 width * 0.635f, ty, bad > 0 ? kStalled : kPaused);
+							 width * 0.635f, ty, bad > 0 ? kExceptionColor : kStallColor);
 				break;
 			}
 
@@ -148,7 +148,7 @@ void DevConsole::DrawThreadsSection(const PanelCtx& p, float top,
 				button(pauseR, w.paused ? "run" : "halt", kText);
 				button(slowR, "<<", kText);
 				button(fastR, ">>", kText);
-				button(killR, "kill", kKill);
+				button(killR, "kill", kDangerColor);
 				hit.pause = pauseR;
 				hit.slower = slowR;
 				hit.faster = fastR;
@@ -159,6 +159,38 @@ void DevConsole::DrawThreadsSection(const PanelCtx& p, float top,
 			ty += rowAdvance;
 		}
 	}
+}
+
+DevConsole::PanelReport DevConsole::ReportPanel() const {
+	const float s = m_hitScale > 0.0f ? m_hitScale : 1.0f;
+	PanelReport r;
+	r.panelH = m_panelH / s;
+	r.contentH = m_contentH / s;
+	r.threadsExpanded = m_threadsExpanded;
+	r.clicksBelowPanel = m_clicksBelowPanel;
+	// Rows top to bottom, so the first found is the first under the panel's foot.
+	// WHOLLY below it: a row straddling the edge is partly on the panel, and its
+	// visible part is a fair click.
+	for (const ThreadHit& t : m_threadHits) {
+		const threads::WorkerInfo info = m_threadMgr.Inspect(t.id);
+		const struct {
+			const gfx::Rect& rect;
+			const char* name;
+		} controls[] = {{t.pause, info.paused ? "run" : "halt"},
+						{t.slower, "slower"},
+						{t.faster, "faster"},
+						{t.kill, "kill"},
+						{t.boot, "boot"}};
+		for (const auto& c : controls) {
+			if (c.rect.w <= 0.0f || c.rect.y < m_panelH) continue;
+			r.belowWorker = t.id;
+			r.belowControl = c.name;
+			r.belowX = (c.rect.x + c.rect.w * 0.5f) / s;
+			r.belowY = (c.rect.y + c.rect.h * 0.5f) / s;
+			return r;
+		}
+	}
+	return r;
 }
 
 void DevConsole::ThreadsClick(float mx, float my) {

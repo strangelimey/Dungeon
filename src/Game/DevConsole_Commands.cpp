@@ -464,7 +464,7 @@ void DevConsole::DrawSuggest(gfx::SpriteBatch& batch, float width, float inputY,
 		// The panel's own grey is too close to the box to find at a glance, so the
 		// selection is a lifted band plus an accent bar at its left edge.
 		if (r.selected) {
-			batch.DrawRect({box.x + 1.0f, y, box.w - 2.0f, line}, Vec4{0.24f, 0.27f, 0.36f, 1.0f});
+			batch.DrawRect({box.x + 1.0f, y, box.w - 2.0f, line}, kSelectBg);
 			batch.DrawRect({box.x + 1.0f, y, 3.0f, line}, kAccent);
 		}
 		m_font->Draw(batch, t.substr(0, a), labelX, y, r.weak ? kDim : kAccent);

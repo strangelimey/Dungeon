@@ -391,24 +391,85 @@ void Game::RegisterDiagnosticCommands() {
 	m_console.Register(
 		{.name = "threadspawn",
 		 .group = CmdGroup::Threads,
-		 .params = "[busy-ms]",
-		 .summary = "spawn a demo worker that is busy for a while every tick"},
+		 .params = "[busy-ms] [count]",
+		 .summary = "spawn demo workers that are busy for a while every tick"},
 		[this](const std::vector<std::string>& args) {
 			const int busyMs = args.empty() ? 500 : std::atoi(args[0].c_str());
-			const threads::WorkerId id = m_threads.Spawn(
-				[busyMs](const threads::Tick& t) {
-					// A long but CANCELLABLE unit of work: long enough to trip the
-					// watchdog (so it shows Stalled), yet it polls the stop token so
-					// 'kill' still takes effect promptly.
-					const auto end = std::chrono::steady_clock::now() +
-									 std::chrono::milliseconds(busyMs);
-					while (std::chrono::steady_clock::now() < end &&
-						   !t.stop.stop_requested())
-						std::this_thread::sleep_for(std::chrono::milliseconds(5));
-				},
-				{"demo.worker", 1.0f, /*watchdogMs=*/200, /*autoRestart=*/true});
-			m_console.Print(
-				std::format("spawned demo worker #{} ({} ms/tick)", id, busyMs));
+			// Several at once fill the THREADS panel past the readout's foot, the
+			// layout HealthTest's `panelclick` needs (code-review C379).
+			const int count = args.size() > 1 ? std::atoi(args[1].c_str()) : 1;
+			if (busyMs < 0 || count < 1 || count > 64) {
+				m_console.RefuseUsage();
+				return;
+			}
+			for (int i = 0; i < count; ++i) {
+				const threads::WorkerId id = m_threads.Spawn(
+					[busyMs](const threads::Tick& t) {
+						// A long but CANCELLABLE unit of work: long enough to trip the
+						// watchdog (so it shows Stalled), yet it polls the stop token so
+						// 'kill' still takes effect promptly.
+						const auto end = std::chrono::steady_clock::now() +
+										 std::chrono::milliseconds(busyMs);
+						while (std::chrono::steady_clock::now() < end &&
+							   !t.stop.stop_requested())
+							std::this_thread::sleep_for(std::chrono::milliseconds(5));
+					},
+					{"demo.worker", 1.0f, /*watchdogMs=*/200, /*autoRestart=*/true});
+				m_console.Print(
+					std::format("spawned demo worker #{} ({} ms/tick)", id, busyMs));
+			}
+		});
+	// The readout panel as last laid out, for a harness aiming a real click
+	// (code-review C379): its height, and the first THREADS control laid out
+	// wholly UNDER it, where it is unseen and must take no click. Logged as well
+	// as printed - HealthTest reads dungeon.log with logecho off.
+	m_console.Register(
+		{.name = "consolepanel",
+		 .group = CmdGroup::Threads,
+		 .params = "\n"
+				   "perf|profile|threads open|shut",
+		 .summary = "the console's readout panel: its height and what lies under its foot"},
+		[this](const std::vector<std::string>& args) {
+			if (!args.empty()) {
+				const std::string& which = args[0];
+				if (args.size() != 2 || (args[1] != "open" && args[1] != "shut") ||
+					(which != "perf" && which != "profile" && which != "threads")) {
+					m_console.RefuseUsage();
+					return;
+				}
+				// SetSections, never onSectionsChanged: setting a panel up for a
+				// harness (HealthTest's `panelclick`) must not rewrite the
+				// developer's settings.ini.
+				const bool open = args[1] == "open";
+				DevConsole::Sections s = m_console.GetSections();
+				(which == "perf" ? s.perf : which == "profile" ? s.profile : s.threads) = open;
+				m_console.SetSections(s);
+				m_console.Print(std::format("consolepanel: {} {} (not saved)", which,
+											open ? "expanded" : "collapsed"));
+				return;
+			}
+			const DevConsole::PanelReport r = m_console.ReportPanel();
+			std::string below = "nothing clickable laid out below the panel";
+			if (r.belowWorker != threads::kInvalidWorker) {
+				// What a click on those buttons would change, and nothing that moves
+				// by itself: a live worker flips between running and sleeping every
+				// tick, so the bracket says only live / dead / quarantined.
+				const threads::WorkerInfo w = m_threads.Inspect(r.belowWorker);
+				const bool alive = w.state != threads::State::Dead &&
+								   w.state != threads::State::Quarantined;
+				below = std::format("below the panel: {} on '{}' #{} at {:.0f},{:.0f} [{}{} {:.2f}hz "
+									"restarts {}]",
+									r.belowControl, w.name, r.belowWorker, r.belowX, r.belowY,
+									alive ? "live" : threads::StateName(w.state),
+									w.paused ? " paused" : "", w.hz, w.restarts);
+			}
+			const std::string line = std::format(
+				"consolepanel: panel {:.0f} of {:.0f} px, threads {}, {} below-panel clicks ignored, "
+				"settings saves {}; {}",
+				r.panelH, r.contentH, r.threadsExpanded ? "expanded" : "collapsed",
+				r.clicksBelowPanel, GameSettings::SaveCount(), below);
+			m_console.Print(line);
+			log::Info("{}", line);
 		});
 	m_console.Register(
 		{.name = "threadwedge",
@@ -450,6 +511,7 @@ void Game::RegisterDiagnosticCommands() {
 		 .params = "[throw]\n"
 				   "uiclip\n"
 				   "worker\n"
+				   "stallpair\n"
 				   "fault\n"
 				   "overflow\n"
 				   "assert\n"
@@ -502,6 +564,34 @@ void Game::RegisterDiagnosticCommands() {
 					"spawned THROWING worker #{} — it fails every tick and keeps "
 					"running; watch `health` and dungeon.log",
 					id));
+				return;
+			}
+
+			// A STALL AND ITS RESTART IN ONE SAMPLE WINDOW, every tick: the shape the
+			// HEALTH strip once drew as a stall and reported, when its mark was
+			// clicked, as the restart (code-review C380). A real supervisor records
+			// the two hundreds of milliseconds apart, in different cells, so the
+			// pair is recorded back to back here - microseconds apart, inside one
+			// 50 ms window. Ten a second leaves a mark every other cell, so a click
+			// anywhere near the strip's newest end meets one whose events are still
+			// in the 16-deep ring (HealthTest `healthmark`).
+			if (what == "stallpair") {
+				const threads::WorkerId id = m_threads.Spawn(
+					[](const threads::Tick& t) {
+						diag::Event e;
+						e.kind = diag::Kind::Stall;
+						e.workerId = static_cast<u32>(t.self);
+						e.iteration = t.iteration;
+						e.message = "crashpoke stallpair: a stall, its restart just behind it";
+						e.captureStack = false;
+						diag::Record(e);
+						e.kind = diag::Kind::Restart;
+						e.message = "crashpoke stallpair: the restart answering that stall";
+						diag::Record(e);
+					},
+					{"demo.pair", 10.0f, /*watchdogMs=*/0});
+				m_console.Print(std::format(
+					"spawned worker #{} recording a stall and its restart every tick", id));
 				return;
 			}
 
@@ -574,9 +664,31 @@ void Game::RegisterDiagnosticCommands() {
 		{.name = "health",
 		 .group = CmdGroup::Diagnostics,
 		 .params = "[thread]\n"
-				   "probe <id|name>",
+				   "probe <id|name>\n"
+				   "strip <thread>",
 		 .summary = "health record: recent failures, a thread's stacks, a live probe"},
 		[this](const std::vector<std::string>& args) {
+			// --- where a thread's HEALTH strip is on the console panel -------
+			// Window pixels, logged, so a harness can click a mark for real
+			// (HealthTest `healthmark`, code-review C380). Refused when the strip
+			// is not on the panel: a click aimed there would test nothing.
+			if (!args.empty() && args[0] == "strip") {
+				if (!Need(m_console, args, 2)) return;
+				gfx::Rect s;
+				if (!m_console.HealthStripRect(args[1], s)) {
+					m_console.Refuse(std::format(
+						"health strip: '{}' has no strip on the console panel (nothing "
+						"recorded, HEALTH collapsed, or scrolled out of view)",
+						args[1]));
+					return;
+				}
+				const std::string line = std::format(
+					"health strip '{}': [{:.0f},{:.0f} {:.0f}x{:.0f}], newest end at {:.0f},{:.0f}",
+					args[1], s.x, s.y, s.w, s.h, s.x + s.w - 2.0f, s.y + s.h * 0.5f);
+				m_console.Print(line);
+				log::Info("{}", line);
+				return;
+			}
 			// --- the probe ---------------------------------------------------
 			// A STALLED thread has thrown nothing, so the record has nothing to
 			// show: it is still running, just not finishing. The only way to

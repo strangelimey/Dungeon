@@ -25,6 +25,7 @@
 // ============================================================================
 #pragma once
 
+#include "Core/Diagnostics.h" // diag::kKindCount sizes HealthRow::prev
 #include "Core/MathTypes.h"
 #include "Core/ThreadManager.h"
 #include "Graphics/GraphicsDevice.h"
@@ -183,6 +184,29 @@ public:
 	}
 	Sections GetSections() const { return {m_perfExpanded, m_profileExpanded, m_threadsExpanded}; }
 	std::function<void()> onSectionsChanged;
+
+	// --- readouts for a harness (dev `consolepanel`, `health strip`) ---------
+	// What the panel LAID OUT last frame, in WINDOW pixels - the space a posted
+	// click lands in - so a script aims a real click at a real control rather
+	// than at a guessed coordinate. Both read Render's rects; nothing is laid out
+	// here.
+	struct PanelReport {
+		float panelH = 0.0f;   // the visible readout panel, from the window's top
+		float contentH = 0.0f; // everything laid out, scrolled-away rows included
+		bool threadsExpanded = false;
+		// Left presses ignored because they fell UNDER the panel, in the scrollback,
+		// where the rows laid out past its foot sit unseen (code-review C379).
+		u64 clicksBelowPanel = 0;
+		// The first THREADS control laid out wholly below the panel, or none
+		// (belowWorker = kInvalidWorker): the control such a press used to reach.
+		threads::WorkerId belowWorker = threads::kInvalidWorker;
+		const char* belowControl = ""; // "halt" / "run" / "slower" / "faster" / "kill" / "boot"
+		float belowX = 0.0f, belowY = 0.0f; // its centre
+	};
+	PanelReport ReportPanel() const;
+	// The HEALTH strip of `thread`, window px. False when it has no row drawn on
+	// the panel (nothing recorded yet, HEALTH collapsed, or scrolled out of view).
+	bool HealthStripRect(std::string_view thread, gfx::Rect& out) const;
 
 	// MIRROR EVERY CONSOLE LINE TO dungeon.log (the eval harness; `logecho`).
 	// The console's scrollback is a WINDOW: reading it means taking a
@@ -360,45 +384,9 @@ private:
 	enum BudgetLine { kBudFrame, kBudCpu, kBudGpu, kBudgetLines };
 	PerfSeries m_budgetSeries[kBudgetLines];
 
-	// THE TWO PROCESSORS GET ONE COLOUR EACH, WHEREVER THEY APPEAR. The gauges at
-	// the top of the panel and the frame budget below it are read together and
-	// describe the same two pieces of silicon, so a reader is entitled to assume
-	// the colours agree. They did not: the budget's first palette painted CPU
-	// work in the gauges' RAM amber and Present in the gauges' CPU blue, which
-	// made the biggest block on the bar look like CPU time — the exact
-	// misreading the bar was built to prevent.
-	//
-	// Defined here and used by BOTH the gauge table and the budget, so agreement
-	// is structural rather than a thing to remember.
-	static constexpr Vec4 kCpuColor{0.45f, 0.70f, 0.95f, 1.0f};
-	static constexpr Vec4 kGpuColor{0.55f, 0.85f, 0.55f, 1.0f};
-
-	// The budget's four, three of them derived from that rule:
-	//   cpu     = the CPU's colour, because it IS CPU time
-	//   gpu     = the GPU's colour, likewise
-	//   wait    = the GPU's colour DIMMED — time the CPU lost to the GPU, so it
-	//             belongs to the GPU's story without being GPU work
-	//   present = neutral grey, because it is not work at all. Idle should look
-	//             idle rather than borrow a colour that means something ran.
-	static constexpr Vec4 kBudgetCpuColor = kCpuColor;
-	static constexpr Vec4 kBudgetGpuColor = kGpuColor;
-	static constexpr Vec4 kBudgetWaitColor{0.34f, 0.52f, 0.36f, 1.0f};
-	static constexpr Vec4 kBudgetPresentColor{0.44f, 0.44f, 0.48f, 1.0f};
-	// The frame cap: idle like Present, so grey like Present — but a LIGHTER
-	// grey, since the two sit side by side in the same bar and must be told
-	// apart. Lighter rather than darker because this colour also draws the
-	// `bound by cap` verdict, and the first attempt at a darker grey was very
-	// nearly unreadable as text on a dark panel — the verdict is the one line
-	// that has to survive a glance.
-	static constexpr Vec4 kBudgetCapColor{0.60f, 0.61f, 0.68f, 1.0f};
-
-	// The ordinary per-node share bar, and it is deliberately NOT the CPU's blue
-	// any more. Once blue means "CPU time", a blue bar on the `present` row —
-	// which is the CPU doing nothing — says the opposite of the grey segment
-	// standing for that same measurement in the frame bar directly above it. A
-	// generic proportion needs a colour that claims nothing, so it gets a muted
-	// steel and the meaningful colours stay meaningful.
-	static constexpr Vec4 kShareColor{0.42f, 0.52f, 0.62f, 1.0f};
+	// The panel's colours - the processors', the budget's, the share bar's and
+	// every other - are named once, by meaning, in DevConsole_Panel.h (devcon::
+	// kCpuColor and the rest; code-review C271), beside the palette they belong to.
 
 	// Checkbox rects for the graph views, rebuilt by Render and hit-tested by the
 	// next Update — the same idiom as the thread controls, so the geometry of a
@@ -546,17 +534,25 @@ private:
 	// A cell keeps the MOST SEVERE kind in its window rather than the last, for
 	// the same reason the profile series keeps the max: the one event worth
 	// seeing must not be averaged away by the three around it.
+	//
+	// And the click-through reports THAT kind: `lastIndex` is the newest event OF
+	// the cell's kind, not the newest of any. A stall and its restart in one
+	// window drew as the stall and reported the restart (code-review C380).
 	struct HealthCell {
 		u8 count = 0;      // events recorded in this window
 		u8 kind = 0xFF;    // most severe diag::Kind seen, 0xFF = nothing
-		u32 lastIndex = 0; // its per-thread event index, for the click-through
+		u32 lastIndex = 0; // the newest event of `kind` in the window, for the click-through
+		bool lost = false; // that event had left the ring before the window was sampled
 	};
 	static constexpr int kHealthRows = 12; // threads shown on the timeline
 	struct HealthRow {
 		char name[32] = {};
 		u32 slot = 0;
 		bool used = false;
-		u64 prev[6] = {}; // per-kind totals at the last commit (diag::kKindCount)
+		// Per-kind totals at the last commit. Sized BY the kind count, never by
+		// hand: it was a literal 6, indexed up to kKindCount, so a seventh kind
+		// would have written past it into the cells (code-review C381).
+		u64 prev[diag::kKindCount] = {};
 		HealthCell cells[kProfHistory];
 	};
 	HealthRow m_healthRows[kHealthRows];
@@ -662,9 +658,19 @@ private:
 	// that already scrolls itself — so it clips with SpriteBatch::SetScissor,
 	// which exists for exactly this. Converting the whole console to the control
 	// tree is a real option, just a separate one; see the note in the .cpp.
+	//
+	// THE CLIP IS AN INPUT RULE TOO (code-review C379). Only DRAWING used to be
+	// clipped, so a row laid out past the panel's foot sat unseen under the
+	// scrollback and still took clicks there: with THREADS pushed down, a click in
+	// the empty scrollback halted, re-rated, killed or rebooted a worker, or flipped
+	// a section and rewrote settings.ini. Update now hands the sections a press,
+	// and the profile its hover, only above m_panelH.
 	float m_panelScroll = 0.0f;
-	float m_panelH = 0.0f; // last frame's panel height, for wheel hit-testing
-	float m_lineH = 16.0f; // last frame's line advance, so Update can step by lines
+	float m_panelH = 0.0f;   // last frame's panel height, render px: the input clip
+	float m_contentH = 0.0f; // last frame's laid-out content height, render px
+	float m_lineH = 16.0f;   // last frame's line advance, so Update can step by lines
+	float m_hitScale = 1.0f; // render px per window px, from the last Update
+	u64 m_clicksBelowPanel = 0; // presses the input clip turned away (ReportPanel)
 	std::string m_input;             // current edit line
 
 	// A scrollback line. Plain lines are the ordinary case; `help` writes HEADERS

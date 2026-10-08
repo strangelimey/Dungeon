@@ -4,7 +4,7 @@ argument-hint: "[selftest|<case>]"
 allowed-tools: PowerShell, Read, Grep, Glob
 ---
 
-Break the real game fifteen ways and read `dungeon.log` (~13 min). Seven of
+Break the real game seventeen ways and read `dungeon.log` (~15 min). Seven of
 them END the process on purpose (`fault`, `overflow`, `assert`, `devremoved`,
 `devassert`, `devfault`, `devterminate`), each in a game of its own that the
 harness launched.
@@ -16,8 +16,9 @@ harness launched.
 - a case name → `.\tools\HealthTest.ps1 -Only <case>` for one case, much faster
 
 Cases: `throw` - `uiclip` - `uinest` - `worker` - `stall` - `probe` - `kill` -
-`restart` - `fault` - `overflow` - `assert` - `devremoved` - `devassert` -
-`devfault` - `devterminate`. Every event kind is covered; `kill` drives the
+`restart` - `healthmark` - `panelclick` - `fault` - `overflow` - `assert` -
+`devremoved` - `devassert` - `devfault` - `devterminate`. Every event kind is
+covered; `kill` drives the
 Killed kind through `threadkill`, the THREADS panel's kill button as a command.
 `devremoved` removes the D3D12 device on purpose (`crashpoke devremoved`, a
 TDR's shape without hanging a GPU) and demands the failed call's HRESULT by
@@ -32,6 +33,16 @@ after that report's own lines.
 clip (code-review C208): a throw from inside a scroll area's walk, then a click
 outside it that must land; and a scroll area nested in a tab page whose
 siblings must still take their clicks and draw (`clippoke`).
+`healthmark` and `panelclick` click the console's readout panel for real
+(code-review C380 / C379): a HEALTH mark holding a stall and its restart
+(`crashpoke stallpair`, located by `health strip`) must name the stall it is
+drawn as, and a click on a THREADS button laid out unseen under the panel's foot
+(`consolepanel`, THREADS expanded unsaved over `threadspawn 0 8` batches) must
+change no worker - only the count of presses the panel turned away moves. It
+clicks a worker's row, never a section expander (none is laid out below the
+panel in this case), so it does NOT check that such a click writes no
+settings.ini: the expanders sit behind the same gate, but no click here reaches
+one.
 
 ## What it is guarding
 

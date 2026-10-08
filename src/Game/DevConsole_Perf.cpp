@@ -188,8 +188,8 @@ void DevConsole::DrawPerfSection(const PanelCtx& p, float top) {
 		// full bar then means "as fast as this screen can show", which is the
 		// only sense in which a frame rate is good enough.
 		{"FPS", std::format("FPS  {:.0f} / {} Hz", m.fps, gfx::FrameRateText(refreshHz)), m.fps, fpsCeiling,
-		 {0.55f, 0.85f, 0.55f, 1.0f}, false},
-		// The two processors take the shared colours (DevConsole.h): the frame
+		 kFpsColor, false},
+		// The two processors take the shared colours (DevConsole_Panel.h): the frame
 		// budget below paints CPU and GPU time in these, and a reader comparing
 		// the two sections is entitled to assume they agree.
 		{"CPU", std::format("CPU  {:.0f}%", m.cpuPercent), m.cpuPercent, 100.0f, kCpuColor,
@@ -206,19 +206,19 @@ void DevConsole::DrawPerfSection(const PanelCtx& p, float top) {
 		 std::format("RAM  {:.1f} / {:.1f} GB", m.sysMemUsedMB / 1024.0,
 					 m.sysMemTotalMB / 1024.0),
 		 static_cast<float>(m.sysMemUsedMB), static_cast<float>(sysTotalMB),
-		 {0.85f, 0.70f, 0.40f, 1.0f}, false,
+		 kRamColor, false,
 		 std::format("  working set {:.2f}", m.procMemMB / 1024.0),
-		 static_cast<float>(m.procMemMB), {0.95f, 0.42f, 0.28f, 1.0f}, kProc},
+		 static_cast<float>(m.procMemMB), kWorkingSetColor, kProc},
 		{"VRAM", std::format("VRAM {:.2f} / {:.2f} GB", gpuUsedGB, gpuBudgetGB),
 		 static_cast<float>(vramUsedMB), static_cast<float>(vramBudgetMB),
-		 {0.80f, 0.55f, 0.85f, 1.0f}, false},
+		 kVramColor, false},
 		// Descriptor slots: a FIXED ceiling, unlike the two above, so the peak
 		// rides along — a number that climbs and never comes back down is the
 		// shape of a leak.
 		{"SRV",
 		 std::format("SRV  {} / {} (peak {})", device.SrvLive(),
 					 gfx::GraphicsDevice::SrvCapacity(), device.SrvHighWater()),
-		 srvLive, srvCap, {0.60f, 0.75f, 0.90f, 1.0f}, srvLive / srvCap > 0.9f},
+		 srvLive, srvCap, kSrvColor, srvLive / srvCap > 0.9f},
 		// The UI's vertex arena (code-review C163): the last finished frame's use
 		// against one frame's arena, with its peak, like the slots beside it. The
 		// editor map of a big level is what fills it, and a frame past it DROPS
@@ -228,7 +228,7 @@ void DevConsole::DrawPerfSection(const PanelCtx& p, float top) {
 			 ? std::format("UI   {:.1f} / {:.0f} MB (peak {:.1f})", uiMB, uiCapMB, uiPeakMB)
 			 : std::format("UI   {:.1f} / {:.0f} MB (peak {:.1f}, {} dropped)", uiMB, uiCapMB,
 						   uiPeakMB, arena.drops),
-		 static_cast<float>(uiMB), static_cast<float>(uiCapMB), {0.45f, 0.85f, 0.75f, 1.0f},
+		 static_cast<float>(uiMB), static_cast<float>(uiCapMB), kUiArenaColor,
 		 arena.drops > 0 || uiMB > uiCapMB * 0.9},
 	};
 

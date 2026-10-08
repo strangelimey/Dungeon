@@ -479,7 +479,10 @@ u64 RecordFor(Slot slot, const Event& ev) {
 
 	s.seq.store(at + 1, std::memory_order_release);
 
-	e.counts[static_cast<int>(ev.kind)].fetch_add(1, std::memory_order_relaxed);
+	// RELEASE, paired with SnapshotThreads' acquire: a reader that sees this event
+	// counted can read it from the ring (the console's HEALTH strip finds a
+	// window's events by the counts, code-review C380).
+	e.counts[static_cast<int>(ev.kind)].fetch_add(1, std::memory_order_release);
 
 	// The record is complete at this point; everything below only decides
 	// whether this event also reaches the log. A QUIET record stops here, and
@@ -580,7 +583,7 @@ int SnapshotThreads(ThreadHealth* out, int capacity) {
 		h.live = e.live.load();
 		h.total = e.written.load(std::memory_order_acquire);
 		for (int k = 0; k < kKindCount; ++k)
-			h.counts[k] = e.counts[k].load(std::memory_order_relaxed);
+			h.counts[k] = e.counts[k].load(std::memory_order_acquire);
 	}
 	return n;
 }

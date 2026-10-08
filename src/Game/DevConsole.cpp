@@ -243,15 +243,30 @@ void DevConsole::Update(const Input& input, float dt, float windowW, float windo
 	// ever run in — but multiplying by 1 costs nothing and stops the whole panel
 	// silently mis-aiming the day they do not.
 	const float hitScale = (windowW > 0.0f && m_renderW > 0.0f) ? m_renderW / windowW : 1.0f;
+	m_hitScale = hitScale;
+	const float mx = input.MouseX() * hitScale, my = input.MouseY() * hitScale;
+
+	// THE PANEL'S CLIP IS AN INPUT CLIP (code-review C379). Drawing is scissored
+	// to the panel, but the sections lay their rows out at their natural height,
+	// so a row past the panel's foot sits UNSEEN under the scrollback with its
+	// rect still recorded. Below m_panelH nothing on the panel is hot: no hover,
+	// no click - the scrollback's own space, where a press means nothing here.
+	const bool onPanel = my < m_panelH;
 
 	// Hover is tracked every frame, not only on a click: the profile's tooltips
 	// are the one thing on this panel that answers to the pointer merely resting.
-	ProfileHover(input.MouseX() * hitScale, input.MouseY() * hitScale);
+	// Off the panel, nothing is hovered.
+	if (onPanel) {
+		ProfileHover(mx, my);
+	} else {
+		m_frameBarHover = false;
+		m_profHeaderHover = false;
+	}
 
 	// Every clickable thing on the panel was laid out by last frame's Render, and
 	// each section hit-tests its own.
-	if (input.WasMousePressed(MouseButton::Left)) {
-		const float mx = input.MouseX() * hitScale, my = input.MouseY() * hitScale;
+	if (input.WasMousePressed(MouseButton::Left) && !onPanel) ++m_clicksBelowPanel;
+	if (input.WasMousePressed(MouseButton::Left) && onPanel) {
 		PerfClick(mx, my);
 		ProfileClick(mx, my);
 		HealthClick(mx, my);
@@ -337,7 +352,7 @@ void DevConsole::Update(const Input& input, float dt, float windowW, float windo
 	// states for ConsumeWheel — whoever can act on it claims it — arrived at here
 	// by hand because the console is not part of that tree.
 	const float wheel = input.WheelDelta();
-	if (wheel != 0.0f && input.MouseY() < m_panelH) {
+	if (wheel != 0.0f && onPanel) {
 		// Clamped by Render, which is the only place the content height is known.
 		m_panelScroll -= wheel * m_lineH * 3.0f;
 	} else {
@@ -414,6 +429,11 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 	const float pad = line * 0.5f;
 	const float labelX = pad * 2.0f;
 
+	// The canvas the rects below are recorded in, for Update's hit scale. It was
+	// declared and never written, so the scale was always 1.
+	m_renderW = width;
+	m_renderH = height;
+
 	// Full-screen dim background.
 	batch.DrawRect({0, 0, width, height}, kBackground);
 
@@ -455,6 +475,7 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 	const float panelH = std::min(contentH, height - line * 6.0f);
 	m_panelScroll = std::clamp(m_panelScroll, 0.0f, std::max(0.0f, contentH - panelH));
 	m_panelH = panelH;
+	m_contentH = contentH;
 	m_lineH = line;
 	p.panelH = panelH;
 	p.sy = -m_panelScroll; // added to every content-space y a section draws at

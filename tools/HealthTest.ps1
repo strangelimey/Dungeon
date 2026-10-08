@@ -265,6 +265,100 @@ $cases = @(
 		dump = $false
 	},
 	@{
+		name = 'healthmark'
+		desc = 'a click on a HEALTH mark holding a stall and its restart names the stall it is drawn as'
+		# A worker recording a stall and its restart back to back every tick, so
+		# both land in one 50 ms cell of the console's HEALTH strip, drawn as the
+		# stall (the more severe). The click used to report the restart - the
+		# newest event of ANY kind (code-review C380). The game logs where the
+		# strip is (`health strip`, refused with no strip) and what a click on a
+		# mark names, so this needs no logecho. A self-test has no strip, no point
+		# and no click.
+		inject = @('crashpoke stallpair')
+		after = {
+			Send-Text 'health strip demo.pair'; Send-Key 0x0D; Start-Sleep -Seconds 2
+			$at = Select-String -Path $log -Pattern "health strip 'demo\.pair': .* newest end at (\d+),(\d+)" -EA SilentlyContinue |
+				Select-Object -Last 1
+			if (-not $at) { Write-Host '  no strip point in the log - nothing to click'; return }
+			$x = [int]$at.Matches[0].Groups[1].Value
+			$y = [int]$at.Matches[0].Groups[2].Value
+			# Up to three clicks. The pair is recorded back to back but the stall's
+			# log line is written between the two, so now and then a sample window
+			# closes in that gap and splits the pair over two cells (one in a
+			# hundred, seen in a shot). A click on a split cell names ONE event and
+			# so cannot meet the pattern below; another click a moment later meets
+			# a whole pair. The old fault named the restart on EVERY click, so a
+			# retry cannot let it through.
+			for ($k = 0; $k -lt 3; $k++) {
+				Write-Host "  clicking the strip's newest end at $x,$y"
+				Send-Click $x $y
+				Start-Sleep -Seconds 1
+				$got = Select-String -Path $log -Pattern "health mark: 'demo\.pair' .*\(2 events in that window" -EA SilentlyContinue
+				if ($got) { break }
+			}
+		}
+		settle = 2
+		survives = $true
+		# The premise rides on the click's own line: the cell held TWO events, and
+		# the one named is the newest stall of them.
+		expect = @(
+			"stall on 'demo\.pair'",
+			"health mark: 'demo\.pair' #\d+ stall tick \d+ \(2 events in that window; this is the newest stall\)"
+		)
+		dump = $false
+	},
+	@{
+		name = 'panelclick'
+		desc = 'a click under the console panel, on a THREADS button laid out there unseen, does nothing'
+		# THREADS expanded (not saved) over enough demo workers that its rows run
+		# past the readout panel's foot, unseen under the scrollback. A click on
+		# the first button laid out wholly down there used to reach it - halt, rate,
+		# kill or boot a worker, or flip a section and rewrite settings.ini
+		# (code-review C379). `consolepanel` names that button and its worker's
+		# state, the count of presses the panel turned away and of settings.ini
+		# writes; read before and after the click, everything must be the same but
+		# the turned-away count, which must go 0 -> 1 (the click arrived). Workers
+		# are added a batch at a time until a row lies below the panel; a
+		# self-test adds none and so has no button to click.
+		# What it does NOT check: the button is always a worker ROW's, never a
+		# section expander (the only controls that save settings.ini) - THREADS is
+		# the last section and here the content above its header is shorter than
+		# the panel - so the unchanged settings.ini write count holds with or
+		# without the fix. The expanders sit behind the same gate; no click here
+		# reaches one.
+		inject = @('consolepanel threads open', 'threadspawn 0 8')
+		after = {
+			$hit = $null
+			for ($i = 0; $i -lt 6; $i++) {
+				Send-Text 'consolepanel'; Send-Key 0x0D; Start-Sleep -Seconds 2
+				$hit = Select-String -Path $log -Pattern "consolepanel: .* below the panel: \S+ on '[^']+' #\d+ at (\d+),(\d+)" -EA SilentlyContinue |
+					Select-Object -Last 1
+				if ($hit -or $SelfTest) { break }
+				Send-Text 'threadspawn 0 8'; Send-Key 0x0D; Start-Sleep -Seconds 2
+			}
+			if (-not $hit) { Write-Host '  nothing laid out below the panel - nothing to click'; return }
+			$x = [int]$hit.Matches[0].Groups[1].Value
+			$y = [int]$hit.Matches[0].Groups[2].Value
+			Write-Host "  clicking the unseen button below the panel at $x,$y"
+			Send-Click $x $y
+			Start-Sleep -Seconds 1
+			Send-Text 'consolepanel'; Send-Key 0x0D; Start-Sleep -Seconds 1
+		}
+		settle = 1
+		survives = $true
+		# The second pattern reads the LAST readout before the click against the
+		# one after it, by backreference: the same settings.ini write count (see
+		# above - not a test of the fix), the same button on the same worker at the
+		# same point, the same state - and
+		# one press turned away. Before the fix the click halted the worker (its
+		# button then reads `run`, its state `paused`) and nothing was turned away.
+		expect = @(
+			"consolepanel: panel \d+ of \d+ px, threads expanded, 0 below-panel clicks ignored, settings saves \d+; below the panel: halt on 'demo\.worker'",
+			"consolepanel: [^\n]*threads expanded, 0 below-panel clicks ignored, settings saves (\d+); below the panel: (\w+) on '([^']+)' #(\d+) at (\d+,\d+) \[([^\]]+)\](?:(?!consolepanel: )[\s\S])*consolepanel: [^\n]*threads expanded, 1 below-panel clicks ignored, settings saves \1; below the panel: \2 on '\3' #\4 at \5 \[\6\]"
+		)
+		dump = $false
+	},
+	@{
 		name = 'fault'
 		desc = 'an access violation - which no catch can see - reports and dumps'
 		inject = @('crashpoke fault')
