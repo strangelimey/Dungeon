@@ -444,4 +444,50 @@ sheet 2
 sheet spells
 sheet off
 lang en
+
+; --- THE CONJURED POOL OUTLIVES A SAVE (code-review C227) -------------------
+; Rock with full hands lays its pebble at the feet (`castsvc drop`, the service
+; bare), and a level keeps 16 such pebbles, taking up the OLDEST past that. The
+; save carries the flag (the `drop` line's 8th token) and writes the pool last
+; and oldest first, so after a load the same pebbles are still the oldest. Last
+; in the script, since it starts from a reset: 8 on 3,3 (the oldest), 8 on
+; 5,5, then 2 on 7,7 take up two of 3,3's; saved, reset, loaded; then 3 on 9,9
+; must take up three more of 3,3's - and the pool stay 16.
+echo === pebble-pool-full ===
+reset
+tp 3 3
+castsvc drop pebble
+castsvc drop pebble
+castsvc drop pebble
+castsvc drop pebble
+castsvc drop pebble
+castsvc drop pebble
+castsvc drop pebble
+castsvc drop pebble
+tp 5 5
+castsvc drop pebble
+castsvc drop pebble
+castsvc drop pebble
+castsvc drop pebble
+castsvc drop pebble
+castsvc drop pebble
+castsvc drop pebble
+castsvc drop pebble
+tp 7 7
+castsvc drop pebble
+castsvc drop pebble
+flooritems all
+save spells_pebbles
+echo === pebble-pool-reset ===
+reset
+flooritems all
+echo === pebble-pool-loaded ===
+load spells_pebbles
+flooritems all
+echo === pebble-pool-after ===
+tp 9 9
+castsvc drop pebble
+castsvc drop pebble
+castsvc drop pebble
+flooritems all
 echo === end ===

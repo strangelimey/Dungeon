@@ -35,6 +35,13 @@
 #           amulet's, and the Russian lights' Known Spells rows - each past the
 #           255 bytes a loc::Line holds, each held to the byte count of the
 #           .lang file this judge reads itself, never to the game's own.
+#   POOL    the conjured pebbles (code-review C227): past 16 the oldest are
+#           taken up; a save brings the pool back whole and still flagged, and
+#           after the load the same pebbles are the oldest - the pool stays 16.
+#
+# The run plays a COPY of the script (harness_game.eval_script, in COPIES) with
+# its `save` / `load` slots renamed to THIS worktree's (harness_game.save_name),
+# deleted before and after the run.
 #
 # --selftest runs the same script with every `cast` line removed - and every
 # `lang` line made `lang en`, which the WORDS checks rest on - and demands that
@@ -53,6 +60,9 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 EXE = os.path.join(ROOT, r"build\debug\bin\Dungeon.exe")
 LOG = os.path.join(ROOT, r"build\debug\bin\dungeon.log")
 SCRIPT = os.path.join(ROOT, r"tools\EvalScripts\spells.eval")
+COPIES = os.path.join(ROOT, r"build\harness-scripts\spelltest")
+# The script's save slots, each as this worktree's.
+SAVES = {n: harness_game.save_name(ROOT, n) for n in ("spells_douse", "spells_pebbles")}
 MONSTERS = os.path.join(ROOT, r"assets\projects\dungeon-demo\catalog\monsters.cat")
 NAMES = ["Brand", "Sera", "Maren", "Tilo"]
 
@@ -74,6 +84,11 @@ SPELL_FREE = {
 	"the magus's burst bolt goes off on the party it reaches",
 	"a strong gust turns an arrow back",
 	"and the turned arrows kill the archer",
+	# the pool is laid by the conjure service bare (`castsvc drop`), no cast
+	"past the pool's 16, the oldest conjured pebbles are taken up first",
+	"a reset leaves no conjured pebble lying",
+	"the pool comes back from a save whole, every pebble still conjured",
+	"after the load the oldest still go first, and the pool stays 16",
 	"the script ran to its end",
 	"the game ran the script to its verdict",
 }
@@ -252,6 +267,26 @@ def first(seq, default=None):
 
 def last(seq, default=None):
 	return seq[-1] if seq else default
+
+
+POOL_SQUARES = {(3, 3), (5, 5), (7, 7), (9, 9)}
+
+
+def pool(sec):
+	"""A section's `flooritems all` rows: the conjured pebbles counted by square,
+	and any PLAIN pebble lying on one of the pool section's squares (a pebble
+	that lost its flag in a save)."""
+	conjured, plain = {}, []
+	for l in sec:
+		m = re.match(r"flooritems (\d+),(\d+): pebble slot \d+ charge \S+( conjured)?$", l)
+		if not m:
+			continue
+		at = (int(m.group(1)), int(m.group(2)))
+		if m.group(3):
+			conjured[at] = conjured.get(at, 0) + 1
+		elif at in POOL_SQUARES:
+			plain.append(at)
+	return {"conjured": conjured, "plain": plain}
 
 
 def judge(lines):
@@ -463,6 +498,25 @@ def judge(lines):
 		  and cuts is not None and cuts.group(1) == "0",
 		  "the Russian Known Spells rows are whole, the lights' long ones too",
 		  f"rows {len(rows)}, compared {len(compared)}, wrong {wrong}, {summary!r}")
+
+	print("POOL - the conjured pebbles outlive a save (code-review C227)")
+	full = pool(get("pebble-pool-full"))
+	before = {(3, 3): 6, (5, 5): 8, (7, 7): 2}
+	check(full["conjured"] == before,
+		  "past the pool's 16, the oldest conjured pebbles are taken up first",
+		  f"conjured {full['conjured']}, want {before}")
+	gone = pool(get("pebble-pool-reset"))
+	check("pebble-pool-reset" in s and not gone["conjured"],
+		  "a reset leaves no conjured pebble lying", f"conjured {gone['conjured']}")
+	back = pool(get("pebble-pool-loaded"))
+	check(full["conjured"] == before and back["conjured"] == before and not back["plain"],
+		  "the pool comes back from a save whole, every pebble still conjured",
+		  f"conjured {back['conjured']}, plain pebbles on the pool's squares {back['plain']}")
+	after = pool(get("pebble-pool-after"))
+	want = {(3, 3): 3, (5, 5): 8, (7, 7): 2, (9, 9): 3}
+	check(back["conjured"] == before and after["conjured"] == want and not after["plain"],
+		  "after the load the oldest still go first, and the pool stays 16",
+		  f"conjured {after['conjured']}, want {want}; plain {after['plain']}")
 	check("end" in s, "the script ran to its end")
 
 
@@ -471,22 +525,28 @@ def main():
 		print(f"no debug build at {EXE}")
 		return 2
 	selftest = "--selftest" in sys.argv
-	script = SCRIPT
+	# What a killed run left: its saves are this worktree's, so nobody else's.
+	harness_game.remove_saves(SAVES.values())
+	script = harness_game.eval_script(SCRIPT, COPIES, SAVES)
 	if selftest:
 		# Every cast cut, and every language switch made English: the WORDS
 		# checks then see English descriptions, which the files' German and
 		# Russian counts must tell apart.
-		text = io.open(SCRIPT, encoding="utf-8").read()
+		text = io.open(script, encoding="utf-8").read()
 		cut = "\n".join(("echo skipped" if l.startswith("cast ") else
 						 "lang en" if l.startswith("lang ") else l) for l in text.splitlines())
 		fd, script = tempfile.mkstemp(suffix=".eval")
 		with os.fdopen(fd, "w", encoding="utf-8") as fh:
 			fh.write(cut + "\n")
-	code, verdict, lines = run(script)
-	print(f"eval: {verdict.split('] ', 1)[-1] if verdict else '(no verdict line)'}")
-	judge(lines)
-	if selftest:
-		os.remove(script)
+	try:
+		code, verdict, lines = run(script)
+		print(f"eval: {verdict.split('] ', 1)[-1] if verdict else '(no verdict line)'}")
+		judge(lines)
+	finally:
+		# However the run ends: left behind, the newest is what Continue loads.
+		harness_game.remove_saves(SAVES.values())
+		if selftest:
+			os.remove(script)
 	failed = sum(1 for _, ok in results if not ok)
 	if selftest:
 		# Every check that rests on a cast (or a language) must FAIL with them

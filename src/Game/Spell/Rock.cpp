@@ -25,6 +25,9 @@ void Rock::Cast(CastContext& ctx) const {
 		Say(ctx, loc::FormatLine("log.pebble_hand", ctx.caster.name));
 		return;
 	}
+	// Both hands full: at the feet, into the level's CONJURED pool, which past
+	// its size takes up the oldest pebble lying there rather than add one
+	// (DungeonWorld::ConjureDrop, code-review C227).
 	ctx.services.dropAtFeet(m_conjures);
 	Say(ctx, loc::FormatLine("log.pebble_feet", ctx.caster.name));
 }

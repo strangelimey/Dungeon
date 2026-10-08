@@ -88,7 +88,8 @@ struct CastServices {
 	// Fans it: a burning fire flares up for a moment. True if one did.
 	std::function<bool()> flareAhead;
 	// Lands `itemId` on the floor of the party's square - where a conjured item
-	// goes when both of the caster's hands are full.
+	// goes when both of the caster's hands are full. A recycled pool: past its
+	// size the oldest conjured item lying in the level is taken up instead.
 	std::function<void(std::string_view itemId)> dropAtFeet;
 	// What a hand spell does to a HELD item, by the item's own catalog fields
 	// (a spell never learns what an item kind is): light it (`lit_as`, an

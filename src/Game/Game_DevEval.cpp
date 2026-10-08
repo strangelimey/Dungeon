@@ -607,6 +607,7 @@ void Game::RegisterEvalCommands() {
 		 .params = "[<member> <spell> [every]]\n"
 				   "bolt <spell> <x> <z> <slot -1..3> [repel <power> <member>] [every]\n"
 				   "hold\n"
+				   "every <seconds>\n"
 				   "off",
 		 .summary = "cast spells in a round-robin on a sim-time clock"},
 		[this](const std::vector<std::string>& args) {
@@ -623,6 +624,21 @@ void Game::RegisterEvalCommands() {
 				ac.held = true;
 				ac.timer = 0.0f;
 				m_console.Print("autocast held until an alloctest window opens");
+				return;
+			}
+			// A new pace for the rotation as it stands: a warm-up at one pace and
+			// a window at another (AllocTest -Hand -Pebbles casts every world tick
+			// inside the window, past the drop headroom - code-review C227).
+			if (!args.empty() && args[0] == "every") {
+				const float every = args.size() == 2 ? static_cast<float>(std::atof(args[1].c_str()))
+													 : -1.0f;
+				if (!(every >= 0.0f)) {
+					m_console.RefuseUsage();
+					return;
+				}
+				ac.every = every;
+				ac.timer = 0.0f;
+				m_console.Print(std::format("autocast: {} entries every {:.3f}s", ac.count, ac.every));
 				return;
 			}
 			if (args.size() < 2) {

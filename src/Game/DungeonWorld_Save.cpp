@@ -383,26 +383,40 @@ SaveData::LevelState DungeonWorld::SnapshotActive() const {
 	}
 	// Items: a baseline rune gets a one-bit diff once collected; a dropped tablet
 	// (id < 0) still on the floor is stored whole. A collected dropped tablet is
-	// simply gone — no record (it falls out of both branches).
+	// simply gone - no record (it falls out of both branches).
+	std::vector<const Item*> drops;
 	for (const Item& item : m_items) {
+		if (item.id < 0) {
+			if (!item.collected) drops.push_back(&item);
+			continue;
+		}
+		if (!item.collected) continue;
 		SaveData::EntityState e;
 		e.kind = EntityKind::Item;
-		if (item.id >= 0) {
-			if (item.collected) {
-				e.id = item.id;
-				e.collected = true;
-				ls.entities.push_back(std::move(e));
-			}
-		} else if (!item.collected) {
-			e.id = -1;
-			e.type = item.kind->id;
-			e.x = item.x;
-			e.z = item.z;
-			e.slot = item.slot;
-			e.niche = item.niche; // -1 = floor drop; else the wall it fell into
-			e.charge = item.charge; // a half-burnt torch keeps what is left
-			ls.entities.push_back(std::move(e));
-		}
+		e.id = item.id;
+		e.collected = true;
+		ls.entities.push_back(std::move(e));
+	}
+	// The drops in list order, except the CONJURED pool, which goes last and
+	// OLDEST FIRST (the highest runtime id): the load lays them back in line
+	// order with ids counting down, so ConjureDrop's "oldest" survives a save -
+	// the list order itself does not, since a recycled pebble keeps its slot.
+	std::stable_sort(drops.begin(), drops.end(), [](const Item* a, const Item* b) {
+		if (a->conjured != b->conjured) return b->conjured;
+		return a->conjured && a->id > b->id;
+	});
+	for (const Item* item : drops) {
+		SaveData::EntityState e;
+		e.kind = EntityKind::Item;
+		e.id = -1;
+		e.type = item->kind->id;
+		e.x = item->x;
+		e.z = item->z;
+		e.slot = item->slot;
+		e.niche = item->niche;   // -1 = floor drop; else the wall it fell into
+		e.charge = item->charge; // a half-burnt torch keeps what is left
+		e.conjured = item->conjured;
+		ls.entities.push_back(std::move(e));
 	}
 	// Buttons: a baseline button gets a diff once it has been activated.
 	for (const Button& b : m_buttons)
@@ -608,6 +622,7 @@ void DungeonWorld::ApplyActiveSnapshot() {
 				ItemKind& kind = ItemKindFor(e.type);
 				m_items.push_back(
 					{&kind, m_nextDropId--, e.x, e.z, false, e.slot, e.niche, e.charge});
+				m_items.back().conjured = e.conjured; // the pool, oldest first (C227)
 			} else {
 				// Baseline rune collected — mark the kept instance lifted.
 				for (Item& item : m_items)

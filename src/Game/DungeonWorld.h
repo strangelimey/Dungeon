@@ -1340,9 +1340,12 @@ public:
 	// the air as `<id> charge <c> at <x>,<z> over <x>,<z>`: where it is, in
 	// squares, and the square it is over - the one a save made now writes it in
 	// (SaveFlyingCargo), NOT where its flight will end. Harness views of what a
-	// fumble knocked down and what a save holds; they build strings.
+	// fumble knocked down and what a save holds; they build strings. A row of
+	// the conjured pool (Item::conjured) ends ` conjured`.
 	std::vector<std::string> FloorItemRows(int x, int z) const;
 	std::vector<std::string> FlyingCargoRows() const;
+	// The conjure service's drop (CastServices::dropAtFeet, `castsvc drop`):
+	// a CONJURED item at the party's feet, through ConjureDrop's pool.
 	void DropAtPartyFeet(std::string_view itemId);
 	bool ShoveAhead(int cells);
 	ProjectileSystem::Repelled RepelAhead(float power, int casterIndex);
@@ -3409,6 +3412,11 @@ private:
 		// kept while it lies here and handed back when it is lifted. LAST, so
 		// the positional inits above need not name it.
 		float charge = -1.0f;
+		// CONJURED by a spell (Rock's pebble at the feet) and never handled
+		// since: one of the level's recycled pool (ConjureDrop), saved as the
+		// `drop` line's 8th token. Lifting it makes it the party's; what is put
+		// down again is an ordinary drop. After charge, for the same reason.
+		bool conjured = false;
 	};
 
 	// A wall-mounted button/lever (EntityKind::Button from the .ent layer). The
@@ -3924,7 +3932,16 @@ private:
 	// when there is one, else onto the end. With ReserveDropRoom's headroom, a
 	// drop allocates nothing, and a pick-and-drop loop never grows the list.
 	void PlaceDrop(const Item& item);
-	// Tops up m_items' spare capacity for drops, at load time (kDropRoom).
+	// Lays a CONJURED item (Item::conjured) in square (cx, cz): the level keeps
+	// at most kConjuredDrops of them lying uncollected, and past that the OLDEST
+	// (the highest runtime id) is taken up and laid here instead (Michael,
+	// code-review C227) - so practising Rock with full hands neither litters a
+	// level without end nor outgrows the drop headroom inside a guarded frame.
+	// Only a conjured item is ever recycled; a real one on the floor never is.
+	void ConjureDrop(const std::string& typeId, int cx, int cz);
+	static constexpr int kConjuredDrops = 16;
+	// Tops up m_items' spare capacity for drops, at load time: kDropRoom for
+	// real drops, and the conjured pool's kConjuredDrops on top of it.
 	void ReserveDropRoom();
 	// A kind's preview submeshes into `out` (its authored model, else the carved
 	// tablet) plus the model-space AABB to frame them by; returns the count.

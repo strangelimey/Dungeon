@@ -243,9 +243,11 @@ $checks = @(
 	},
 	@{
 		name = 'alloc-hand'; tier = 'full'; needs = "build-$Config"
-		what = 'the hand spells (light, douse, flare, fill, pebble) allocate nothing'
-		run      = { & (Join-Path $root 'tools\AllocTest.ps1') -Config $Config -Hand | Out-Host; $LASTEXITCODE }
-		selfTest = { & (Join-Path $root 'tools\AllocTest.ps1') -Config $Config -Hand -SelfTest | Out-Host; $LASTEXITCODE }
+		what = 'the hand spells (light, douse, flare, fill, pebble), and Rock past 64 drops, allocate nothing'
+		# -Pebbles: the rotation every world tick in the window, so Rock with
+		# full hands goes past the drop headroom into the conjured pool (C227).
+		run      = { & (Join-Path $root 'tools\AllocTest.ps1') -Config $Config -Hand -Pebbles | Out-Host; $LASTEXITCODE }
+		selfTest = { & (Join-Path $root 'tools\AllocTest.ps1') -Config $Config -Hand -Pebbles -SelfTest | Out-Host; $LASTEXITCODE }
 	},
 	@{
 		name = 'alloc-rest'; tier = 'full'; needs = "build-$Config"

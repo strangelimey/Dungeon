@@ -1930,16 +1930,51 @@ void DungeonWorld::PlaceDrop(const Item& placed) {
 	m_items.push_back(item);
 }
 
+void DungeonWorld::ConjureDrop(const std::string& typeId, int cx, int cz) {
+	// The level's conjured pool: how many lie uncollected, and the OLDEST of
+	// them - runtime ids count down, so the highest is the first laid (a load
+	// lays a save's back oldest first, CaptureState writing them in that order).
+	int lying = 0, oldest = -1;
+	for (size_t i = 0; i < m_items.size(); ++i) {
+		const Item& it = m_items[i];
+		if (!it.conjured || it.collected) continue;
+		++lying;
+		if (oldest < 0 || it.id > m_items[static_cast<size_t>(oldest)].id)
+			oldest = static_cast<int>(i);
+	}
+	const int reuse = lying >= kConjuredDrops ? oldest : -1;
+	ItemKind& kind = ItemKindFor(typeId);
+	const Vec3 c = m_map.CellCenter(cx, cz);
+	// The square's free quarter, not counting the one being taken up: it may
+	// lie in this very square.
+	Item item{&kind, m_nextDropId--, cx, cz, false,
+			  FreeItemSlotNear(cx, cz, c.x, c.z, reuse), -1, kNoCharge};
+	item.conjured = true;
+	if (reuse < 0) {
+		PlaceDrop(item);
+	} else {
+		// Taken up where it lay and laid here, in its own slot of the list - so
+		// the pool never grows it. Both places' shadows change.
+		Item& old = m_items[static_cast<size_t>(reuse)];
+		NoteItemCaster(old);
+		NoteItemCaster(item);
+		old = item;
+	}
+	MarkSeen(cx, cz);
+}
+
 namespace {
 // Spare room ReserveDropRoom keeps for drops that do not land in a dead slot:
 // that many DIFFERENT items can lie newly on the floor before a drop grows the
-// list. A party carries about forty slots between four members.
+// list. A party carries about forty slots between four members. The conjured
+// pool's room is kept on top of it (ConjureDrop never holds more lying than
+// kConjuredDrops), so pebbles never eat into what a real drop may use.
 constexpr size_t kDropRoom = 64;
 } // namespace
 
 void DungeonWorld::ReserveDropRoom() {
-	if (m_items.capacity() - m_items.size() < kDropRoom)
-		m_items.reserve(m_items.size() + kDropRoom);
+	constexpr size_t room = kDropRoom + static_cast<size_t>(kConjuredDrops);
+	if (m_items.capacity() - m_items.size() < room) m_items.reserve(m_items.size() + room);
 }
 
 void DungeonWorld::PreloadItemKinds() {

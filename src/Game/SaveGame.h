@@ -210,6 +210,7 @@ struct SaveData {
 												// or monster slot on its size's grid
 		int niche = -1;                         // item: wall niche it sits in (-1 = floor)
 		float charge = -1.0f;                   // item: its own charge (a torch's seconds left)
+		bool conjured = false;                  // item: of the conjured pool (C227)
 		bool activated = false;                 // button: pressed / toggled on
 		std::array<float, 4> threat{};          // monster: per-member aggro
 		int threatLock = -1;                    // monster: locked member

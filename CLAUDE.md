@@ -328,9 +328,11 @@ Key conventions (memorize, they bite):
   every member, unrolled. New spell services reach the world only through
   CastServices (each drivable bare with `castsvc`). Checked by `tools\SpellTest.py` (judges
   spells.eval, CheckAll quick; `--selftest` cuts every cast and makes every
-  `lang` English, which its WORDS checks of whole descriptions rest on), `tools\CombatTest.py`
+  `lang` English, which its WORDS checks of whole descriptions rest on; its
+  saves are this worktree's, `harness_game.save_name`), `tools\CombatTest.py`
   (the burst on the party, the ward and the gust, the flare's reach, a ward's
-  school by hand), `AllocTest.ps1 -Hand` and
+  school by hand), `AllocTest.ps1 -Hand` (and `-Hand -Pebbles`, the conjured
+  pebbles' recycled pool - see MOVING AN ITEM) and
   `AllocTest.ps1 -Burst` (the burst, the ward and every repel outcome inside a
   guarded window, fired by `autocast bolt ... [repel <power> <member>]`).
   THE LIGHT FORM (lighting-updates Phase 6): a fourth form rune, SOWILO
@@ -3556,7 +3558,19 @@ Michael's notes and answers: docs/ui-updates-notes.md; the plan: -plan.md.
   Every item KIND is built
   at load (`DungeonWorld::PreloadItemKinds`) - runes used to be built on their
   first drop, 2 MB in a guarded frame - and a drop reuses a dead runtime drop's
-  slot (`PlaceDrop`) inside load-time headroom (`ReserveDropRoom`). A bag's slots
+  slot (`PlaceDrop`) inside load-time headroom (`ReserveDropRoom`). A CONJURED
+  drop (Rock with both hands full - the `dropAtFeet` cast service) is not
+  bounded by that headroom but by its own POOL (code-review C227, Michael:
+  recycle): `DungeonWorld::ConjureDrop` keeps at most `kConjuredDrops` (16)
+  lying in a level and past that takes up the OLDEST (the highest runtime id)
+  and lays it anew, in its own slot of the list; a REAL item on the floor is
+  never recycled, and a conjured one lifted is the party's. `Item::conjured`
+  rides the save as the `drop` line's 8th token, the pool written oldest first;
+  `flooritems` ends a pool row ` conjured`. Checked by `AllocTest.ps1 -Hand
+  -Pebbles` (Rock every world tick, a hundred casts and more in the window;
+  `autocast every <s>` re-paces a rotation) and, across a save, SpellTest's POOL
+  checks (spells.eval's `pebble-pool-*` sections: the flag and the age come
+  back with a load, and the pool stays 16). A bag's slots
   are a `PackSlots` (fixed capacity, `kMaxPackSlots` = 16, all strings built up
   front), not a vector, so equipping a bigger bag only moves a count; a catalog
   `capacity` past the cap is clamped with a warning. CHECKED: `AllocTest.ps1

@@ -97,8 +97,8 @@ std::vector<std::string> DungeonWorld::FloorItemRows(int x, int z) const {
 	for (const Item& it : m_items) {
 		if (it.collected || !it.kind) continue;
 		if (x >= 0 && (it.x != x || it.z != z)) continue;
-		rows.push_back(std::format("{},{}: {} slot {} charge {:.1f}", it.x, it.z, it.kind->id,
-								   it.slot, it.charge));
+		rows.push_back(std::format("{},{}: {} slot {} charge {:.1f}{}", it.x, it.z, it.kind->id,
+								   it.slot, it.charge, it.conjured ? " conjured" : ""));
 	}
 	return rows;
 }
@@ -144,7 +144,10 @@ void DungeonWorld::DropAtPartyFeet(std::string_view itemId) {
 	// Through a kept buffer: a cast lands in a guarded frame, and constructing
 	// a string there allocates in the debug CRT whatever its length.
 	m_dropIdScratch.assign(itemId);
-	DropItemInCell(m_dropIdScratch, m_party.GridX(), m_party.GridZ());
+	// CONJURED, so into the level's recycled pool (code-review C227): a cast at
+	// the feet past kConjuredDrops takes up the oldest pebble instead of
+	// growing the floor list.
+	ConjureDrop(m_dropIdScratch, m_party.GridX(), m_party.GridZ());
 }
 
 bool DungeonWorld::ShoveAhead(int cells) {

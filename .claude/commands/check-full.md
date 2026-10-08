@@ -18,7 +18,7 @@ Adds the rows marked `full` to the quick tier:
   build-release  full   no self-test   the release build compiles clean (the config that rots unwatched)
   threads        full   self-testable  ThreadManager + AI buckets under load: no force-terminate, clean reboots
   alloc          full   self-testable  a steady-state frame allocates nothing on the heap
-  alloc-hand     full   self-testable  the hand spells (light, douse, flare, fill, pebble) allocate nothing
+  alloc-hand     full   self-testable  the hand spells (light, douse, flare, fill, pebble), and Rock past 64 drops, allocate nothing
   alloc-rest     full   self-testable  resting, a monster behind a shut door: its inline searches allocate nothing
   alloc-rest-reach full   self-testable  resting, a frozen monster with a way through: its inline paths allocate nothing
   alloc-lights   full   self-testable  64 lights allocate nothing; a full light list, element floor glows; a door or a walking Firelight re-renders its shadow cube

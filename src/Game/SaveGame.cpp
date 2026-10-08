@@ -358,13 +358,15 @@ bool WriteSave(const SaveData& data, const std::string& path) {
 			case EntityKind::Item:
 				if (e.id >= 0) // baseline rune lifted off the floor: a one-bit diff
 					t += std::format("item {}\n", e.id);
-				else if (e.charge < 0.0f) // dropped item (no baseline): cell + slot,
-										 // + niche wall (v21)
+				else if (e.charge < 0.0f && !e.conjured) // dropped item (no baseline):
+														 // cell + slot, + niche wall (v21)
 					t += std::format("drop {} {} {} {} {}\n", e.type, e.x, e.z, e.slot,
 									 e.niche);
-				else // ...and its own charge, when it has one (a torch's seconds)
-					t += std::format("drop {} {} {} {} {} {:.1f}\n", e.type, e.x, e.z,
-									 e.slot, e.niche, e.charge);
+				else // ...and its own charge, when it has one (a torch's seconds), and
+					 // a 1 when it is of the conjured pool (C227; the charge is then
+					 // written even when it has none, -1.0, to reach the 8th token)
+					t += std::format("drop {} {} {} {} {} {:.1f}{}\n", e.type, e.x, e.z,
+									 e.slot, e.niche, e.charge, e.conjured ? " 1" : "");
 				break;
 			case EntityKind::Button: // baseline button toggle, keyed by id
 				t += std::format("button {} {}\n", e.id, e.activated ? 1 : 0);
@@ -752,6 +754,7 @@ std::optional<SaveData> ReadSave(const std::string& path) {
 			if (tok.size() >= 5) e.slot = IntOf(tok[4]);  // older saves omit it
 			if (tok.size() >= 6) e.niche = IntOf(tok[5]); // v21: wall niche it fell into
 			if (tok.size() >= 7) e.charge = FloatOf(tok[6]); // its charge, if it has one
+			if (tok.size() >= 8) e.conjured = IntOf(tok[7]) != 0; // of the conjured pool
 			currentBlock().entities.push_back(e);
 		} else if (kw == "button" && tok.size() >= 3) {
 			// Baseline button toggle (v7 diff): id activated.

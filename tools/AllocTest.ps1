@@ -20,6 +20,7 @@
 #   .\tools\AllocTest.ps1 -Effects -Language ru   # ...in Russian: the HUD and the effect plaque in Cyrillic
 #   .\tools\AllocTest.ps1 -Swing             # the party swinging, and a severe fumble dropping a torch
 #   .\tools\AllocTest.ps1 -Hand              # the hand spells: light, douse, flare, fill, pebble
+#   .\tools\AllocTest.ps1 -Hand -Pebbles     # ...every world tick: Rock with full hands past 64 drops
 #   .\tools\AllocTest.ps1 -Light             # the Sowilo lights: cast, stacked, grown, a flare's dazzle
 #   .\tools\AllocTest.ps1 -Pause             # Esc to the pause menu and back
 #   .\tools\AllocTest.ps1 -DisplayChange     # a WM_DISPLAYCHANGE mid-play: the list re-read, Settings rebuilt
@@ -512,6 +513,18 @@
 # no other mode (they all need a game) - only -SelfTest, whose allocpoke must
 # FAIL it like any other.
 #
+# -Hand -Pebbles IS THE CONJURED POOL (code-review C227). Rock with both hands
+# full lays its pebble at the feet, a floor drop; the drop list keeps 64 spare
+# slots from the load, so a player practising Earth used to pass them and grow
+# the list inside a guarded frame. Now a level keeps at most 16 conjured items
+# lying (DungeonWorld::kConjuredDrops) and recycles the OLDEST. This is -Hand
+# with a REAL pebble laid on 4,4 after the warm-up, and the rotation sped up for the window
+# (`autocast every 0`: one cast a world tick, so Rock about fifteen a second),
+# Brand's hands full after its first cast. It refuses a PASS unless Rock cast at
+# least 100 times since the warm-up (well past the 64 spare and the pool's 16),
+# exactly 16 conjured pebbles lie afterwards, and the real one still lies on 4,4
+# unmarked.
+#
 # Every step is driven by what the log actually says rather than by sleeps, so
 # a slow cold-cache load stretches the wait instead of failing the run.
 #
@@ -578,6 +591,9 @@ param(
 	# Casts the four hand spells at a wall torch inside the window (spell-updates
 	# Phase 8). See the note at the setup.
 	[switch]$Hand,
+	# With -Hand: the rotation every world tick in the window, so Rock with full
+	# hands passes 64 drops there (code-review C227). See the note above.
+	[switch]$Pebbles,
 	# Casts the Sowilo LIGHT spells inside the window (lighting-updates Phase 6):
 	# a light, another school's, an Ingwaz one and a Hagalaz flare at a mummy.
 	[switch]$Light,
@@ -691,10 +707,13 @@ if ($RestReach) { $Rest = $true } # -RestReach is -Rest with the way left open
 # at a slow frame rate, and must both land well before the window closes.
 # -Sheet -AllSpells adds about four seconds of steps to each -Sheet cycle, and
 # its first cycle's must land inside the window.
-if (($Items -or $Throw -or $All -or $Impact -or $Exit -or $Lever -or $AllSpells) -and -not $PSBoundParameters.ContainsKey('Seconds')) { $Seconds = 20 }
+# -Hand -Pebbles must fit a hundred Rock casts in the window at a debug frame
+# rate.
+if (($Items -or $Throw -or $All -or $Impact -or $Exit -or $Lever -or $AllSpells -or $Pebbles) -and -not $PSBoundParameters.ContainsKey('Seconds')) { $Seconds = 20 }
 if ($ShadowSelfTest -and -not $Lights) { throw '-ShadowSelfTest mutates the shadow checks, which only -Lights runs' }
 if ($LongId -and -not $Items) { throw '-LongId changes what -Items moves; give -Items too' }
 if ($AllSpells -and -not $Sheet) { throw '-AllSpells is a -Sheet variant; give -Sheet too' }
+if ($Pebbles -and -not $Hand) { throw '-Pebbles is a -Hand variant; give -Hand too' }
 if ($AllSpells -and $Minimal) { throw '-AllSpells reopens the sheet from the party bar, which -Minimal does not have' }
 if ($LongId -and $LongItem.Length -le 15) { throw "-LongItem '$LongItem' fits the 15-character small-string buffer, so it measures nothing" }
 # -Lever's window holds the token's four clicks, two turns and both presses, each
@@ -729,7 +748,7 @@ if ($AllSpells -and $memberCount -lt 2) { throw '-AllSpells teaches member 1 and
 
 # -PartyPage starts no game, and every other mode needs one.
 if ($PartyPage) {
-	$withGame = @('Wounded', 'Melee', 'Cast', 'Impact', 'Hand', 'Light', 'Pause', 'DisplayChange', 'Exit', 'Lever', 'Sheet', 'All',
+	$withGame = @('Wounded', 'Melee', 'Cast', 'Impact', 'Hand', 'Pebbles', 'Light', 'Pause', 'DisplayChange', 'Exit', 'Lever', 'Sheet', 'All',
 		'Panels', 'Minimal', 'Walk', 'Lights', 'Items', 'Packs', 'Throw', 'Glass', 'Party', 'Wear', 'Effects', 'GrowRoster',
 		'UiTree') |
 		Where-Object { $PSBoundParameters.ContainsKey($_) }
@@ -2481,6 +2500,20 @@ try {
 		}
 		Start-Sleep -Milliseconds 500
 		& $handKit
+		# -Pebbles: a REAL pebble behind the party, which the conjured pool must
+		# never take up - laid now, since a `tp` reveals nothing and the warm-up's
+		# drops at the feet have shown the squares round the party. Then the held
+		# rotation casts every world tick once the window releases it (the
+		# warm-up ran at 0.3 s, well short of the headroom).
+		if ($Pebbles) {
+			Send-Text 'face s'; Send-Key 0x0D
+			$laid = Get-ConsoleAnswer 'drop pebble 4 4' 'drop pebble at 4,4: '
+			if ($laid -notmatch ': laid$') { throw "the real pebble was not laid on 4,4: $laid" }
+			Send-Text 'face n'; Send-Key 0x0D
+			Assert-PartyAt 4 3
+			$pace = Get-ConsoleAnswer 'autocast every 0' 'console: autocast: 4 entries every '
+			if ($pace -notmatch 'every 0\.000s$') { throw "the rotation's pace was not set: $pace" }
+		}
 		Start-Sleep -Milliseconds 300
 		Send-Text 'logecho off'; Send-Key 0x0D
 		Send-Key 0xC0 # close the console again; alloctest reopens it below
@@ -3496,8 +3529,11 @@ try {
 		$castPattern = 'console:   member \d+ casts \S+: \d+ cast, \d+ failed'
 		$castBefore = @(Select-String -Path $log -Pattern $castPattern).Count
 		$torchBefore = @(Select-String -Path $log -Pattern 'console:   \[\d\] \w+ hand \d: ').Count
+		$floorPattern = 'console: flooritems \d+,\d+: '
+		$floorBefore = @(Select-String -Path $log -Pattern $floorPattern).Count
 		Send-Text 'autocast'; Send-Key 0x0D
 		Send-Text 'torch'; Send-Key 0x0D
+		if ($Pebbles) { Send-Text 'flooritems all'; Send-Key 0x0D }
 		Wait-ConsoleDone
 		Send-Text 'logecho off'; Send-Key 0x0D
 		Send-Key 0xC0
@@ -3516,6 +3552,35 @@ try {
 		if ($hands -notmatch '\[2\] Maren hand 1: torch_lit ') { $used += 'the torch was not lit' }
 		if ($hands -notmatch '\[3\] Tilo hand 1: waterskin ') { $used += 'the skin was not filled' }
 		if ($hands -notmatch '\[0\] Brand hand 0: pebble ') { $used += 'no pebble landed in hand' }
+		# -Pebbles (code-review C227): Rock went well past the 64 spare drops and
+		# the pool's 16, and what lies is the pool - exactly 16 conjured pebbles,
+		# all at the party's feet - beside the REAL pebble on 4,4, still there and
+		# still not of the pool.
+		if ($Pebbles) {
+			$rock = 0
+			for ($i = 0; $i -lt $after.Count -and $i -lt $script:handRows.Count; $i++) {
+				if ($after[$i].Line -notmatch 'casts rock: (\d+) cast,') { continue }
+				$now = [int]$Matches[1]
+				$was = if ($script:handRows[$i].Line -match ': (\d+) cast,') { [int]$Matches[1] } else { 0 }
+				$rock = $now - $was
+			}
+			$floor = @(Select-String -Path $log -Pattern $floorPattern | Select-Object -Skip $floorBefore |
+				ForEach-Object { $_.Line -replace '^.*console: flooritems ', '' })
+			$pool = @($floor | Where-Object { $_ -match ': pebble slot \d+ charge \S+ conjured$' })
+			$astray = @($pool | Where-Object { $_ -notmatch '^4,3: ' })
+			$real = @($floor | Where-Object { $_ -match '^4,4: pebble slot \d+ charge \S+$' })
+			Write-Host "  pebbles: Rock cast $rock times since the warm-up; $($pool.Count) conjured lying, $($real.Count) real on 4,4"
+			if ($rock -lt 100) { $used += "Rock cast only $rock times, not 100 - the drop headroom was not passed" }
+			# What lies is the POOL'S rule, not a measurement: broken, it FAILs.
+			$broken = @()
+			if ($pool.Count -ne 16) { $broken += "$($pool.Count) conjured pebbles lie, not the pool's 16" }
+			if ($astray.Count -gt 0) { $broken += "conjured pebbles away from the party's square: $($astray -join '; ')" }
+			if ($real.Count -ne 1) { $broken += 'the real pebble on 4,4 is gone or was taken into the pool' }
+			if ($broken.Count -gt 0) {
+				Write-Host "the conjured pool: $($broken -join ', ')" -ForegroundColor Red
+				if ($result -eq 'PASS') { $result = 'FAIL' }
+			}
+		}
 		if (($short.Count -gt 0 -or $used.Count -gt 0 -or $after.Count -ne 4) -and $result -eq 'PASS') {
 			if ($short.Count -gt 0) { Write-Host "too few casts after the warm-up: $($short -join ', ')" -ForegroundColor Yellow }
 			if ($used.Count -gt 0) { Write-Host "$($used -join ', ') - the item paths were not measured" -ForegroundColor Yellow }

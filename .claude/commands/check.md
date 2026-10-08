@@ -37,7 +37,7 @@ harness refuses a stale exe on its own (exit 4).
   combat         quick  self-testable  the combat rules the code review fixed, judged from combat.eval
   ai             quick  self-testable  monsters stand where they can (sides, kiters, pits); a new game or load forgets the last fight; a world switch leaves no dead AI worker; a resting chaser walks and thinks as an awake one, and a 60x shot skips neither the party nor a wall
   alloc          full   self-testable  a steady-state frame allocates nothing on the heap
-  alloc-hand     full   self-testable  the hand spells (light, douse, flare, fill, pebble) allocate nothing
+  alloc-hand     full   self-testable  the hand spells (light, douse, flare, fill, pebble), and Rock past 64 drops, allocate nothing
   alloc-rest     full   self-testable  resting, a monster behind a shut door: its inline searches allocate nothing
   alloc-rest-reach full   self-testable  resting, a frozen monster with a way through: its inline paths allocate nothing
   alloc-lights   full   self-testable  64 lights allocate nothing; a full light list, element floor glows; a door or a walking Firelight re-renders its shadow cube
