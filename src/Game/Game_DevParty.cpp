@@ -1452,10 +1452,15 @@ void Game::RegisterPartyCommands() {
 					// `slider` is the Settings page's scale slider for the panel -
 					// the widget's own value, which catches up with `scale` before
 					// the page can show (the menu's and the pause menu's update).
+					// `drags` LAST: the drags that ended (moves/resizes) and the
+					// range of scales the last one crossed - a resize pulled out
+					// and back ends where it began, so only that says it resized.
 					const ui::Slider* slider = m_ui.HudScaleSlider(i);
+					const ui::FloatingPanel::DragRecord drags =
+						panel ? panel->Drags() : ui::FloatingPanel::DragRecord{};
 					m_console.Print(std::format(
 						"  {:<8} {}  px {:.0f},{:.0f} {:.0f}x{:.0f}  saved {}  scale {:.2f}  opacity {:.2f}"
-						"  slider {}{}",
+						"  slider {}{}  drags {}/{} last {} {:.2f}..{:.2f}",
 						kHudPanelFields[i].id,
 						!panel ? "unbuilt" : (panel->visible ? "shown " : "hidden"), r.x, r.y,
 						r.w, r.h,
@@ -1463,7 +1468,9 @@ void Game::RegisterPartyCommands() {
 									  : std::format("{:.3f},{:.3f}", look.x, look.y),
 						look.scale, look.opacity,
 						slider ? std::format("{:.2f}", slider->Value()) : std::string("-"),
-						look.hidden ? "  minimized" : ""));
+						look.hidden ? "  minimized" : "", drags.moves, drags.resizes,
+						drags.moves + drags.resizes == 0 ? "none" : (drags.lastResize ? "resize" : "move"),
+						drags.low, drags.high));
 				}
 				return;
 			}

@@ -52,6 +52,12 @@ public:
 	EffectIcon(const std::vector<Character>* roster, size_t member, size_t index,
 			   const ItemIconBank* icons, std::function<void()> onClick);
 
+	// How many effect plaques have been drawn in ARMED frames (alloc::
+	// FrameArmed), ever: the alloctest verdict's efftips=, AllocTest -Effects'
+	// proof that its hover drew one - and its dash - where the guard was
+	// watching (code-review C229).
+	static u64 ArmedTipDraws();
+
 private:
 	// The effect this icon stands for, re-resolved every frame — a repeated
 	// child holds its INDEX, never a pointer into the model.

@@ -16,6 +16,7 @@
 #include "Core/Profile.h"
 #include "Core/StringUtil.h"
 #include "Game/AssetUtil.h"
+#include "Game/CharacterPanel.h" // EffectIcon::ArmedTipDraws (alloctest's efftips=)
 #include "Game/GenerateKnobs.h"
 #include "Game/PartyHudDraw.h" // DrawFlame (the details dialog's burning torch)
 #include "Graphics/DisplayEnum.h"
@@ -151,7 +152,7 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	  m_mapEditor(m_mapView, m_settings),
 	  m_console(m_fonts, m_threads),
 	  m_modelPreview(device, 512),
-	  m_assetDialog(device, window),
+	  m_assetDialog(device, window, m_fonts),
 	  m_monsterDialog(device, m_fonts), m_balanceDialog(device, m_fonts),
 	  m_levelSettingsDialog(device, m_fonts),
 	  m_worldSettingsDialog(device, m_fonts),
@@ -1715,6 +1716,11 @@ void Game::ApplyLanguage(bool rebuild) {
 		loc::LogMissingKeys(paths::Asset("lang\\en.lang"));
 	}
 	ApplyLanguageFonts();
+	// Every glyph the language's text uses, baked now - into the live fonts and
+	// every font made from here on - so a dash in a tooltip or a Cyrillic word in
+	// a message is never first met mid-play (code-review C229). A glyph met
+	// later anyway is a late one, which the allocation guard reports.
+	m_fonts.Prewarm(loc::CodePoints());
 	if (!rebuild) return;
 	// The party page's offer is text gathered in the old language when it
 	// opened (race names and traits, skill and item names): gathered again, so
@@ -1951,6 +1957,7 @@ void Game::UpdateAllocTest(float dt, bool steady) {
 			MoveAction last{};
 			m_allocTestActsAt = m_world->GetParty().ActCount(last);
 			m_allocTestChainsAt = ui::inspect::ArmedChainDraws();
+			m_allocTestTipsAt = EffectIcon::ArmedTipDraws();
 			for (size_t i = 0; i < m_characters.size() && i < m_allocTestFxAt.size(); ++i)
 				m_allocTestFxAt[i] = m_allocTestFxPeak[i] = m_characters[i].effects.size();
 		}
@@ -1996,6 +2003,9 @@ void Game::UpdateAllocTest(float dt, bool steady) {
 	// uitree= is the `uitree` breadcrumbs built in armed frames of the window
 	// (ui::inspect::ArmedChainDraws): -UiTree's proof that the overlay's
 	// formatting ran where the guard was watching (code-review C223).
+	// efftips= is the effect plaques drawn in armed frames of the window
+	// (EffectIcon::ArmedTipDraws): -Effects' proof that its hover drew one, dash
+	// and all, where the guard was watching (code-review C229).
 	MoveAction lastMove{};
 	const unsigned moves =
 		m_world ? m_world->GetParty().ActCount(lastMove) - m_allocTestActsAt : 0u;
@@ -2005,13 +2015,14 @@ void Game::UpdateAllocTest(float dt, bool steady) {
 	const std::string line =
 		std::format("alloctest RESULT={} frames={} violations={} violating_frames={} "
 					"transitions={} moves={} prompts={} helps={} falls={} levers={} niches={} "
-					"spellrows={},{} effectsrose={} displays={} uitree={}{}",
+					"spellrows={},{} effectsrose={} displays={} uitree={} efftips={}{}",
 					timedOut ? "SKIP" : (violations == 0 ? "PASS" : "FAIL"),
 					m_allocTestFrames, violations, badFrames, m_allocTestTransitions, moves,
 					m_allocTestPrompts, m_allocTestHelps, m_allocTestFalls, m_allocTestLevers,
 					m_allocTestNiches, m_allocTestSheetSpells, m_allocTestCardSpells,
 					rose.empty() ? "-" : rose, m_allocTestDisplays,
 					m_allocTestFrames ? ui::inspect::ArmedChainDraws() - m_allocTestChainsAt : 0,
+					m_allocTestFrames ? EffectIcon::ArmedTipDraws() - m_allocTestTipsAt : 0,
 					timedOut ? " reason=never_reached_a_steady_frame" : "");
 	log::Info("{}", line);
 	m_console.Print(line);

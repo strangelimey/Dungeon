@@ -13,6 +13,13 @@ time, re-bakes every cached glyph when `SetHeight` changes the size, and uploads
 via `Commit()` — which calls `WaitIdle()`, so it must run between frames, never
 mid-record. All of that already works and none of it needs changing.
 
+(Since code-review C89/C229: `SetHeight` is gone - a Font is one size for life
+and the library vends a new one per size - and a Font also pre-warms the active
+language's code points, `FontLibrary::Prewarm` at each language load, so a glyph
+met mid-play is a late one that the allocation guard reports. C221: a size only
+being tried is measured, `FontLibrary::HeightAt`, and a panel's text holds its
+size through a resize drag, `FloatingPanel::TextScale`.)
+
 What does not exist is any font *selection*. Every construction site passes an
 empty path:
 

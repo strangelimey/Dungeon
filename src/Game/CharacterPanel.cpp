@@ -3,6 +3,7 @@
 // ============================================================================
 #include "Game/CharacterPanel.h"
 
+#include "Core/AllocTrack.h"
 #include "Core/Loc.h"
 #include "Game/PartyHudDraw.h"
 #include "UI/Skin.h"
@@ -78,6 +79,10 @@ void PortraitBox::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 
 // --- EffectIcon ------------------------------------------------------------
 
+namespace {
+u64 s_armedTips = 0; // EffectIcon::ArmedTipDraws
+} // namespace
+
 EffectIcon::EffectIcon(const std::vector<Character>* roster, size_t member,
 					   size_t index, const ItemIconBank* icons,
 					   std::function<void()> onClick)
@@ -141,7 +146,10 @@ void EffectIcon::DrawOverlaySelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	ui::DrawPanelFace(ctx, batch, tip);
 	font.Draw(batch, label, tip.x + Rem(0.35f), tip.y + Rem(0.18f),
 			  ctx.GetTheme().text);
+	if (alloc::FrameArmed()) ++s_armedTips;
 }
+
+u64 EffectIcon::ArmedTipDraws() { return s_armedTips; }
 
 // --- NameTag ---------------------------------------------------------------
 

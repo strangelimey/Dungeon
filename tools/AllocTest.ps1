@@ -17,6 +17,7 @@
 #   .\tools\AllocTest.ps1 -Burst             # burst bolts on the party, a ward, a gust's repel
 #   .\tools\AllocTest.ps1 -Effects [-Minimal] # four party wards landing: every member's effect strip grows
 #   .\tools\AllocTest.ps1 -Effects -Party 'premade=0' -GrowRoster   # ...after a party of 1 grows to 4
+#   .\tools\AllocTest.ps1 -Effects -Language ru   # ...in Russian: the HUD and the effect plaque in Cyrillic
 #   .\tools\AllocTest.ps1 -Swing             # the party swinging, and a severe fumble dropping a torch
 #   .\tools\AllocTest.ps1 -Hand              # the hand spells: light, douse, flare, fill, pebble
 #   .\tools\AllocTest.ps1 -Light             # the Sowilo lights: cast, stacked, grown, a flare's dazzle
@@ -214,6 +215,18 @@
 # `newparty default`, so the roster grows to four before the window, and refuses
 # a PASS unless member 4's count rose: its first ward lands in a list the grow
 # made. -Minimal runs it on the cards.
+#   AND THE PLAQUE'S DASH (code-review C229). Once the wards land, the pointer
+# rests on member 0's first effect icon (the rightmost cell of the first
+# EffectsArea `uitree dump hud` lists), so the plaque "Stone Skin - 12s" - the
+# hud.effect_time entry, whose separator is an EM-DASH, outside Latin-1 - is
+# drawn for the first time inside the window. A glyph met mid-play used to be
+# baked there (a whole-atlas upload behind a GPU drain) under an excuse; now a
+# language's glyphs are baked at its load and a miss is reported, so this FAILs
+# if the pre-warm stops covering the language. It refuses a PASS unless the
+# verdict's `efftips=` counts plaques drawn in measured frames.
+# -Language <code> runs any mode in that language (`lang <code> unsaved`, so
+# settings.ini keeps its own), switched before anything else is set up: with
+# -Effects -Language ru the plaque, and the HUD round it, are Cyrillic.
 #
 # -Swing IS THE PARTY'S OWN SWING (code-review C10). -Melee is a monster
 # swinging at the party; no mode made the PARTY swing, so PartyAttack and the
@@ -377,6 +390,15 @@
 # window's armed frames (code-review C450), and `hudpanel`'s own place, lock and
 # minimize must reach the Settings page's slider and lock box once a pause has
 # shown it, and the tray, without counting as clicks (C448) - each a FAIL.
+# And FONTS HOLD THROUGH A RESIZE (code-review C221): a resize drag's text stays
+# at the drag-start size until the release, and its trial scales are measured,
+# not baked. Pulling the Hands grip out a long way and back to where it began,
+# then the open sheet's the same, must leave `fonts`' live count and its peak
+# exactly where they were - each new pixel size crossed used to bake an atlas
+# that is never freed. A count that moved is a FAIL, and so is a pull the
+# panel's drag record (the `drags` end of its `hudpanel list` row) does not
+# show as a resize that crossed some scale: a press that missed the wedge is a
+# move, which out and back changes nothing and would pass the font count.
 # -Items IS MOVING AN ITEM, which no run did (found by accident 2026-09-30, when
 # a -Panels click on the ui-panels branch landed on an inventory slot and a later
 # one on the floor). Two defects, both logged with call stacks: every pick, put
@@ -539,8 +561,12 @@ param(
 	# one, a gust's repel weakening, turning and spending them. See the note above.
 	[switch]$Burst,
 	# Measures the party bar's EFFECT STRIPS growing: four party wards, held until
-	# the window opens, land on every member inside it. See the note above.
+	# the window opens, land on every member inside it; and the pointer rests on
+	# member 0's first, so its plaque draws there. See the note above.
 	[switch]$Effects,
+	# Runs any mode in this language (`lang <code> unsaved`): e.g. ru, whose
+	# text is all outside Latin-1. Empty = the game's own setting.
+	[string]$Language = '',
 	# With -Effects and -Party: once that party's game is up, `newparty default`
 	# starts another with the default four, so the roster GROWS before the window
 	# (code-review C228) and -Effects lands a ward on every grown member in it.
@@ -755,6 +781,59 @@ function Send-Drag([int]$x0, [int]$y0, [int]$x1, [int]$y1, [int]$steps = 10, [sw
 		[HarnessWin]::PostMessage($hwnd, 0x101, [IntPtr]0x11, [IntPtr][int64]0xC0000001) | Out-Null
 	}
 	Start-Sleep -Milliseconds 200
+}
+
+# A Ctrl-held drag from (x0, y0) out to (x1, y1) and BACK to (x0, y0) before
+# the release: on a resize grip, every scale between the start and the far
+# point is crossed twice and the panel lands where it began (-Panels' font
+# check, code-review C221).
+function Send-DragOutAndBack([int]$x0, [int]$y0, [int]$x1, [int]$y1, [int]$steps = 14) {
+	$at = { param($x, $y) [IntPtr](($y -shl 16) -bor ($x -band 0xFFFF)) }
+	[HarnessWin]::PostMessage($hwnd, 0x100, [IntPtr]0x11, [IntPtr]1) | Out-Null
+	Start-Sleep -Milliseconds 60
+	[HarnessWin]::PostMessage($hwnd, 0x200, [IntPtr]0, (& $at $x0 $y0)) | Out-Null
+	Start-Sleep -Milliseconds 150
+	[HarnessWin]::PostMessage($hwnd, 0x201, [IntPtr]1, (& $at $x0 $y0)) | Out-Null
+	Start-Sleep -Milliseconds 80
+	$path = @(1..$steps) + @(($steps - 1)..0)
+	foreach ($i in $path) {
+		$x = [int]($x0 + ($x1 - $x0) * $i / $steps); $y = [int]($y0 + ($y1 - $y0) * $i / $steps)
+		[HarnessWin]::PostMessage($hwnd, 0x200, [IntPtr]1, (& $at $x $y)) | Out-Null
+		Start-Sleep -Milliseconds 50
+	}
+	Start-Sleep -Milliseconds 120
+	[HarnessWin]::PostMessage($hwnd, 0x202, [IntPtr]0, (& $at $x0 $y0)) | Out-Null
+	Start-Sleep -Milliseconds 100
+	[HarnessWin]::PostMessage($hwnd, 0x101, [IntPtr]0x11, [IntPtr][int64]0xC0000001) | Out-Null
+	Start-Sleep -Milliseconds 300
+}
+
+# Whether a pull between two `hudpanel list` rows of one panel was a RESIZE:
+# one more resize drag ended, the last drag was a resize, and it crossed at
+# least 0.05 of scale. A Ctrl-press that misses the wedge is a MOVE, which also
+# pins the spot and, out and back, ends where it began - so neither the spot
+# nor the end scale can tell the two apart; only the drag record can (C221).
+# Returns what was wrong, empty when the pull resized.
+function Test-ResizePull([string]$what, [string]$before, [string]$after) {
+	$pattern = 'drags (\d+)/(\d+) last (\w+) ([\d.]+)\.\.([\d.]+)'
+	if ($before -notmatch $pattern) { return @("$what's row has no drag record") }
+	$resizesBefore = [int]$Matches[2]
+	if ($after -notmatch $pattern) { return @("$what's row has no drag record") }
+	$resizes = [int]$Matches[2]; $last = $Matches[3]
+	$low = [double]$Matches[4]; $high = [double]$Matches[5]
+	if ($resizes -ne $resizesBefore + 1 -or $last -ne 'resize') {
+		return @("$what's pull was no resize (resizes $resizesBefore -> $resizes, last $last)")
+	}
+	if ($high - $low -lt 0.05) { return @("$what's resize crossed only $low..$high") }
+	return @()
+}
+
+# `fonts`' first line: the live font atlases and their peak (needs logecho on
+# and the console open).
+function Get-FontAtlases {
+	$line = Get-ConsoleAnswer 'fonts' 'font atlases: '
+	if ($line -notmatch 'live=(\d+) peak=(\d+)') { throw "unreadable: $line" }
+	return [pscustomobject]@{ Live = [int]$Matches[1]; Peak = [int]$Matches[2]; Line = $line }
 }
 
 # A Ctrl+click at client pixel (x, y): what presses an arranging panel's reset.
@@ -1596,6 +1675,28 @@ try {
 	Send-Key $VK_CONSOLE
 	Start-Sleep -Milliseconds 400
 
+	# -Language: the whole run in that language, switched FIRST - the switch
+	# rebuilds every page, as -Minimal's does. `unsaved`, so settings.ini keeps
+	# its own language however the run ends. The proof it took is the game's
+	# own lines: the table loaded from that file, and the fonts pre-warmed for
+	# it (code-review C229).
+	if ($Language) {
+		Write-Host "switching the game to '$Language'"
+		$langFile = "$Language.lang"
+		$loadedBefore = @(Select-String -Path $log -Pattern "Loaded \d+ strings from .*\\$([regex]::Escape($langFile))").Count
+		$warmBefore = Get-LogMatchCount 'FontLibrary: \d+ code point'
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 500
+		Send-Text "lang $Language unsaved"; Send-Key 0x0D
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 800
+		$loaded = Wait-NewLogLines "Loaded \d+ strings from .*\\$([regex]::Escape($langFile))" $loadedBefore
+		if ($loaded.Count -eq 0) { throw "``lang $Language unsaved`` loaded no $langFile (see dungeon.log)" }
+		$warm = Wait-NewLogLines 'FontLibrary: \d+ code point' $warmBefore
+		if ($warm.Count -eq 0) { throw "the language switch pre-warmed no fonts (see dungeon.log)" }
+		Write-Host "  $($warm[-1].Line -replace '^.*FontLibrary: ', '')"
+	}
+
 	# -Minimal: the whole run under the Minimal HUD layout (the party cards).
 	# FIRST, before any mode sets its scene up: the switch REBUILDS the HUD, which
 	# would close a spellbook -Cast had opened. A first time, out here before the
@@ -2159,6 +2260,19 @@ try {
 			throw "a member carries an effect before the window: $($fxRows[0].Line -replace '^.*console:\s+', '')"
 		}
 		Write-Host "  $($wards.Count) party wards over $memberCount member(s), held; nobody carries an effect"
+		# Where member 0's FIRST effect icon will be: the rightmost square of its
+		# strip (CharacterPanel: index 0 is the rightmost, a square the strip's
+		# height), read off the first EffectsArea the HUD's tree lists. The
+		# pointer rests there inside the window, once the wards have landed.
+		$areaPattern = 'console:\s+EffectsArea\s+px (-?\d+),(-?\d+) (\d+)x(\d+)'
+		$areaBefore = Get-LogMatchCount $areaPattern
+		Send-Text 'uitree dump hud'; Send-Key 0x0D
+		$areas = Wait-NewLogLines $areaPattern $areaBefore
+		if ($areas.Count -eq 0 -or $areas[0].Line -notmatch $areaPattern) { throw '`uitree dump hud` listed no EffectsArea' }
+		$aX = [int]$Matches[1]; $aY = [int]$Matches[2]; $aW = [int]$Matches[3]; $aH = [int]$Matches[4]
+		if ($aW -le 0 -or $aH -le 0) { throw "member 0's effect strip has no size: $($areas[0].Line)" }
+		$script:tipX = $aX + $aW - [int]($aH / 2); $script:tipY = $aY + [int]($aH / 2)
+		Write-Host "  member 0's first effect icon at $($script:tipX),$($script:tipY)"
 		Send-Text 'logecho off'; Send-Key 0x0D
 		Send-Key 0xC0 # close the console again; alloctest reopens it below
 		Start-Sleep -Milliseconds 400
@@ -3131,6 +3245,17 @@ try {
 		}
 	}
 
+	# -Effects: once the window's first armed frame has released the wards and
+	# they have had time to land (a cast every 0.5 s), the pointer rests on
+	# member 0's first effect icon for the rest of the window, so its plaque -
+	# and the dash in it - is first drawn where the guard is watching.
+	if ($Effects) {
+		Start-Sleep -Seconds 4
+		if (-not (Select-String -Path $log -Pattern 'alloctest RESULT=' -Quiet)) {
+			Send-Mouse $script:tipX $script:tipY
+		}
+	}
+
 	# -Packs: two clicks on the bag square a cycle - the herb pouch in (8 -> 4)
 	# and the ammo pouch back (4 -> 8), the growth this mode exists for.
 	if ($Packs) {
@@ -3241,6 +3366,11 @@ try {
 		for ($i = 0; $i -lt $rose.Count; $i++) {
 			if ($rose[$i] -le 0) { $missing += "member $($i + 1) took no effect" }
 		}
+		# The plaque under the pointer (C229): drawn in measured frames, or its
+		# dash was never checked.
+		$tips = if ($line -match '\befftips=(\d+)') { [int]$Matches[1] } else { 0 }
+		Write-Host "  effect plaques drawn in measured frames: $tips"
+		if ($tips -le 0) { $missing += 'no effect plaque was drawn' }
 		if ($missing.Count -gt 0 -and $result -eq 'PASS') {
 			Write-Host "$($missing -join ', ') inside the window - the effect strips were not measured" -ForegroundColor Yellow
 			$result = 'UNMEASURED'
@@ -3897,6 +4027,74 @@ try {
 		if ((& $clicks $hudAfter) -ne (& $clicks $hudBefore)) { $c448 += 'the minimize counted as a click' }
 		if ($c448.Count -gt 0) {
 			Write-Host "``hudpanel`` went around the Settings page (C448): $($c448 -join '; ')" -ForegroundColor Red
+			if ($result -eq 'PASS') { $result = 'FAIL' }
+		}
+
+		# FONTS HOLD THROUGH A RESIZE (code-review C221): the Hands grip, then
+		# the open sheet's, pulled a long way out and back to where it began.
+		# The text holds its drag-start size until the release and the trial
+		# scales are measured, so `fonts`' live count and peak must not move -
+		# taken AFTER the sheet's first open, whose own fonts are a first time.
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 500
+		Send-Text 'logecho on'; Send-Key 0x0D
+		Send-Text 'sheet 0'; Send-Key 0x0D
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 800 # the sheet draws: its fonts are made
+		Send-Key 0x1B                 # and closes
+		Start-Sleep -Milliseconds 500
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 500
+		$fontsBefore = Get-FontAtlases
+		Send-Text 'logecho off'; Send-Key 0x0D
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 400
+		$fontNote = @()
+		# Each pull from the wedge 4 px inside the panel's corner, read from the
+		# row before it (a pull's end snap can nudge the scale), and judged a
+		# RESIZE by the drag record the row ends with (Test-ResizePull): a press
+		# that missed the wedge would be a move out and back, pinning the spot
+		# and crossing no scale - the old proof, a pinned `saved` spot, passed it.
+		$pull = {
+			param([string]$id, [string]$what, [double]$fx, [double]$fy)
+			$row = Get-PanelRow $id
+			if ($row -notmatch 'px (-?\d+),(-?\d+) (\d+)x(\d+)') { return @("no $what rect") }
+			$px = [int]$Matches[1] + [int]$Matches[3] - 4; $py = [int]$Matches[2] + [int]$Matches[4] - 4
+			Send-DragOutAndBack $px $py ($px + [int]($rc.Right * $fx)) ($py + [int]($rc.Bottom * $fy))
+			$after = Get-PanelRow $id
+			Write-Host "  $what after its pull: $($after -replace '^.*console:   ', '')"
+			return @(Test-ResizePull $what $row $after)
+		}
+		$fontNote += & $pull 'hands' 'the Hands dock' -0.12 -0.12
+		$fontNote += & $pull 'hands' 'the Hands dock' 0.05 0.05
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 500
+		Send-Text 'sheet 0'; Send-Key 0x0D
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 800
+		$fontNote += & $pull 'sheet' 'the sheet' -0.15 -0.15
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 500
+		Send-Text 'logecho on'; Send-Key 0x0D
+		$fontsAfter = Get-FontAtlases
+		Send-Text 'logecho off'; Send-Key 0x0D
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 400
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 500
+		Send-Text 'logecho on'; Send-Key 0x0D
+		Send-Text 'sheet off'; Send-Key 0x0D
+		Send-Text 'hudpanel reset'; Send-Key 0x0D
+		Send-Text 'logecho off'; Send-Key 0x0D
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 400
+		Write-Host "  fonts before the resizes: $($fontsBefore.Line)"
+		Write-Host "  fonts after them:         $($fontsAfter.Line)"
+		if ($fontsAfter.Live -ne $fontsBefore.Live -or $fontsAfter.Peak -ne $fontsBefore.Peak) {
+			$fontNote += "the resizes made $($fontsAfter.Live - $fontsBefore.Live) font(s)"
+		}
+		if ($fontNote.Count -gt 0) {
+			Write-Host "a resize drag baked fonts, or was not made (C221): $($fontNote -join '; ')" -ForegroundColor Red
 			if ($result -eq 'PASS') { $result = 'FAIL' }
 		}
 	}

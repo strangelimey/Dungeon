@@ -62,14 +62,40 @@ FaceData FontLibrary::FaceFor(const std::string& path) {
 	return face;
 }
 
+namespace {
+// Fold in the role's optical correction, then quantize: the atlas is rasterized
+// at integer pixels, so a fractional request would otherwise spawn a
+// near-duplicate font per sub-pixel size. ONE rule for Get and HeightAt, so a
+// height measured without a font is the font's.
+int PixelsFor(const FaceSpec& spec, float pixelHeight) {
+	return std::max(1, static_cast<int>(std::lround(pixelHeight * spec.scale)));
+}
+} // namespace
+
+float FontLibrary::HeightAt(FontRole role, float pixelHeight) const {
+	return static_cast<float>(PixelsFor(m_roles[static_cast<int>(role)], pixelHeight));
+}
+
+void FontLibrary::Prewarm(std::vector<u32> codepoints) {
+	// A language load - between frames, never a settled one - and every font
+	// it touches uploads its atlas again: excused as a whole.
+	const alloc::Excused excuse;
+	m_warm = std::move(codepoints);
+	for (auto& [key, font] : m_fonts) font->Prewarm(m_warm);
+	log::Info("FontLibrary: {} code point(s) past Latin-1 pre-warmed into {} live font(s)",
+			  m_warm.size(), m_fonts.size());
+}
+
+u64 FontLibrary::LateGlyphs() const {
+	u64 late = 0;
+	for (const auto& [key, font] : m_fonts) late += font->LateGlyphs();
+	return late;
+}
+
 Font& FontLibrary::Get(FontRole role, float pixelHeight) {
 	const FaceSpec& spec = m_roles[static_cast<int>(role)];
 	FaceData face = FaceFor(spec.path);
-
-	// Fold in the role's optical correction, then quantize: the atlas is
-	// rasterized at integer pixels, so a fractional request would otherwise
-	// spawn a near-duplicate font per sub-pixel size.
-	const int px = std::max(1, static_cast<int>(std::lround(pixelHeight * spec.scale)));
+	const int px = PixelsFor(spec, pixelHeight);
 
 	const Key key{face.get(), px};
 	if (auto it = m_fonts.find(key); it != m_fonts.end()) return *it->second;
@@ -81,9 +107,10 @@ Font& FontLibrary::Get(FontRole role, float pixelHeight) {
 	// guarded, and a caller asking for a new size every frame still shows up as
 	// the live-font warning below.
 	const alloc::Excused excuse;
-	auto font = std::make_unique<Font>(m_device, face, static_cast<float>(px));
+	auto font = std::make_unique<Font>(m_device, face, static_cast<float>(px), m_warm);
 	Font& ref = *font;
 	m_fonts.emplace(key, std::move(font));
+	m_peak = std::max(m_peak, m_fonts.size());
 
 	if (!m_warnedCount && m_fonts.size() > kFontCountWarn) {
 		m_warnedCount = true;
@@ -111,7 +138,7 @@ std::vector<FontLibrary::Live> FontLibrary::LiveFonts() const {
 				break;
 			}
 		}
-		out.push_back({std::move(path), key.second});
+		out.push_back({std::move(path), key.second, font->LateGlyphs()});
 	}
 	return out;
 }

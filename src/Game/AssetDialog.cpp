@@ -60,8 +60,7 @@ protected:
 		const gfx::Rect& r = Pixel();
 		if (text.empty() || r.w <= 0.0f || r.h <= 0.0f) return;
 		// The form's size, then a step down, then the document's - only ever
-		// smaller. An owned-font context hands back its one font for all three,
-		// and wrapping is then all there is.
+		// smaller.
 		const ui::Font* sizes[] = {
 			&TextFont(), &ctx.FontAt(ResolvedRole(), ctx.DesignHeight() * kReasonStep),
 			&ctx.FontAt(ResolvedRole(), ctx.DesignHeight())};
@@ -133,9 +132,13 @@ bool IdChar(char c) {
 }
 } // namespace
 
-AssetDialog::AssetDialog(gfx::GraphicsDevice& device, Window& window)
+AssetDialog::AssetDialog(gfx::GraphicsDevice& device, Window& window, ui::FontLibrary& fonts)
 	: m_device(device), m_window(window) {
-	m_ui = std::make_unique<ui::UIContext>(device, "", 18.0f);
+	// From the library, like every other dialog (code-review C89): it was the
+	// last owned-font context - Consolas at a fixed 18 px whatever the window,
+	// where FontAt ignored role and size, so the text and title scales did
+	// nothing and its rows were sized for text twice the size drawn in them.
+	m_ui = std::make_unique<ui::UIContext>(fonts, ui::FontRole::Body, 18.0f);
 	m_ui->Root().fontScale = ui::kDialogTextScale; // inherits — see LevelSettings
 	m_closeIcon = CloseIcon(device);
 }
@@ -578,7 +581,9 @@ float AssetDialog::PreviewRadius() const {
 
 void AssetDialog::Update(const Input& input, float width, float height, float dt) {
 	if (!m_open) return;
-	m_ui->GetFont().Commit(); // flush glyphs cached last frame, before this frame draws
+	// The editor dialogs' size rule. GameUI::UpdateFonts commits every library
+	// font once a frame, so nothing is flushed here.
+	m_ui->UseFont(ui::FontRole::Body, std::clamp(height * 0.020f, 12.0f, 24.0f));
 	m_orbit += dt * 0.6f;
 	if (m_uiRebuild) { // deferred from a widget callback (Clear kills the caller)
 		m_uiRebuild = false;
@@ -615,10 +620,11 @@ void AssetDialog::Render(gfx::SpriteBatch& batch, float width, float height) {
 	// owner blits the rendered model into PreviewRect afterwards.
 	m_ui->Render(batch, width, height);
 
-	ui::Font& font = m_ui->GetFont();
-
-	// While baking, freeze the form behind a notice (the owner runs AssetBaker).
+	// While baking, freeze the form behind a notice (the owner runs AssetBaker),
+	// at the form's own reading size.
 	if (m_busy) {
+		const ui::Font& font =
+			m_ui->FontAt(ui::FontRole::Body, m_ui->DesignHeight() * ui::kDialogTextScale);
 		batch.DrawRect(panel, {0.0f, 0.0f, 0.0f, 0.55f});
 		const std::string msg = loc::Tr("newasset.baking");
 		font.Draw(batch, msg, panel.x + (panel.w - font.MeasureWidth(msg)) * 0.5f,

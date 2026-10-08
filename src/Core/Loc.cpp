@@ -103,6 +103,28 @@ size_t LogMissingKeys(const std::string& referencePath) {
 	return missing.size();
 }
 
+std::vector<u32> CodePoints() {
+	std::vector<u32> out;
+	for (const auto& [key, value] : g_table) {
+		for (size_t i = 0; i < value.size();) {
+			const std::string_view ch = utf8::CharAt(value, i);
+			i += ch.size();
+			// One whole sequence: the lead byte's payload, then six bits a
+			// continuation. A cut-short one is skipped - the font draws it as
+			// '?', which is Latin-1.
+			const unsigned char lead = static_cast<unsigned char>(ch[0]);
+			if (lead < 0x80 || ch.size() != utf8::SequenceLength(lead)) continue;
+			u32 cp = lead & (0x7Fu >> ch.size());
+			for (size_t k = 1; k < ch.size(); ++k)
+				cp = (cp << 6) | (static_cast<unsigned char>(ch[k]) & 0x3Fu);
+			if (cp >= 256) out.push_back(cp);
+		}
+	}
+	std::ranges::sort(out);
+	out.erase(std::unique(out.begin(), out.end()), out.end());
+	return out;
+}
+
 std::string Tr(std::string_view key) { return std::string(View(key)); }
 
 std::string_view View(std::string_view key) {

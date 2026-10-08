@@ -849,8 +849,15 @@ Key conventions (memorize, they bite):
   strings, and rebuilds every page next frame (GameUI::RebuildForLanguage —
   deferred via Game::m_pendingLanguage because the rebuild destroys the
   dropdown; an in-game switch clears the HUD message log). ui::Font bakes
-  Latin-1 (32..255) and Draw/MeasureWidth decode UTF-8, so Western European
-  scripts work out of the box; other scripts need a wider bake range.
+  Latin-1 (32..255) and Draw/MeasureWidth decode UTF-8; every load of a
+  language also PRE-WARMS the code points its .lang text uses past Latin-1
+  (loc::CodePoints -> FontLibrary::Prewarm: every live font now, every later
+  one at birth - code-review C229), so an em-dash in a tooltip or a Cyrillic
+  word is never first met mid-play. A glyph met later anyway (a name typed in
+  another script) is a LATE glyph, NOT excused: the allocation guard reports
+  it, and `fonts` counts them (`late=`). Checked by `AllocTest -Effects` (its
+  plaque's dash, `efftips=`) and `-Effects -Language ru` (`lang <code>
+  unsaved` switches without touching settings.ini).
   A FACE MUST ALSO HAVE THE SCRIPT: a .lang file names its own face for a role
   that lacks it - `lang.font.<role> = <file under assets/>` + optional
   `.scale` (Game::ApplyLanguageFonts; docs/fonts.md Phase 6). ru.lang draws the
@@ -4309,15 +4316,24 @@ and answers: docs/transparency-notes.md; each phase's AS BUILT is in the plan.
   UNDER it and the wheel by whoever can ACT on it (ConsumeMouse / ConsumeWheel
   are separate; a modal takes both), and input is CLIPPED like drawing, so a
   scrolled-out row is not hot. A widget never claims a pixel it does not paint.
-  Fonts track the window height too (Font::SetHeight
-  re-bakes the atlas, driven from the top of Game::Update).
+  Fonts track the window height too: a Font is ONE size for life, and every
+  context re-asks the library for its size each frame (GameUI::UpdateFonts,
+  debounced, from the top of Game::Update). Every UIContext draws from the
+  library - the owned-font form and Font::SetHeight went with their last caller,
+  the asset dialog (code-review C89).
   TYPE is addressed by ROLE, never by path (docs/fonts.md; assets/fonts/fonts.cat
   maps Body/Display/Script/Mono → file + an optical `scale`, live-switchable with
   the console `font <role> <name|index|next|prev|off>` / `font scale` / `font
   save`). UI\FontLibrary shares face bytes per path and hands out ONE Font per
-  (face, ROUNDED pixel height) — a safety property, not tidiness: Font re-rasters
-  every glyph in SetHeight and Commit calls WaitIdle, so two owners sharing a Font
-  at different sizes would re-bake each other every frame. FACE AND SIZE ARE TWO
+  (face, ROUNDED pixel height), never evicted - so a size must be SETTLED before
+  it is asked for: each new one is an atlas, a GPU drain and an SRV slot for the
+  life of the game. A SIZE ONLY BEING TRIED is measured, not made
+  (`UIContext::FontHeightAt` / `FontLibrary::HeightAt`, the same rounding as
+  Get), and a floating panel's text holds its drag-start size until a resize
+  drag ends (`FloatingPanel::TextScale` - its fontScale, the sheet's root font
+  and the party window's cards ask it, never Scale(); code-review C221). `fonts`
+  prints `live= peak=`, which AllocTest -Panels holds still across a Hands-grip
+  and a sheet resize. FACE AND SIZE ARE TWO
   INHERITED FIELDS on Widget, both optional and both flowing down the subtree like
   CSS: `fontRole` picks the face, `fontScale` the size, resolved in Layout BEFORE
   LayoutSelf. `fontScale` moves `em` but NOT `rem` (rem stays the CONTEXT root),

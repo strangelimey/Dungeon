@@ -1,7 +1,6 @@
 #include "UI/Font.h"
 
 #include "Assets/File.h"
-#include "Core/AllocTrack.h"
 #include "Core/Assert.h"
 #include "Core/Log.h"
 
@@ -77,24 +76,59 @@ FaceData LoadFace(const std::string& path) {
 	return std::make_shared<const std::vector<u8>>(std::move(*bytes));
 }
 
-Font::Font(gfx::GraphicsDevice& device, const std::string& path, float pixelHeight)
-	: Font(device, LoadFace(path), pixelHeight) {}
-
-Font::Font(gfx::GraphicsDevice& device, FaceData face, float pixelHeight)
+Font::Font(gfx::GraphicsDevice& device, FaceData face, float pixelHeight,
+		   std::span<const u32> warm)
 	: m_device(device), m_face(std::move(face)),
 	  m_info(std::make_unique<stbtt_fontinfo>()) {
 	DN_ASSERT(m_face && !m_face->empty(), "Font needs a non-empty face");
 	const u8* data = m_face->data();
 	stbtt_InitFont(m_info.get(), data, stbtt_GetFontOffsetForIndex(data, 0));
-	Rebake(std::round(pixelHeight));
+
+	// One size for life (a new size is a new Font - FontLibrary). Making one is
+	// a first-time bake, which FontLibrary::Get excuses where it makes it.
+	m_pixelHeight = std::round(pixelHeight);
+	m_scale = stbtt_ScaleForPixelHeight(m_info.get(), m_pixelHeight);
+	int ascent = 0, descent = 0, lineGap = 0;
+	stbtt_GetFontVMetrics(m_info.get(), &ascent, &descent, &lineGap);
+	m_ascent = static_cast<float>(ascent) * m_scale;
+
+	// Size the fresh atlas to the glyph height (~224 Latin glyphs of avg width
+	// ~0.6h pack within a 14h square); BakeAll grows it if the language needs
+	// more.
+	int size = kInitialAtlas;
+	while (size < static_cast<int>(m_pixelHeight * 14.0f) && size < kMaxAtlasSize)
+		size *= 2;
+	ResetAtlas(size);
+	// Latin-1, so Western text never pays the lazy-cache cost, then whatever
+	// else the language uses.
+	u32 latin[256 - 32];
+	for (u32 cp = 32; cp < 256; ++cp) latin[cp - 32] = cp;
+	m_baking = true;
+	BakeAll(latin);
+	BakeAll(warm);
+	m_baking = false;
+	Commit();
 }
 
 Font::~Font() = default;
 
-void Font::SetHeight(float pixelHeight) {
-	pixelHeight = std::round(pixelHeight);
-	if (pixelHeight == m_pixelHeight || pixelHeight <= 0) return;
-	Rebake(pixelHeight); // Commit() inside drains the GPU before swapping atlases
+void Font::Prewarm(std::span<const u32> codepoints) {
+	m_baking = true;
+	BakeAll(codepoints);
+	m_baking = false;
+	Commit(); // nothing new = no upload
+}
+
+void Font::BakeAll(std::span<const u32> codepoints) const {
+	for (;;) {
+		for (u32 cp : codepoints) EnsureGlyph(cp);
+		if (!m_growNeeded) return;
+		// Something did not fit: double (repacking what is cached) and go round
+		// again for what the full atlas turned away. At the cap EnsureGlyph
+		// caches the rest as empty quads, so this ends.
+		m_growNeeded = false;
+		Grow();
+	}
 }
 
 void Font::ResetAtlas(int size) const {
@@ -105,37 +139,6 @@ void Font::ResetAtlas(int size) const {
 	m_glyphs.clear();
 }
 
-void Font::Rebake(float pixelHeight) {
-	// A new size (creation, or the window height changed): a whole-atlas bake.
-	const alloc::Excused excuse;
-	m_pixelHeight = pixelHeight;
-	m_scale = stbtt_ScaleForPixelHeight(m_info.get(), pixelHeight);
-
-	int ascent = 0, descent = 0, lineGap = 0;
-	stbtt_GetFontVMetrics(m_info.get(), &ascent, &descent, &lineGap);
-	m_ascent = static_cast<float>(ascent) * m_scale;
-
-	// Re-raster the glyphs already in use (a height change), or pre-warm Latin-1
-	// on a fresh font so Western text never pays the lazy-cache cost.
-	std::vector<u32> known;
-	known.reserve(m_glyphs.empty() ? 224 : m_glyphs.size());
-	if (m_glyphs.empty())
-		for (u32 cp = 32; cp < 256; ++cp) known.push_back(cp);
-	else
-		for (const auto& [cp, g] : m_glyphs) known.push_back(cp);
-
-	// Size the fresh atlas to the glyph height (~224 Latin glyphs of avg width
-	// ~0.6h pack within a 14h square); grow below if the working set needs it.
-	int size = kInitialAtlas;
-	while (size < static_cast<int>(pixelHeight * 14.0f) && size < kMaxAtlasSize)
-		size *= 2;
-	ResetAtlas(size);
-	for (u32 cp : known) EnsureGlyph(cp);
-	while (m_growNeeded) { m_growNeeded = false; Grow(); } // keep doubling until all fit
-
-	Commit();
-}
-
 void Font::Grow() const {
 	std::vector<u32> known;
 	known.reserve(m_glyphs.size());
@@ -143,17 +146,24 @@ void Font::Grow() const {
 
 	const int next = std::min(m_atlasSize * 2, kMaxAtlasSize);
 	ResetAtlas(next);
+	// A repack, not new glyphs: none of these is late.
+	const bool baking = m_baking;
+	m_baking = true;
 	for (u32 cp : known) EnsureGlyph(cp);
+	m_baking = baking;
 	m_dirty = true;
 }
 
 const Font::Glyph* Font::EnsureGlyph(u32 cp) const {
 	if (auto it = m_glyphs.find(cp); it != m_glyphs.end()) return &it->second;
-	// A MISS is a first-time bake - a character outside the pre-warmed Latin-1
-	// set (a dash in a description), drawn for the first time at this size.
-	// Core/AllocTrack.h names that case as allowed in a steady frame; the hit
-	// above is what every later frame takes, and it stays guarded.
-	const alloc::Excused excuse;
+	// A MISS outside a deliberate bake is a LATE glyph: a character neither
+	// Latin-1 nor in the language's .lang file (FontLibrary::Prewarm), drawn for
+	// the first time at this size. It is NOT excused (code-review C229): it
+	// re-uploads the whole atlas behind a GPU drain at the next Commit, and in
+	// a guarded frame the allocation guard says so. It used to be excused as
+	// "a first-time bake", which hid every em-dash and every Cyrillic letter.
+	// Counted where it is CACHED below - a glyph turned away by a full atlas is
+	// met again and counted then.
 
 	int advance = 0, lsb = 0;
 	stbtt_GetCodepointHMetrics(m_info.get(), static_cast<int>(cp), &advance, &lsb);
@@ -181,6 +191,7 @@ const Font::Glyph* Font::EnsureGlyph(u32 cp) const {
 			// At the cap: cache as an (invisible) zero-size quad so layout still
 			// advances and we never thrash retrying a glyph that can't fit.
 			g.size = {0, 0};
+			if (!m_baking) ++m_lateGlyphs;
 			return &m_glyphs.emplace(cp, g).first->second;
 		}
 		// Rasterize straight into the atlas (row stride = atlas width).
@@ -193,16 +204,22 @@ const Font::Glyph* Font::EnsureGlyph(u32 cp) const {
 		m_rowH = std::max(m_rowH, gh);
 		m_dirty = true;
 	}
+	if (!m_baking) ++m_lateGlyphs;
 	return &m_glyphs.emplace(cp, g).first->second;
 }
 
 void Font::Commit() {
 	if (!m_growNeeded && !m_dirty) return; // the steady case: nothing new
 	// Uploading glyphs baked since the last commit (and growing the atlas they
-	// overflowed): the other half of EnsureGlyph's first-time bake, excused
-	// for the same reason.
-	const alloc::Excused excuse;
-	if (m_growNeeded) { m_growNeeded = false; Grow(); }
+	// overflowed). Not excused here: a font's making and a Prewarm are excused
+	// by their callers, and what is left is a late glyph's upload - the other
+	// half of the miss EnsureGlyph no longer excuses either.
+	if (m_growNeeded) {
+		m_growNeeded = false;
+		Grow();
+		// The glyph that overflowed was turned away, not cached; it is met
+		// again (and packed) the next time it is drawn.
+	}
 	if (!m_dirty) return;
 
 	// White RGBA atlas with glyph coverage in alpha (glyphs tint via vertex

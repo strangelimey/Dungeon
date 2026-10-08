@@ -3,8 +3,12 @@
 //
 // stb_truetype rasterizes glyphs INTO a growing alpha atlas the first time
 // each codepoint is drawn or measured (stored as white RGBA so glyphs tint via
-// vertex color); Latin-1 (32..255) is pre-warmed at bake time so Western text
-// costs nothing extra at runtime. Any Unicode codepoint the loaded font has a
+// vertex color); Latin-1 (32..255) is pre-warmed at bake time, and so is every
+// code point the active language's .lang file uses (FontLibrary::Prewarm, at
+// each language load - code-review C229), so the game's own text costs nothing
+// at runtime. A glyph met after that (a name typed in another script) is a LATE
+// bake: it is counted (LateGlyphs) and, inside a guarded frame, reported by the
+// allocation guard rather than excused. Any Unicode codepoint the loaded font has a
 // glyph for is supported — Cyrillic, Greek, CJK, etc. — without a fixed bake
 // range; the cache simply grows. (CJK still needs a font that CONTAINS those
 // glyphs: the Windows fallbacks — Consolas/Segoe UI/Arial — cover Latin +
@@ -18,10 +22,10 @@
 // first seen during a frame's draw pass therefore appears one frame later; UI
 // text is on screen for many frames, so this is invisible in practice.
 //
-// SetHeight() re-bakes every cached glyph at the new size when the window
-// height changes, so text scales with the normalized UI (see Widget.h). If the
-// requested font file is missing it falls back to standard Windows fonts
-// (Consolas -> Segoe UI -> Arial).
+// A Font is ONE size for life: a new size is a new Font, which FontLibrary
+// vends per (face, pixel height) - text tracks the window by asking the library
+// for another (see Widget.h). If the requested font file is missing it falls
+// back to standard Windows fonts (Consolas -> Segoe UI -> Arial).
 // ============================================================================
 #pragma once
 
@@ -31,6 +35,7 @@
 #include "Graphics/Texture.h"
 
 #include <memory>
+#include <span>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -40,8 +45,8 @@ struct stbtt_fontinfo; // resident font info, kept opaque to avoid leaking stb
 
 namespace dungeon::ui {
 
-// The bytes of one typeface. Kept resident because SetHeight re-rasterizes from
-// them, and SHARED because a face is immutable once loaded and the same file
+// The bytes of one typeface. Kept resident because a glyph first met later is
+// rasterized from them, and SHARED because a face is immutable once loaded and the same file
 // backs every size it is drawn at: FontLibrary hands one blob to many Fonts
 // instead of each keeping its own copy (see FontLibrary.h).
 using FaceData = std::shared_ptr<const std::vector<u8>>;
@@ -53,22 +58,27 @@ FaceData LoadFace(const std::string& path);
 
 class Font {
 public:
-	// Tries `path` first, then common Windows fonts as fallback.
-	Font(gfx::GraphicsDevice& device, const std::string& path, float pixelHeight);
 	// Draws from an already-loaded face. `face` must be non-null; several Fonts
-	// (one per pixel size) normally share one blob.
-	Font(gfx::GraphicsDevice& device, FaceData face, float pixelHeight);
+	// (one per pixel size) normally share one blob. Bakes Latin-1 plus `warm`
+	// (the language's code points) and uploads, so make it between frames.
+	Font(gfx::GraphicsDevice& device, FaceData face, float pixelHeight,
+		 std::span<const u32> warm = {});
 	~Font(); // out-of-line for the unique_ptr<stbtt_fontinfo> member
 
-	// Re-bakes every cached glyph at a new size. No-op unless the rounded
-	// height changes; otherwise rebuilds the atlas (Commit drains the GPU
-	// first), so call between frames, not while recording.
-	void SetHeight(float pixelHeight);
+	// Bakes every code point of `codepoints` not yet in the atlas and uploads
+	// them - a language load (FontLibrary::Prewarm). Drains the GPU when there
+	// is anything new, so call between frames, never mid-record.
+	void Prewarm(std::span<const u32> codepoints);
 
 	// Uploads any glyphs cached since the last call to the GPU atlas. Cheap
 	// no-op when nothing new was seen. Drains the GPU when it does upload, so
 	// call once per frame before drawing — never mid-record.
 	void Commit();
+
+	// Glyphs baked AFTER construction and the last Prewarm - met lazily in a
+	// draw or a measure. Each is a whole-atlas upload with a GPU drain on the
+	// next Commit; `fonts` prints the library's total.
+	u64 LateGlyphs() const { return m_lateGlyphs; }
 
 	float Height() const { return m_pixelHeight; }
 	float LineAdvance() const { return m_pixelHeight * 1.25f; }
@@ -85,9 +95,12 @@ private:
 		float advance = 0;
 	};
 
-	void Rebake(float pixelHeight);     // (re)compute metrics + re-raster all glyphs
 	void ResetAtlas(int size) const;    // clear the CPU atlas + shelf packer
 	void Grow() const;                  // double the atlas, re-raster every glyph
+	// Bakes every code point of `codepoints`, growing the atlas as often as it
+	// takes - each growth repacks what is cached and the pass runs again for
+	// what the full atlas turned away. Uploads nothing (Commit does).
+	void BakeAll(std::span<const u32> codepoints) const;
 	// Rasterizes `cp` into the atlas on first use; returns its cached glyph, or
 	// nullptr if it was deferred (atlas full this frame — packs after Grow).
 	const Glyph* EnsureGlyph(u32 cp) const;
@@ -108,6 +121,10 @@ private:
 	mutable std::unordered_map<u32, Glyph> m_glyphs;
 	mutable bool m_dirty = false;                // CPU atlas changed since Commit
 	mutable bool m_growNeeded = false;           // a glyph overflowed; grow at Commit
+	// Set while a deliberate bake (construction, Prewarm) runs, so the glyphs
+	// it makes are not counted as late.
+	mutable bool m_baking = false;
+	mutable u64 m_lateGlyphs = 0;
 };
 
 } // namespace dungeon::ui

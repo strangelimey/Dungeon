@@ -20,8 +20,10 @@
 // Note() itself never allocates and never locks, so it is safe to leave on.
 //
 // EXCUSED SCOPES: a path that is ALLOWED to allocate inside an otherwise
-// steady frame (a dev-console command, an editor dialog, a first-time bake)
-// wraps itself in alloc::Excused. That does not stop the counting — the
+// steady frame (a dev-console command, an editor dialog, a first-time bake of
+// a font SIZE - FontLibrary::Get's miss) wraps itself in alloc::Excused. A
+// GLYPH is not one: a language's glyphs are pre-warmed at its load, and a glyph
+// met later is reported (code-review C229). That does not stop the counting - the
 // allocation still lands in `allocs`, it also lands in `excused` — so the raw
 // number stays honest and only the VIOLATION count (allocs - excused) forgives
 // it. Reporting code must excuse itself too, and log:: does that for every

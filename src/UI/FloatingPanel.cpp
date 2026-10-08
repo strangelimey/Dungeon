@@ -19,10 +19,12 @@ constexpr float kGripRem = 1.2f;  // a grip's side
 constexpr float kSnapRem = 0.5f;  // how near an edge has to come to catch
 }
 
+// Measured, not made: SnapResize asks it of up to five trial scales a frame and
+// a resize drag of every scale it passes, and each new integer size FontAt is
+// asked for bakes an atlas behind a GPU drain that is never freed (code-review
+// C221). The height is the library's rule, so it is the font's own.
 float FloatingPanel::EmAt(UIContext& ctx, float s) const {
-	const FontRole role = ResolvedRole();
-	return s == 1.0f ? ctx.FontFor(role).Height()
-					 : ctx.FontAt(role, ctx.DesignHeight() * s).Height();
+	return ctx.FontHeightAt(ResolvedRole(), ctx.DesignHeight() * s);
 }
 
 gfx::Rect FloatingPanel::GripRect(int corner) const {
@@ -55,6 +57,7 @@ void FloatingPanel::StartDrag(Drag kind, float mx, float my) {
 	m_startW = std::max(1.0f, px.w);
 	m_startH = std::max(1.0f, px.h);
 	m_startScale = Scale();
+	m_dragLow = m_dragHigh = m_startScale;
 	// PIN the spot the panel is at: one still on its default would otherwise
 	// follow its default rule while growing (a dock anchored to the right edge
 	// would grow leftward, its top-left sliding away from the pointer).
@@ -196,6 +199,10 @@ void FloatingPanel::UpdateBeforeChildren(UIContext& ctx) {
 	// has wandered, and before any child can see it. Ctrl may already be up.
 	if (m_drag != Drag::None) {
 		if (!input->IsMouseDown(MouseButton::Left)) {
+			m_drags.lastResize = m_drag == Drag::Resize;
+			++(m_drags.lastResize ? m_drags.resizes : m_drags.moves);
+			m_drags.low = m_dragLow;
+			m_drags.high = m_dragHigh;
 			m_drag = Drag::None;
 			m_guideX = m_guideY = {};
 			if (onChanged) onChanged();
@@ -214,6 +221,8 @@ void FloatingPanel::UpdateBeforeChildren(UIContext& ctx) {
 			const float f = 1.0f + 0.5f * ((mx - m_grabX) / m_startW +
 										   (my - m_grabY) / m_startH);
 			*scale = SnapResize(ctx, std::clamp(m_startScale * f, minScale, maxScale), reach);
+			m_dragLow = std::min(m_dragLow, *scale);
+			m_dragHigh = std::max(m_dragHigh, *scale);
 		}
 		m_arranging = true;
 		m_cursor = m_drag == Drag::Move ? 1 : 2;
@@ -384,7 +393,7 @@ void FloatingLayer::LayoutSelf(UIContext& ctx) {
 			continue;
 		}
 		const float s = panel->Scale();
-		if (panel->scalesText) panel->fontScale = s;
+		if (panel->scalesText) panel->fontScale = panel->TextScale();
 		Vec2 size = panel->size(ctx, s);
 		size.x = std::clamp(size.x, 1.0f, win.w);
 		size.y = std::clamp(size.y, 1.0f, win.h);

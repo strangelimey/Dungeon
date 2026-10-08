@@ -14,6 +14,8 @@
 // ============================================================================
 #pragma once
 
+#include "Core/Types.h"
+
 #include <format>
 #include <string>
 #include <string_view>
@@ -33,6 +35,12 @@ bool LoadFile(const std::string& path);
 // instead of during play. Returns the missing count (0 = in sync or the
 // reference file is unreadable).
 size_t LogMissingKeys(const std::string& referencePath);
+
+// Every code point past Latin-1 (>= 256) the active table's TEXT uses, sorted
+// and distinct - what a font must hold beyond the Latin-1 it always bakes
+// (ui::FontLibrary::Prewarm, at each language load: code-review C229). en.lang's
+// is a handful of dashes and arrows; ru.lang's is its alphabet.
+std::vector<u32> CodePoints();
 
 // The active language's text for `key`, or the key itself when missing.
 //

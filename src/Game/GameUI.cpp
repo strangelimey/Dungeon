@@ -2313,10 +2313,13 @@ void GameUI::UpdateFonts(float dt) {
 	// The sheet is a floating window whose scale IS its context's root font
 	// size (BuildCharacterSheet): the panel's clamped scale, so a slider set
 	// past the sheet's cap scales the text no further than the window - and no
-	// further than the window fits (SheetFitScale, the panel's own answer).
+	// further than the window fits (SheetFitScale, the panel's own answer). Its
+	// TEXT scale: held at the drag's start while a resize drag runs, so the drag
+	// does not bake a root font for every pixel size it crosses (code-review C221).
 	const float windowW = static_cast<float>(m_window.Width());
 	const ui::FloatingPanel* sheetPanel = m_hudPanels[kHudSheet];
-	const float sheetScale = sheetPanel ? SheetFitScale(sheetPanel->Scale(), windowW, windowH) : 1.0f;
+	const float sheetScale =
+		sheetPanel ? SheetFitScale(sheetPanel->TextScale(), windowW, windowH) : 1.0f;
 	m_sheetUi.UseFont(ui::FontRole::Body, kSheetFontH * m_fontScale * sheetScale);
 	m_confirmUi.UseFont(ui::FontRole::Body, kMenuFontH * m_fontScale);
 	m_titleFont = &m_fonts.Get(ui::FontRole::Display, kTitleFontH * m_fontScale);

@@ -38,7 +38,7 @@ int PartyWindow::InventoryRows() const {
 	return rows;
 }
 
-Vec2 PartyWindow::PanelSize(ui::UIContext& ctx, float s, float em,
+Vec2 PartyWindow::PanelSize(ui::UIContext& /*ctx*/, float s, float em,
 							CharacterSheet::Mode mode) const {
 	if (mode != CharacterSheet::Mode::Inventory || !squareDesign) return SizeForEm(em);
 	// The chrome stays in the window's card em; the cards are the squares',
@@ -46,6 +46,8 @@ Vec2 PartyWindow::PanelSize(ui::UIContext& ctx, float s, float em,
 	// sheet's own squares are measured in (not the drawn face's height, a
 	// tenth larger).
 	const float k = em * kCardScale;
+	// Arithmetic, no font made: `s` may be a trial scale under a resize drag
+	// (C221), and the square is the design em, not a drawn face's height.
 	const float sq = squareDesign() * s;
 	const float w = (2.0f * kPadEm + kGapEm) * k + 2.0f * CharacterSheet::kCardInvWEm * sq;
 	const float h = (2.0f * kPadEm + kTabEm + 2.0f * kGapEm + kStatusEm) * k +
@@ -112,8 +114,9 @@ void PartyWindow::LayoutSelf(ui::UIContext& ctx) {
 	const float cardW = std::max((px.w - 2.0f * pad - gap) * 0.5f, 0.0f);
 	const float cardH = std::max((px.h - top - gap - kStatusEm * k - pad) * 0.5f, 0.0f);
 	// On the Inventory tab the cards' squares are the SHEET'S (its text size,
-	// times this panel's scale so the window still scales as a whole).
-	const float panelScale = m_panel ? m_panel->Scale() : 1.0f;
+	// times this panel's scale so the window still scales as a whole). Its TEXT
+	// scale, held while a resize drag runs (C221).
+	const float panelScale = m_panel ? m_panel->TextScale() : 1.0f;
 	const bool squares = CurrentMode() == CharacterSheet::Mode::Inventory && squareDesign &&
 						 ctx.DesignHeight() > 0.0f;
 	const float scale = squares ? squareDesign() * panelScale / ctx.DesignHeight()

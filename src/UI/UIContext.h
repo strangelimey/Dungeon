@@ -52,18 +52,14 @@ struct Theme {
 // top and receive input first.
 class UIContext {
 public:
-	// Owns its own Font, loaded from `fontPath` (empty = the system fallback).
-	// The pre-FontLibrary form, kept while the remaining owners migrate.
-	UIContext(gfx::GraphicsDevice& device, const std::string& fontPath,
-			  float fontHeight);
-	// Draws in `role`, resolved through the shared library — the form to use.
-	// `library` must outlive the context.
+	// Draws in `role`, resolved through the shared library - the only form
+	// (the owned-Font one went with its last caller, the asset dialog, in
+	// code-review C89). `library` must outlive the context.
 	UIContext(FontLibrary& library, FontRole role, float fontHeight);
 
 	// Re-resolves this context's font: a new size (window resize) or, once the
 	// audition can swap faces live, a new face for the same role. Cheap enough
-	// to call every frame; a no-op in the owned-Font form, which keeps its size
-	// through Font::SetHeight instead.
+	// to call every frame.
 	void UseFont(FontRole role, float pixelHeight);
 
 	// Creates a TOP-LEVEL widget — a child of the root, so its bounds are
@@ -99,8 +95,7 @@ public:
 	// The font for `role` at THIS context's authored size — how a widget with a
 	// font role resolves (Widget::fontRole). The role's optical scale is applied
 	// by the library, so a Script label sits on the same baseline grid as the
-	// Body text around it. In the owned-Font form there is no library and every
-	// role resolves to the one font.
+	// Body text around it.
 	const Font& FontFor(FontRole role) const;
 
 	// A role at an EXPLICIT size — for text that is deliberately larger than the
@@ -109,6 +104,12 @@ public:
 	// it in rem (Widget::Rem) and it keeps tracking the window like everything
 	// else. The role's optical scale still applies.
 	const Font& FontAt(FontRole role, float pixelHeight) const;
+	// The HEIGHT FontAt(role, pixelHeight) would have, without making the font
+	// (FontLibrary::HeightAt). For a size that is only being TRIED - a panel's
+	// scale solved under a resize drag, a size asked of every candidate - since
+	// each new integer size FontAt is asked for bakes an atlas, drains the GPU
+	// and is never freed (code-review C221).
+	float FontHeightAt(FontRole role, float pixelHeight) const;
 
 	// The size this context was AUTHORED at, before any role's optical scale.
 	// This — not GetFont().Height() — is what to multiply when asking FontAt for
@@ -189,10 +190,8 @@ public:
 	void OpenPopupNext(int n) { m_openPopupNext = n; }
 
 private:
-	// Exactly one of these backs m_font: an owned Font (legacy form) or one
-	// borrowed from the library. Library fonts live as long as the library, so
-	// the borrowed pointer is stable (see FontLibrary.h "LIFETIME").
-	std::unique_ptr<Font> m_ownedFont;
+	// m_font is borrowed from the library. Library fonts live as long as the
+	// library, so the pointer is stable (see FontLibrary.h "LIFETIME").
 	FontLibrary* m_library = nullptr;
 	FontRole m_role = FontRole::Body;
 	Font* m_font = nullptr;

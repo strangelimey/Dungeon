@@ -99,17 +99,23 @@ void Game::RegisterDevCommands() {
 					   });
 	m_console.Register({.name = "lang",
 						.group = CmdGroup::Settings,
-						.params = "<code>",
+						.params = "<code> [unsaved]",
 						.summary = "switch language by code (e.g. en, de); saved unless a script ran it"},
 					   [this](const std::vector<std::string>& args) {
 						   if (!Need(m_console, args, 1)) return;
+						   const bool unsaved = args.size() > 1 && args[1] == "unsaved";
+						   if (args.size() > 1 && !unsaved) {
+							   m_console.RefuseUsage();
+							   return;
+						   }
 						   m_pendingLanguage = args[0]; // applied next frame
 						   // Typed, it is the Settings dropdown's switch and is
 						   // saved; from a SCRIPT it is drawn and never saved
 						   // (m_scriptLanguage), so a run cannot leave settings.ini
-						   // in its language.
-						   m_pendingLanguageScripted = EvalRunning();
-						   m_console.Print("language: " + args[0]);
+						   // in its language. `unsaved` asks for a script's switch
+						   // from the console: a harness's (AllocTest -Language).
+						   m_pendingLanguageScripted = EvalRunning() || unsaved;
+						   m_console.Print("language: " + args[0] + (unsaved ? " (unsaved)" : ""));
 					   });
 	m_console.Register({.name = "tp",
 						.group = CmdGroup::Party,
@@ -1775,6 +1781,12 @@ void Game::RegisterDevCommands() {
 		 .group = CmdGroup::Settings,
 		 .summary = "show each role's typeface, the installed faces and live atlases"},
 		[this](const std::vector<std::string>&) {
+			// One machine-readable line first: AllocTest -Panels holds `live` and
+			// `peak` still across a resize drag (code-review C221), and `late` is
+			// the glyphs met after the language's pre-warm (C229).
+			m_console.Print(std::format(
+				"font atlases: live={} peak={} warm={} late={}", m_fonts.Count(),
+				m_fonts.Peak(), m_fonts.WarmCount(), m_fonts.LateGlyphs()));
 			m_console.Print("roles:");
 			for (int i = 0; i < ui::kFontRoleCount; ++i) {
 				const auto role = static_cast<ui::FontRole>(i);
@@ -1790,7 +1802,9 @@ void Game::RegisterDevCommands() {
 			const auto live = m_fonts.LiveFonts();
 			m_console.Print(std::format("{} live atlas(es):", live.size()));
 			for (const auto& f : live)
-				m_console.Print(std::format("  {:>4}px  {}", f.pixelHeight, f.face));
+				m_console.Print(std::format("  {:>4}px  {}{}", f.pixelHeight, f.face,
+											f.late ? std::format("  ({} late glyphs)", f.late)
+												   : std::string()));
 		});
 
 	// Bare prints these forms; a bare <role> reports its face.

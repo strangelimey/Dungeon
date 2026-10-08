@@ -44,7 +44,9 @@
 // SIZE IS THE CONTENT'S. `size(ctx, scale)` answers in pixels - a HUD dock's
 // height follows from its width (square cells), so only the content can say.
 // The scale also becomes the panel's inherited fontScale, so text and every
-// em-sized detail inside grow with it.
+// em-sized detail inside grow with it - once a resize drag ENDS: during one the
+// text holds at its starting size (TextScale), since every font size is an
+// atlas that is never freed.
 //
 // INPUT. Without Ctrl the content has the pointer, and the panel claims only
 // what is left (UpdateSelf, after the children) - it is an opaque surface, and
@@ -113,9 +115,32 @@ public:
 		const float s = scale ? *scale : 1.0f;
 		return s < minScale ? minScale : (s > maxScale ? maxScale : s);
 	}
-	// The em a panel's content measures in at `s` - the font its subtree will
-	// resolve, asked of the library exactly as Widget::Layout will ask it.
+	// The scale the panel's TEXT is drawn at: Scale(), except while a resize
+	// drag runs, when it holds at the scale the drag began from until the
+	// button lifts (code-review C221). The box follows the pointer; the text
+	// settles once, at the release, instead of baking a font for every pixel
+	// size the drag crosses. Whatever sizes text from a panel's scale (the
+	// fontScale below, the sheet's root font, the party window's cards) asks
+	// this, never Scale().
+	float TextScale() const {
+		return m_drag == Drag::Resize ? m_startScale : Scale();
+	}
+	// The em a panel's content measures in at `s` - the height of the font its
+	// subtree would resolve, MEASURED rather than made (UIContext::FontHeightAt),
+	// so a size only tried makes no atlas.
 	float EmAt(UIContext& ctx, float s) const;
+
+	// What the drags that ENDED did, for a harness (`hudpanel list`): how many
+	// moved the panel and how many resized it, and of the last one its kind and
+	// the range of scales it crossed (start included, so a move reads start..
+	// start). A resize pulled out and back lands where it began, so only the
+	// range says the pull was a resize at all (code-review C221's check).
+	struct DragRecord {
+		int moves = 0, resizes = 0;
+		bool lastResize = false;
+		float low = 1.0f, high = 1.0f;
+	};
+	const DragRecord& Drags() const { return m_drags; }
 
 protected:
 	void UpdateBeforeChildren(UIContext& ctx) override;
@@ -152,6 +177,8 @@ private:
 	float m_startX = 0.0f, m_startY = 0.0f; // panel top-left at the press (px)
 	float m_startW = 0.0f, m_startH = 0.0f; // panel size at the press (px)
 	float m_startScale = 1.0f;
+	float m_dragLow = 1.0f, m_dragHigh = 1.0f; // the scales this drag crossed
+	DragRecord m_drags;
 	// The edges the drag snapped to this frame, as hairline guides (w or h 0 =
 	// none): a vertical line for an x snap, a horizontal one for a y snap.
 	gfx::Rect m_guideX{}, m_guideY{};

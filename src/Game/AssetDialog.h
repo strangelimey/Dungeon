@@ -93,7 +93,7 @@ public:
 		bool NeedsBake() const { return source == Source::Import; }
 	};
 
-	AssetDialog(gfx::GraphicsDevice& device, Window& window);
+	AssetDialog(gfx::GraphicsDevice& device, Window& window, ui::FontLibrary& fonts);
 
 	bool IsOpen() const { return m_open; }
 	// Opens for a category (display label + project catalog key); textureSet
