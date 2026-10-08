@@ -732,4 +732,11 @@ raised that is yours, not a fix. Each line names the batch and its commit.
 - **Checks deferred to the roll-up** under the new judging policy: the 89-tile
   asset picker survey (batch 58), a /check-profile run (batches 57 and 70 - the
   frame cap changed), and mutation runs for batch 44's three new AllocTest
-  checks.
+  checks. The roll-up itself (CheckAll -Full, 2026-10-07, 2795 s) passed 39 of
+  40 rows, /check-profile and InGameTest's sheet-fit sweep included; the picker
+  survey and the batch 44 mutations are still owed.
+- **AllocTest -Rest flakes on its one click.** In the roll-up the Rest button's
+  single click, sent after a fixed 3 s sleep, did not start a rest ("the party
+  was not resting"), so the window measured nothing; it passed three runs of
+  three alone. The harness could confirm the rest began (and click again while
+  still inside the window) instead of trusting one click.
