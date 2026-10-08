@@ -52,6 +52,7 @@ harness refuses a stale exe on its own (exit 4).
   display        full   self-testable  a Windowed Apply lands centred in the chosen monitor's work area, unsaved from a script; on WARP the monitors are still listed, a display change re-reads them; a relaunch keeps -project and the parent's log
   paths          full   self-testable  the game and an AssetBaker import run from a folder outside ASCII (UTF-8 code page)
   baked          full   self-testable  a .dds older than its PNG, or a model sidecar missing or stale, is refused and said (once a model)
+  modelload      full   no self-test   the model loaders read what a file says: v//n OBJ normals, a glTF with no material, sidecars by image index
   stale          full   no self-test   a harness refuses a stale exe, and CheckAll builds what it runs (StaleTest)
   build-profile  full   no self-test   the release-profile build compiles clean (DN_PROFILE rots unwatched too)
   profile        full   self-testable  the frame budget still adds up, and the verdict still reacts to load

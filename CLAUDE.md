@@ -1243,9 +1243,15 @@ sixteen kinds in another kind's pose; each kind now owns its icon pose).
   bones excluded); non-humanoid rigs may need --mesh-yaw/--keep-fingers tuning.
 - `AssetBaker mips <assets>` — rebakes derived .dds (BC7 encoder in
   tools/AssetBaker/Bc7Encoder.cpp; use the RELEASE baker), for the texture sets
-  AND for every image EMBEDDED in a model: `<model file>.<index>.dds` beside it
-  (skel_warrior.gltf.3.dds; assets::EmbeddedImageSidecar names it, the index is
-  ModelData::images order). The game's model loaders load those instead of
+  AND for every image EMBEDDED in a model: `<model file>.img<index>.dds` beside
+  it (skel_warrior.gltf.img3.dds; assets::EmbeddedImageSidecar names it, the
+  index is the image's place in the FILE, `ModelData::imageSources` - NOT its
+  place in ModelData::images, the order materials first use them minus any
+  skipped image, which differs from file order in nearly every bought model:
+  code-review C396. The `img` is new with that rule, so a sidecar named the old
+  way, `<model file>.<n>.dds`, is simply not found - decoded and said, never
+  bound to the wrong material - and `model-images` deletes it). The game's
+  model loaders load those instead of
   decoding the PNG/JPEG inside a bought .glb (2k PNG decode + CPU mips was ~50 ms
   an image; skel_warrior's six cost ~320 ms of a level change, now ~50). A sidecar
   MISSING or OLDER than its model is decoded instead, and the game says so ONCE
@@ -3300,7 +3306,7 @@ Full per-phase history + gotchas live in the editor-overhaul memory.
     `git -C <populated> status --ignored --porcelain assets/models | grep '^!!'`
     (or just robocopy the whole `assets\models` dir — the committed `.gltf` that
     come with the checkout copy identically, so it's safe and future-proof, and
-    it also brings the `<model>.<n>.dds` embedded-image sidecars; without them
+    it also brings the `<model>.img<n>.dds` embedded-image sidecars; without them
     the game decodes those images instead, slower but correct).
   - `assets\portraits` - whole dir (thousands of bought `.png` + `.dds`; only
     the catalog and the four starter faces are tracked). NOT fatal when missing:

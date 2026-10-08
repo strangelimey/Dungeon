@@ -41,6 +41,7 @@ checks still passed. Only the check that reads the health record caught it.
   editor         full   no self-test   the editor, phase by phase (EditorTest.py, each phase mutation-tested)
   world          full   no self-test   the world tier: saves, worlds, dungeons, the world map (WorldTest.py)
   levelbuild     full   no self-test   the level generator, measured from the files it writes (LevelBuildTest.py)
+  modelload      full   no self-test   the model loaders read what a file says: v//n OBJ normals, a glTF with no material, sidecars by image index
   stale          full   no self-test   a harness refuses a stale exe, and CheckAll builds what it runs (StaleTest)
 ```
 <!-- END generated -->

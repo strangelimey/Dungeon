@@ -171,13 +171,21 @@ struct AnimationClipData {
 
 struct ModelData {
 	std::vector<MeshData> meshes;
+	// Never empty for a loaded model: a file with no material gets one default
+	// (MaterialData{}), so materials[0] is always safe to read (C360).
 	std::vector<MaterialData> materials;
 	std::vector<ImageData> images;
 	// Baked BC7 mip chains for embedded images (LoadOptions::bakedImages).
 	// Parallel to `images` when non-empty; an entry WITH levels replaces
 	// images[i], which is then left empty. Empty = every image was decoded.
 	std::vector<MipChain> imageMips;
-	SkeletonData skeleton;                 // empty if not skinned
+	// Parallel to `images`: the index each came from in the FILE's own image
+	// list (a glTF's `images` array). Not the same as its place in `images`,
+	// which is the order materials first use them and skips an image that
+	// failed to decode or is a data: URI. A sidecar is named by THIS
+	// (EmbeddedImageSidecar), so it cannot shift onto another image (C396).
+	std::vector<u32> imageSources;
+	SkeletonData skeleton;                // empty if not skinned
 	std::vector<AnimationClipData> clips;  // empty if no animations
 };
 
@@ -232,9 +240,16 @@ std::expected<ModelData, std::string> LoadModel(const std::string& path,
 												const LoadOptions& opts = {});
 
 // Where the baked mip chain of a model's embedded image `index` lives: beside
-// the model, "<model file>.<index>.dds" (skel_warrior.gltf.3.dds). The index is
-// ModelData::images order. The baker writes it, the loader reads it; both call
-// this so the name cannot drift.
+// the model, "<model file>.img<index>.dds" (skel_warrior.gltf.img3.dds). The
+// index is the image's place in the FILE (ModelData::imageSources), never its
+// place in ModelData::images: that is the order materials first use the
+// images, minus any that failed to load, so one skipped image moved every later
+// sidecar onto the wrong image (code-review C396). The `img` marks the rule:
+// sidecars named the old way ("<model file>.<n>.dds", n in first-use order -
+// most shipped models' first use differs from their file order) are not found,
+// so an unrebaked tree decodes and SAYS so rather than binding another
+// material's texture, and `AssetBaker model-images` deletes them. The baker
+// writes it, the loader reads it; both call this so the name cannot drift.
 std::string EmbeddedImageSidecar(const std::string& modelPath, size_t index);
 
 // Which of a model's images are sampled as sRGB: those a material uses as its

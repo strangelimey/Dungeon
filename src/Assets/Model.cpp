@@ -55,8 +55,10 @@ Mat4 ToMat4(const float m[16]) {
 // With `bakedImages`, an image whose baked sidecar (EmbeddedImageSidecar) is
 // current (assets::BakedIsCurrent against the model file) loads from THAT
 // instead - a BC7 mip chain in imageMips, images[i] left empty - and is never
-// decoded. The index a sidecar is named by is this same first-use order, which
-// the baker gets by running this same loader, so the two cannot disagree.
+// decoded. A sidecar is named by the image's index in the FILE (cgltf's
+// `images` array), recorded in imageSources for the baker - not by this
+// first-use order, which a skipped image (a failed decode, a data: URI) shifts,
+// handing every later image the next one's sidecar (code-review C396).
 struct ImageCache {
 	const cgltf_data* data;
 	std::filesystem::path baseDir;
@@ -65,15 +67,18 @@ struct ImageCache {
 	bool bakedImages = false;
 	std::unordered_map<const cgltf_image*, int> indices;
 	// Images decoded although the bake would have written a sidecar for them,
-	// by why: none on disk, or one older than the model (ReportUnbaked).
-	int missing = 0;
-	int stale = 0;
+	// by why: none on disk, or one older than the model (ReportUnbaked) - each
+	// by its index in the FILE, the number its sidecar is named by, so a reader
+	// of the line can hold it against the disk (tools\BakedTest.ps1).
+	std::vector<u32> missing;
+	std::vector<u32> stale;
 
 	enum class Sidecar { Missing, Stale, Rejected };
 
-	// The baked chain for the NEXT index, if there is a usable one; else why not.
-	std::optional<MipChain> Baked(Sidecar& why) {
-		const std::string sidecar = EmbeddedImageSidecar(modelPath, model->images.size());
+	// The baked chain for the file's image `source`, if there is a usable one;
+	// else why not.
+	std::optional<MipChain> Baked(size_t source, Sidecar& why) {
+		const std::string sidecar = EmbeddedImageSidecar(modelPath, source);
 		std::error_code ec;
 		if (!std::filesystem::exists(sidecar, ec)) {
 			why = Sidecar::Missing; // not baked: decode, as before the bake existed
@@ -98,13 +103,15 @@ struct ImageCache {
 	int Get(const cgltf_image* image) {
 		if (!image) return -1;
 		if (auto it = indices.find(image); it != indices.end()) return it->second;
+		const u32 source = static_cast<u32>(image - data->images);
 
 		std::optional<Sidecar> unbaked;
 		if (bakedImages) {
 			Sidecar why = Sidecar::Missing;
-			if (std::optional<MipChain> chain = Baked(why)) {
+			if (std::optional<MipChain> chain = Baked(source, why)) {
 				const int index = static_cast<int>(model->images.size());
 				model->images.emplace_back(); // placeholder: imageMips carries it
+				model->imageSources.push_back(source);
 				model->imageMips.resize(model->images.size());
 				model->imageMips.back() = std::move(*chain);
 				indices[image] = index;
@@ -129,11 +136,12 @@ struct ImageCache {
 			// image whose sides are not a multiple of 4 (BC7's block), which then
 			// decodes on every load by design and is nothing to report.
 			if (unbaked && loaded->width % 4 == 0 && loaded->height % 4 == 0) {
-				if (*unbaked == Sidecar::Missing) ++missing;
-				else if (*unbaked == Sidecar::Stale) ++stale;
+				if (*unbaked == Sidecar::Missing) missing.push_back(source);
+				else if (*unbaked == Sidecar::Stale) stale.push_back(source);
 			}
 			index = static_cast<int>(model->images.size());
 			model->images.push_back(std::move(*loaded));
+			model->imageSources.push_back(source);
 			if (!model->imageMips.empty()) model->imageMips.resize(model->images.size());
 		} else {
 			log::Warn("glTF image skipped: {}", loaded.error());
@@ -148,17 +156,28 @@ struct ImageCache {
 // so for a missing sidecar - the case a fresh fetch left behind (code-review
 // C437). Once a run because a model loads again on every level that uses it,
 // and the cause is the same each time. Model loading may run off the main
-// thread, so the set of models already reported is locked.
-void ReportUnbaked(const std::string& path, int missing, int stale, size_t images) {
+// thread, so the set of models already reported is locked. The line ENDS with
+// the file indices of each kind ("[missing:0,3 stale:-]"), which a reader holds
+// against the disk's <model>.img<n>.dds.
+void ReportUnbaked(const std::string& path, const std::vector<u32>& missing,
+				   const std::vector<u32>& stale, size_t images) {
 	static std::mutex mx;
 	static std::set<std::string> reported;
 	{
 		const std::scoped_lock lock(mx);
 		if (!reported.insert(path).second) return;
 	}
+	auto list = [](const std::vector<u32>& sources) {
+		if (sources.empty()) return std::string("-");
+		std::string s;
+		for (const u32 source : sources) s += std::format("{}{}", s.empty() ? "" : ",", source);
+		return s;
+	};
 	log::Warn("{}: {} of its {} embedded images decoded at load - {} with no baked "
-			  "sidecar, {} older than the model; run AssetBaker model-images",
-			  path, missing + stale, images, missing, stale);
+			  "sidecar, {} older than the model; run AssetBaker model-images "
+			  "[missing:{} stale:{}]",
+			  path, missing.size() + stale.size(), images, missing.size(), stale.size(),
+			  list(missing), list(stale));
 }
 
 // ----------------------------------------------------------------------------
@@ -280,7 +299,7 @@ void ReadPrimitive(const cgltf_primitive* prim, MeshData& mesh,
 } // namespace
 
 std::string EmbeddedImageSidecar(const std::string& modelPath, size_t index) {
-	return std::format("{}.{}.dds", modelPath, index);
+	return std::format("{}.img{}.dds", modelPath, index);
 }
 
 std::vector<bool> SrgbImages(const ModelData& model) {
@@ -342,6 +361,18 @@ std::expected<ModelData, std::string> LoadGltf(const std::string& path,
 		mat.blend = src.alpha_mode == cgltf_alpha_mode_blend;
 		model.materials.push_back(mat);
 	}
+	// A glTF need not have a material at all (its primitives then take the
+	// spec's default: white, metallic 1, roughness 1 - MaterialData's own
+	// defaults), and a dozen consumers read materials[0] for a model's colour.
+	// AssetBaker always writes one, so only an outside file reached this: an
+	// abort in debug, undefined in release, every frame for a monster
+	// (code-review C360). Every model therefore carries at least one, as an OBJ
+	// always has, and a primitive naming none uses it.
+	int noMaterial = -1;
+	if (model.materials.empty()) {
+		model.materials.push_back({});
+		noMaterial = 0;
+	}
 
 	// Skeleton from the first skin, if any.
 	std::unordered_map<const cgltf_node*, int> nodeToJoint;
@@ -366,7 +397,7 @@ std::expected<ModelData, std::string> LoadGltf(const std::string& path,
 			mesh.worldTransform = ToMat4(world);
 			mesh.material = prim.material
 								? static_cast<int>(prim.material - data->materials)
-								: -1;
+								: noMaterial;
 			ReadPrimitive(&prim, mesh, slotRemap);
 			if (!mesh.vertices.empty()) model.meshes.push_back(std::move(mesh));
 		}
@@ -518,7 +549,8 @@ std::expected<ModelData, std::string> LoadGltf(const std::string& path,
 			  model.skeleton.joints.size(), model.clips.size(), model.images.size(), baked,
 			  after.allocs - before.allocs,
 			  static_cast<double>(after.bytes - before.bytes) / (1024.0 * 1024.0));
-	if (opts.bakedImages && opts.warnUnbaked && imageCache.missing + imageCache.stale > 0)
+	if (opts.bakedImages && opts.warnUnbaked &&
+		(!imageCache.missing.empty() || !imageCache.stale.empty()))
 		ReportUnbaked(path, imageCache.missing, imageCache.stale, model.images.size());
 	return model;
 }

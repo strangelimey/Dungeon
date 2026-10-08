@@ -23,6 +23,7 @@
 #include "Core/Types.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cstring>
 #include <filesystem>
 #include <format>
@@ -61,6 +62,41 @@ bool WriteDdsBc7(const std::string& path, u32 width, u32 height,
 		file.insert(file.end(), level.begin(), level.end());
 
 	return assets::WriteBinaryFile(path, file.data(), file.size(), why);
+}
+
+// Deletes the sidecars named the OLD way, "<model file>.<n>.dds" with n the
+// image's FIRST-USE order (code-review C396 renamed them "<model file>.img<n>
+// .dds", n the file's own index). Nothing reads them any more, and for most
+// shipped models the two orders differ, so an old file is another image's
+// chain: removed rather than left to be mistaken for a current one. Only a
+// name of exactly that shape beside a model in this folder is touched.
+int RemoveLegacySidecars(const std::string& modelsDir) {
+	// Gathered first: removing entries mid-walk leaves the walk unspecified.
+	std::vector<std::filesystem::path> old;
+	for (const auto& entry : std::filesystem::directory_iterator(modelsDir)) {
+		if (!entry.is_regular_file() || entry.path().extension() != ".dds") continue;
+		const std::filesystem::path stem = entry.path().stem(); // "<model file>.<n>"
+		const std::string digits = stem.extension().string();   // ".<n>"
+		if (digits.size() < 2 ||
+			!std::all_of(digits.begin() + 1, digits.end(),
+						 [](unsigned char c) { return std::isdigit(c) != 0; }))
+			continue;
+		const std::filesystem::path model = entry.path().parent_path() / stem.stem();
+		const std::string modelExt = model.extension().string();
+		if (modelExt != ".gltf" && modelExt != ".glb") continue;
+		old.push_back(entry.path());
+	}
+	int removed = 0;
+	for (const std::filesystem::path& path : old) {
+		std::error_code ec;
+		if (std::filesystem::remove(path, ec)) {
+			log::Info("Removed old-style sidecar {}", path.string());
+			++removed;
+		} else {
+			log::Warn("Could not remove old-style sidecar {}: {}", path.string(), ec.message());
+		}
+	}
+	return removed;
 }
 
 } // namespace
@@ -119,8 +155,8 @@ bool BakeModelImageMips(const std::string& modelsDir, bool force) {
 		// whose sidecar is current (the loader's own test, assets::BakedIsCurrent)
 		// arrives as that chain and is never decoded - a 2k decode was paid for
 		// every image of every model before, current or not, only to be thrown
-		// away (code-review C410). Either way the images come in the loader's own
-		// order, which is what the sidecar index means. warnUnbaked off: the
+		// away (code-review C410). Either way each image carries its index in the
+		// file (imageSources), which is what a sidecar is named by. warnUnbaked off: the
 		// images it would report are the ones about to be baked.
 		const assets::LoadOptions opts{.bakedImages = !force, .warnUnbaked = false};
 		auto model = assets::LoadModel(path, opts);
@@ -138,14 +174,19 @@ bool BakeModelImageMips(const std::string& modelsDir, bool force) {
 				continue;
 			}
 			if (model->images[i].pixels.empty()) continue; // nothing decoded to bake
+			// Named by the image's index in the FILE, as the loader looks it up
+			// (code-review C396) - not `i`, its place among the images loaded.
+			const u32 source = model->imageSources[i];
 			ok &= BakeImageChain(std::move(model->images[i]), srgb[i],
-								 std::format("{} image {}", path, i),
-								 assets::EmbeddedImageSidecar(path, i));
+								 std::format("{} image {}", path, source),
+								 assets::EmbeddedImageSidecar(path, source));
 			++written;
 		}
 	}
+	const int legacy = RemoveLegacySidecars(modelsDir);
 	log::Info("Model image bake: {} models with embedded images, {} images baked, "
-			  "{} already current", models, written, fresh);
+			  "{} already current, {} old-style sidecars removed",
+			  models, written, fresh, legacy);
 	return ok;
 }
 

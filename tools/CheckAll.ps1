@@ -371,6 +371,20 @@ $checks = @(
 		selfTest = { & (Join-Path $root 'tools\BakedTest.ps1') -Config $Config -SelfTest | Out-Host; $LASTEXITCODE }
 	},
 	@{
+		name = 'modelload'; tier = 'full'; needs = "build-$Config"
+		what = 'the model loaders read what a file says: v//n OBJ normals, a glTF with no material, sidecars by image index'
+		# tools\ModelLoadTest.py (code-review batch 58: C394 / C360 / C396): a
+		# v//n OBJ through import-model keeps its normals (a face with none gets
+		# a flat one, said); `model-images` names sidecars by the FILE's image
+		# index with a data: URI first, and deletes the old-style ones; the game's
+		# `preview` (windowed) draws a material-less glTF and binds each
+		# material's base colour to its own image's sidecar.
+		run      = {
+			$l = @(python (Join-Path $root 'tools\ModelLoadTest.py') --config $Config | ForEach-Object { Write-Host $_; $_ })
+			Confirm-Verdict $l 'modelloadtest' $LASTEXITCODE
+		}
+	},
+	@{
 		name = 'stale'; tier = 'full'; needs = 'build-debug'
 		what = 'a harness refuses a stale exe, and CheckAll builds what it runs (StaleTest)'
 		run = { & (Join-Path $root 'tools\StaleTest.ps1') | Out-Host; $LASTEXITCODE }

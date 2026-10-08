@@ -1430,11 +1430,35 @@ void Game::RegisterDevCommands() {
 						   m_previewMesh = std::make_unique<gfx::Mesh>(
 							   m_device, m_previewModel.meshes[0]);
 						   m_previewMaterial = {};
-						   if (!m_previewModel.materials.empty())
-							   m_previewMaterial.baseColor =
-								   m_previewModel.materials[0].baseColorFactor;
+						   // Never empty: a file with no material gets one default
+						   // (assets::LoadModel, code-review C360).
+						   m_previewMaterial.baseColor =
+							   m_previewModel.materials[0].baseColorFactor;
 						   m_previewOrbit = 0.0f;
-						   m_console.Print("preview: " + name);
+						   m_console.Print(std::format("preview: {} (meshes={} materials={})", name,
+													   m_previewModel.meshes.size(),
+													   m_previewModel.materials.size()));
+						   // What each material's base colour is bound to, as the
+						   // game loads it (baked sidecars where current): the file's
+						   // image index, its size, and whether a sidecar supplied it
+						   // - a sidecar named by the wrong index shows here as the
+						   // wrong size (code-review C396).
+						   const assets::ModelData& pm = m_previewModel;
+						   for (size_t i = 0; i < pm.materials.size(); ++i) {
+							   const int img = pm.materials[i].baseColorImage;
+							   if (img < 0 || static_cast<size_t>(img) >= pm.images.size()) {
+								   m_console.Print(std::format("preview: material {} base=-", i));
+								   continue;
+							   }
+							   const size_t at = static_cast<size_t>(img);
+							   const bool baked = at < pm.imageMips.size() &&
+												  !pm.imageMips[at].levels.empty();
+							   const u32 w = baked ? pm.imageMips[at].width : pm.images[at].width;
+							   const u32 h = baked ? pm.imageMips[at].height : pm.images[at].height;
+							   m_console.Print(std::format("preview: material {} base=image{} {}x{} {}", i,
+														   pm.imageSources[at], w, h,
+														   baked ? "baked" : "decoded"));
+						   }
 					   });
 	m_console.Register({.name = "monsters",
 						.group = CmdGroup::Monsters,

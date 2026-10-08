@@ -383,7 +383,7 @@ foreach ($m in $modelSets) {
 
 # AssetBaker's `import` already bakes each texture set's .dds mip chain, but the
 # images EMBEDDED in a model (a rigged .gltf, a multi-material .glb) are another
-# matter: the game loads their baked sidecars (<model>.<index>.dds) and, without
+# matter: the game loads their baked sidecars (<model>.img<index>.dds) and, without
 # one, decodes the image at every load (~50 ms an image) and says so once per
 # model. So the run ends with `model-images`, which bakes only what is missing
 # or older than its model (code-review C437).

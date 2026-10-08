@@ -5,7 +5,7 @@
 #   .\tools\BakedTest.ps1 -SelfTest    # nothing planted - the planted checks must FAIL
 #
 # The game draws a texture from its BC7 .dds rather than its PNG, and a model's
-# embedded images from their baked sidecars (<model>.<index>.dds). The texture
+# embedded images from their baked sidecars (<model>.img<index>.dds). The texture
 # loader never compared the dates, so after `AssetBaker runes` rewrote only the
 # PNGs the game went on drawing the old tablets from the .dds beside them
 # (code-review C410); and a MISSING sidecar decoded in silence, ~50 ms an image
@@ -29,14 +29,17 @@
 # A TREE THAT IS BEHIND IS REFUSED, NOT FAILED (exit 2, nothing judged): the
 # planted faults are evidence only against a tree whose OTHER bakes are current.
 # Before planting, every .dds in assets\textures and assets\portraits is held to
-# its PNG and every model sidecar to its model - the loaders' own rule. A MISSING
-# sidecar cannot be seen from here (which images get one depends on their sides,
-# a multiple of 4, and on the loader's order), so after the run every OTHER bake
-# the game refused is held against the disk: when the sidecars a model's line
-# counts missing or stale are missing or stale on disk too, the TREE is behind
-# (a fresh fetch, or a provision from a tree that never baked them) and the run
-# is refused, naming them - "run AssetBaker model-images". A refusal the disk
-# does not bear out is the loader's error, and `current` FAILs on it.
+# its PNG and every model sidecar (<model>.img<n>.dds) to its model - the
+# loaders' own rule. A MISSING sidecar cannot be seen from here (which images
+# get one depends on which the materials use and on their sides, a multiple of
+# 4), so after the run every OTHER bake the game refused is held against the
+# disk: a model's line ends naming each image it refused by its index in the
+# file ("[missing:0,3 stale:-]"), and when every one is missing - or there and
+# older than the model - on disk exactly as named, the TREE is behind (a fresh
+# fetch, or a provision from a tree that never baked them) and the run is
+# refused, naming them - "run AssetBaker model-images". A refusal the disk does
+# not bear out (a sidecar there and current, refused all the same) is the
+# loader's error, and `current` FAILs on it.
 #
 # Everything planted is put back in a finally (the times restored, the sidecar
 # renamed back), however the run ends. A hidden sidecar left by a run that was
@@ -101,7 +104,7 @@ function Find-StaleBakes {
 	$models = @{}
 	foreach ($f in Get-ChildItem $m -File) { if ($f.Extension -in '.gltf', '.glb') { $models[$f.Name] = $f.LastWriteTimeUtc } }
 	foreach ($f in Get-ChildItem $m -Filter *.dds -File) {
-		if ($f.Name -notmatch '^(.+\.(gltf|glb))\.\d+\.dds$') { continue }
+		if ($f.Name -notmatch '^(.+\.(gltf|glb))\.img\d+\.dds$') { continue }
 		$src = $models[$Matches[1]]
 		if ($null -ne $src -and $src -gt $f.LastWriteTimeUtc) { $found += "models\$($f.Name)" }
 	}
@@ -121,20 +124,30 @@ function Test-TreeBehind([string]$line) {
 		return (Get-Item -LiteralPath $png).LastWriteTimeUtc -gt (Get-Item -LiteralPath $dds).LastWriteTimeUtc
 	}
 	if ($line -match $anyModelRx) {
-		$path = $Matches[1]; $images = [int]$Matches[3]; $missing = [int]$Matches[4]; $stale = [int]$Matches[5]
+		$path = $Matches[1]; $missing = [int]$Matches[4]; $stale = [int]$Matches[5]
 		if ($missing + $stale -eq 0) { return $false } # names nothing behind
+		# The line ends naming each refused image by its index in the FILE, the
+		# number its sidecar (<model>.img<n>.dds) is named by. A line without them
+		# is not one this judge can hold against the disk.
+		if ($line -notmatch '\[missing:([\d,]+|-) stale:([\d,]+|-)\]$') { return $false }
+		$missingIdx = @(if ($Matches[1] -ne '-') { $Matches[1] -split ',' })
+		$staleIdx = @(if ($Matches[2] -ne '-') { $Matches[2] -split ',' })
+		if ($missingIdx.Count -ne $missing -or $staleIdx.Count -ne $stale) { return $false }
 		if (-not [IO.Path]::IsPathRooted($path)) { $path = Join-Path $assets $path }
 		if (-not (Test-Path -LiteralPath $path)) { return $false }
 		$modelTime = (Get-Item -LiteralPath $path).LastWriteTimeUtc
-		# Images the bake skips (sides not a multiple of 4) have no sidecar either,
-		# so this can only say the disk has AT LEAST what the line counted.
-		$m = 0; $s = 0
-		for ($i = 0; $i -lt $images; $i++) {
-			$sc = "$path.$i.dds"
-			if (-not (Test-Path -LiteralPath $sc)) { $m++ }
-			elseif ((Get-Item -LiteralPath $sc).LastWriteTimeUtc -lt $modelTime) { $s++ }
+		# Each one exactly as the line says: no file for a missing image, a file
+		# older than the model for a stale one. A sidecar that IS there and
+		# current, refused all the same, is the loader's error.
+		foreach ($i in $missingIdx) {
+			if (Test-Path -LiteralPath "$path.img$i.dds") { return $false }
 		}
-		return $m -ge $missing -and $s -ge $stale
+		foreach ($i in $staleIdx) {
+			$sc = "$path.img$i.dds"
+			if (-not (Test-Path -LiteralPath $sc)) { return $false }
+			if ((Get-Item -LiteralPath $sc).LastWriteTimeUtc -ge $modelTime) { return $false }
+		}
+		return $true
 	}
 	return $false # a reader's refusal: the bake is there, current and unreadable
 }
@@ -147,7 +160,7 @@ $runePng = Join-Path $assets "textures\$runeName.png"
 $runeDds = Join-Path $assets "textures\$runeName.dds"
 $modelName = 'leather_armor.glb'
 $model = Join-Path $assets "models\$modelName"
-$sidecar = "$model.0.dds"
+$sidecar = "$model.img0.dds"
 $hidden = "$sidecar.bakedtest-hidden"
 
 # A run killed between the rename and its finally leaves the sidecar hidden.

@@ -20,7 +20,7 @@
 //       Regenerates the derived .dds mip chains (gitignored) for every PNG in
 //       assets/textures, so the game never filters mips at load time - and the
 //       same for every image EMBEDDED in a model in assets/models
-//       (<model>.<index>.dds beside it), so it never decodes those either, and
+//       (<model>.img<index>.dds beside it), so it never decodes those either, and
 //       for the portraits. A <prefix> bakes only the texture-set PNGs named
 //       <prefix>... and nothing else. The texture sets always re-bake; the
 //       sidecars and portraits skip a CURRENT file unless --force (after a

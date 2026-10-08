@@ -39,7 +39,9 @@ bool BakeAllMips(const std::string& texturesDir, MipColor color, bool skipCurren
 // which the game loads instead of decoding the PNG/JPEG inside the file. A
 // base-colour image is sRGB (assets::SrgbImages). Skips a CURRENT sidecar
 // without decoding its image unless `force` (a filter or encoder change, which
-// no timestamp can see). Rerun after importing a model.
+// no timestamp can see). Rerun after importing a model. Ends by deleting the
+// sidecars named the old way ("<model file>.<n>.dds", by first-use order,
+// before code-review C396), which nothing reads and which name wrong images.
 bool BakeModelImageMips(const std::string& modelsDir, bool force = false);
 
 } // namespace dungeon::baker

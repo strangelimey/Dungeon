@@ -8,7 +8,7 @@
 #         assets/models/<Name>.gltf   (state-named clips on the bound mesh)
 #       + <Name>.anim.cat             (the states + anim_<state> rows)
 # and ends with `AssetBaker model-images`, the BC7 sidecars of the images the
-# bake embeds (<Name>.gltf.<index>.dds).
+# bake embeds (<Name>.gltf.img<index>.dds).
 #
 # Every Mixamo clip shares one standard skeleton, so a single rigid bind takes any
 # number of clips - populate the state folders and re-run; no re-binding.
@@ -247,7 +247,7 @@ foreach ($c in $animSets) {
 }
 
 # The bake EMBEDS the creature's textures in its .gltf, and the game loads those
-# images from baked BC7 sidecars (<model>.<index>.dds) - without one it decodes
+# images from baked BC7 sidecars (<model>.img<index>.dds) - without one it decodes
 # each image at every level load (~50 ms an image, skel_warrior's six ~320 ms)
 # and says so once per model. `model-images` bakes only the missing and the
 # stale ones (code-review C437).

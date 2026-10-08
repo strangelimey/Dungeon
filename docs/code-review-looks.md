@@ -650,6 +650,9 @@ raised that is yours, not a fix. Each line names the batch and its commit.
   record-first placement; a sync in the save alone would not hold either,
   because a re-read file numbers its records by file order while the held state
   keeps the old ids.
-- **Re-bake sidecars after batch 95** in your tree at the merge: the potions'
-  and the rock's `.glb.0.dds` (`AssetBaker model-images assets`, release), or
-  the loader reports them stale and decodes instead.
+- **Re-bake every model sidecar at the merge** (batches 95 and 58): run
+  `build\release\bin\AssetBaker.exe model-images assets` once in your tree.
+  Batch 58 names a model's baked images by the file's own image index
+  (`<model>.img<n>.dds`, was `<model>.<n>.dds`) and the bake removes the old
+  ones; batch 95 re-ran the potions and the rock. Until then the bought models
+  decode their images at load, slower but correct.
