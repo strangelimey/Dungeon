@@ -32,7 +32,9 @@
 # (code-review C208, the UI walk's clip - Game/ClipPoke.h): `uiclip` throws from
 # inside a scroll area's walk and then clicks a button outside it, which must
 # still land; `uinest` checks a scroll area nested in a tab page leaves its
-# siblings their clicks and their drawing.
+# siblings their clicks and their drawing. Beside them `uiscroll` (code-review
+# C127, Game/ScrollPoke.h) drives the ONE scrollbar - a 120-row drop-down's
+# open list and a scroll area, each by thumb drag and wheel - in a scratch tree.
 #
 # The cases that END the process (`fault`, `overflow`, `assert`) each want ONE
 # report line, written after the dump and naming what became of it (code-review
@@ -189,6 +191,15 @@ $cases = @(
 		settle = 2
 		survives = $true
 		expect = @('clippoke: PASS')
+		dump = $false
+	},
+	@{
+		name = 'uiscroll'
+		desc = 'a long drop-down''s list and a scroll area scroll by thumb drag and wheel (one ScrollBar)'
+		inject = @('scrollpoke')
+		settle = 2
+		survives = $true
+		expect = @('scrollpoke: PASS')
 		dump = $false
 	},
 	@{

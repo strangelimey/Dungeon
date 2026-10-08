@@ -5,7 +5,7 @@
 // (the allocation guard, the one-pipeline ledger — each with a way to make it
 // fail on purpose), the thread manager's controls and stress workers, the
 // health record (crashpoke/health), and the UI tree audits (uitree/uioverlap,
-// and clippoke for the walk's clip).
+// clippoke for the walk's clip, scrollpoke for the one scrollbar).
 // ============================================================================
 #include "Game/Game.h"
 
@@ -16,6 +16,7 @@
 #include "Core/Log.h"
 #include "Core/StackTrace.h"
 #include "Game/DevCommandArgs.h"
+#include "Game/ScrollPoke.h"
 #include "UI/TreeInspector.h"
 
 #include <algorithm>
@@ -946,6 +947,23 @@ void Game::RegisterDiagnosticCommands() {
 				static_cast<float>(m_window.Width()), static_cast<float>(m_window.Height()));
 			m_console.Print(line);
 			log::Info("{}", line);
+		});
+	m_console.Register(
+		{.name = "scrollpoke",
+		 .group = CmdGroup::Diagnostics,
+		 .summary = "drive a long drop-down's and a scroll area's scrollbar: thumb drag and wheel"},
+		[this](const std::vector<std::string>&) {
+			// A scratch tree, driven here and gone with the command (Game/
+			// ScrollPoke.h). Logged as well as printed - tools\HealthTest.ps1
+			// reads only dungeon.log - and a FAIL is a refusal, so an eval
+			// script that runs it counts it.
+			const ui::UIContext* hud = m_ui.UiTree("hud");
+			const std::string line = RunScrollCheck(
+				m_fonts, hud ? hud->DesignHeight() : 17.0f,
+				static_cast<float>(m_window.Width()), static_cast<float>(m_window.Height()));
+			log::Info("{}", line);
+			if (line.starts_with("scrollpoke: PASS")) m_console.Print(line);
+			else m_console.Refuse(line);
 		});
 }
 

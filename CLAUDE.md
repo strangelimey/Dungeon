@@ -2417,7 +2417,7 @@ hang and a reboot must each leave EVIDENCE.
   its stack once). And the crash handlers' QUIET record (test 13): in the
   record, not in the log, until LogRecorded writes it once with its stack - and
   no part of the repeat collapse. `tools\HealthTest.
-  ps1` breaks the REAL game seventeen ways and reads dungeon.log and nothing else -
+  ps1` breaks the REAL game eighteen ways and reads dungeon.log and nothing else -
   if the answer is not in the file you open after a crash, it does not count.
   `-SelfTest` skips every injection and REQUIRES every case to fail on EACH of
   its expectations (no pattern met, no dump) and for no other reason - a harness
@@ -2436,13 +2436,15 @@ hang and a reboot must each leave EVIDENCE.
   `devassert` / `devfault` / `devterminate` remove it and die AT ONCE, before
   any call fails, so the removal reaches the log only through the fatal note -
   one case per place a report runs it, each anchored to that report's last own
-  line. Two of the seventeen (`uiclip`, `uinest`; code-review C208) read what a caught
+  line. Two of the eighteen (`uiclip`, `uinest`; code-review C208) read what a caught
   throw leaves BEHIND - the UI walk's clip, which a throw used to leave in force
   in every context, so a later click outside it was lost. Each checks its own
   premise: `uiclip`'s throw names the clip in force and the button outside it
   only when both hold (a scroll area that stops overflowing clips nothing, and
   the click would land under the old walk too), `uinest` refuses a tree that
-  did not nest two clips. Two more click the console's panel for real:
+  did not nest two clips. A third, `uiscroll` (C127), drives the one scrollbar
+  (`scrollpoke`: a 120-row drop-down's open list and a scroll area, by thumb
+  drag and wheel, in a scratch tree). Two more click the console's panel for real:
   `healthmark` (a mark holding a stall and its restart, `crashpoke stallpair`,
   found by `health strip`, must name the stall) and `panelclick` (a THREADS
   button laid out under the panel's foot must change no worker; only the count
@@ -2453,9 +2455,10 @@ hang and a reboot must each leave EVIDENCE.
   the click checks (`settings saves` in `consolepanel`, GameSettings::
   SaveCount, matches either way).
   Dev: `crashpoke <throw|uiclip|worker|stallpair|fault|overflow|assert|
-  devremoved [assert|fault|terminate]>`, `dredpoke`, `clippoke`, `threadwedge`,
-  `threadkill <id|name>`, `threadspawn <ms> [count]`, `health strip <thread>`,
-  `consolepanel [perf|profile|threads open|shut]` (a section opened unsaved).
+  devremoved [assert|fault|terminate]>`, `dredpoke`, `clippoke`, `scrollpoke`,
+  `threadwedge`, `threadkill <id|name>`, `threadspawn <ms> [count]`,
+  `health strip <thread>`, `consolepanel [perf|profile|threads open|shut]` (a
+  section opened unsaved).
 
 ## Map overlay / editor (MapView)
 
@@ -4262,7 +4265,18 @@ and answers: docs/transparency-notes.md; each phase's AS BUILT is in the plan.
   one throw left every context clipped; HealthTest `uiclip` / `uinest`, dev
   `crashpoke uiclip`, `clippoke`).
   ui::ScrollArea owns ALL scroll/thumb/clip behaviour — nothing else may
-  re-implement it — and ui::Repeater builds children from a per-frame count with
+  re-implement it. The BAR itself is ui::ScrollBar (UI/ScrollBar.h, NOT a
+  widget: track, thumb, drag, wheel step, draw), which ScrollArea holds and so
+  does DropDown's open list - it draws in the overlay pass and cannot host a
+  child ScrollArea, and it carried a line-for-line copy of the bar until
+  code-review C127; anything else that must scroll outside the tree holds a
+  ScrollBar, never a copy (HealthTest `uiscroll`, dev `scrollpoke`, drives both
+  by thumb and wheel). The control library is split by family:
+  Controls.cpp (shared draw helpers, Panel/Label/Button...), Controls_Fields,
+  Controls_Popups (DropDown, ContextMenu), Controls_Lists (SlotList, MenuList),
+  Controls_Containers (ScrollArea, TabControl, Repeater); the carved-ink solve
+  (ResolveInks, ContrastRatio, CarvedGold & co.) lives in Skin.h/.cpp. And
+  ui::Repeater builds children from a per-frame count with
   a grow-only pool (repeated children hold an INDEX and re-resolve, never a
   pointer into the model; growing BUILDS widgets, so a repeater whose count can
   rise in play is `Warm()`ed to its ceiling when it is made - the party bar's

@@ -274,4 +274,88 @@ void DrawNineSlice(gfx::SpriteBatch& batch, const gfx::Rect& dst,
 			   1.0f - fv, tint);
 }
 
+// ============================================================================
+// The carved INKS: solved against the material's mean colour (ResolveInks),
+// and the getters every carved word reads them through. Moved from
+// Controls.cpp by code-review C127 - the solve writes only Skin fields.
+// ============================================================================
+
+namespace {
+Vec4 Mix(const Vec4& a, const Vec4& b, float t) {
+	return {a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t,
+			a.w + (b.w - a.w) * t};
+}
+// sRGB channel -> linear light, and a colour's relative luminance (WCAG 2).
+float Linear(float c) {
+	return c <= 0.04045f ? c / 12.92f : std::pow((c + 0.055f) / 1.055f, 2.4f);
+}
+float RelLuminance(const Vec4& c) {
+	return 0.2126f * Linear(c.x) + 0.7152f * Linear(c.y) + 0.0722f * Linear(c.z);
+}
+// The ends an ink is pushed toward when it does not read: a pale gold (still
+// warm, so it reads as the same metal lit) and a dark bronze. A mid-grey stone
+// caps any colour near 5:1, so these sit close to white and black.
+constexpr Vec4 kInkPale{1.0f, 0.95f, 0.80f, 1.0f};
+constexpr Vec4 kInkDeep{0.12f, 0.08f, 0.03f, 1.0f};
+// What a part-transparent ink looks like over `bg` - the colour the eye judges.
+Vec4 Over(const Vec4& ink, const Vec4& bg) {
+	Vec4 seen = Mix(bg, ink, ink.w);
+	seen.w = 1.0f;
+	return seen;
+}
+// `ink` kept if it reads on `bg` at `target`, else moved the least distance along
+// either ramp that gets there; if neither does, the ramp end that reads best.
+Vec4 Legible(const Vec4& ink, const Vec4& bg, float target) {
+	if (ContrastRatio(Over(ink, bg), bg) >= target) return ink;
+	constexpr int kSteps = 20;
+	int best = kSteps + 1;
+	Vec4 pick = ink;
+	for (const Vec4& end : {kInkPale, kInkDeep})
+		for (int i = 1; i <= kSteps && i < best; ++i) {
+			Vec4 c = Mix(ink, end, static_cast<float>(i) / kSteps);
+			c.w = ink.w;
+			if (ContrastRatio(Over(c, bg), bg) >= target) {
+				best = i;
+				pick = c;
+			}
+		}
+	if (best <= kSteps) return pick;
+	Vec4 pale = kInkPale, deep = kInkDeep;
+	pale.w = deep.w = ink.w;
+	return ContrastRatio(Over(pale, bg), bg) >= ContrastRatio(Over(deep, bg), bg) ? pale : deep;
+}
+} // namespace
+
+float ContrastRatio(const Vec4& a, const Vec4& b) {
+	const float la = RelLuminance(a), lb = RelLuminance(b);
+	return (std::max(la, lb) + 0.05f) / (std::min(la, lb) + 0.05f);
+}
+
+void ResolveInks(Skin& skin) {
+	const Vec4 bg{skin.stoneMean.x, skin.stoneMean.y, skin.stoneMean.z, 1.0f};
+	const Skin authored; // the dark-stone inks the defaults carry
+	skin.inkGold = Legible(authored.inkGold, bg, kInkContrast);
+	skin.inkTitle = Legible(authored.inkTitle, bg, kInkContrast);
+	skin.inkPlain = Legible(authored.inkPlain, bg, kInkContrastPlain);
+	// The hover must still SHOW: lit reads at least as well as the gold, and
+	// further from the stone than it, or it is the gold pushed further along.
+	skin.inkLit = Legible(authored.inkLit, bg, kInkContrast);
+	if (ContrastRatio(skin.inkLit, bg) < ContrastRatio(skin.inkGold, bg) + 0.5f) {
+		const bool paler = RelLuminance(skin.inkGold) > RelLuminance(bg);
+		skin.inkLit = Mix(skin.inkGold, paler ? Vec4{1, 1, 1, 1} : Vec4{0, 0, 0, 1}, 0.5f);
+		skin.inkLit.w = 1.0f;
+	}
+	// Disabled: the gold sunk most of the way back into its own stone.
+	skin.inkDisabled = Mix(skin.inkGold, bg, 0.55f);
+	skin.inkDisabled.w = 1.0f;
+}
+
+Vec4 CarvedGold(const Skin* skin) { return skin ? skin->inkGold : Skin{}.inkGold; }
+Vec4 CarvedLit(const Skin* skin) { return skin ? skin->inkLit : Skin{}.inkLit; }
+Vec4 CarvedTitle(const Skin* skin) { return skin ? skin->inkTitle : Skin{}.inkTitle; }
+Vec4 CarvedPlain(const Skin* skin) { return skin ? skin->inkPlain : Skin{}.inkPlain; }
+Vec4 CarvedDisabled(const Skin* skin) {
+	return skin ? skin->inkDisabled : Skin{}.inkDisabled;
+}
+
 } // namespace dungeon::ui

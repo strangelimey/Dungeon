@@ -21,9 +21,19 @@
 // in REM (UI/Units.h: the context's root font size, which tracks the window
 // height), so it scales with the text beside it. The only raw pixels are
 // hairlines: 1px borders and the 2px caret. Colors come from the shared Theme.
+//
+// Defined by family (code-review C127): Controls.cpp (the shared draw helpers,
+// Panel, Separator, Label, TextOutput, Button, the close button),
+// Controls_Fields.cpp (Checkbox, Slider, ColorPicker, KeyBind, TextField),
+// Controls_Popups.cpp (DropDown, ContextMenu), Controls_Lists.cpp (SlotList,
+// MenuList) and Controls_Containers.cpp (ScrollArea, TabControl, Repeater).
+// The scrollbar ScrollArea and DropDown share is UI/ScrollBar.h; the carved
+// inks are UI/Skin.h's.
 // ============================================================================
 #pragma once
 
+#include "UI/ScrollBar.h"
+#include "UI/Skin.h" // the carved inks (CarvedGold & co.) the widgets draw in
 #include "UI/UIContext.h"
 #include "UI/Widget.h"
 
@@ -37,7 +47,6 @@
 
 namespace dungeon::ui {
 
-struct Skin;
 class ScrollArea; // defined below; SlotList holds one
 
 // A small square of a texture, or of a flat colour when the texture is not
@@ -314,8 +323,9 @@ private:
 // Labeled selector whose open list is drawn as an overlay, so it covers the
 // widgets laid out after it. The list is CLAMPED to the window: it opens below
 // the control, flips above when there is more room there, and scrolls (wheel or
-// thumb drag, like SlotList) when it still doesn't fit — an installed-asset list
-// is as long as the pool, and it used to run off the bottom of the screen.
+// thumb drag, on ScrollArea's own ui::ScrollBar) when it still doesn't fit - an
+// installed-asset list is as long as the pool, and it used to run off the
+// bottom of the screen.
 //
 // The FACE never paints outside the control: a selection wider than the room
 // left of the expander is trimmed with ".." (FitText), says itself in full in a
@@ -349,6 +359,14 @@ public:
 	// out of the top and bottom - a Button's rule.
 	gfx::Rect InkRect() const override;
 	float TextOverrun() const override;
+
+	bool IsOpen() const { return m_open; }
+	// The row lit under the pointer in the open list (-1 = none). None while its
+	// scrollbar holds the pointer, wherever the pointer is.
+	int HoverItem() const { return m_hoverItem; }
+	// The open list's scrollbar as it stands (meaningless while shut); `box` is
+	// the list area its rows scroll in, `step` one wheel notch - a row.
+	ScrollProbe ProbeScroll(const UIContext& ctx) const;
 
 	std::vector<std::string> items;
 	std::function<void(int)> onSelect;
@@ -413,8 +431,8 @@ private:
 	// only the ones that pass), scrolled, in the list area.
 	gfx::Rect ItemRect(const gfx::Rect& popup, size_t slot) const;
 	float MaxScroll(const gfx::Rect& popup) const;
-	gfx::Rect ScrollTrackRect(const gfx::Rect& popup) const;
-	gfx::Rect ScrollThumbRect(const gfx::Rect& popup, float maxScroll) const;
+	// The list area's scrollbar this frame: down its right edge, a pixel in.
+	ScrollBar::Span BarSpan(const gfx::Rect& popup) const;
 
 	int m_selected = 0;
 	int m_hoverItem = -1;
@@ -428,10 +446,9 @@ private:
 	float ChipWidth(size_t i) const; // button i's whole width
 	bool m_open = false;
 	bool m_hot = false;
-	float m_scroll = 0.0f; // pixels scrolled down the open list
-	bool m_scrollHot = false;
-	bool m_scrollDragging = false;
-	float m_scrollGrab = 0.0f; // pointer offset within the thumb while dragging
+	// The open list's scrollbar and how far down it is (ui::ScrollBar, the one
+	// ScrollArea uses: the list draws in the overlay pass and cannot host one).
+	ScrollBar m_bar;
 	// The widest item's text, measured when the list opens (never per frame -
 	// a pool-length list is hundreds of rows).
 	float m_popupTextW = 0.0f;
@@ -811,31 +828,6 @@ private:
 // reads as paint, not a cut. Allocation-free.
 void DrawCarvedText(gfx::SpriteBatch& batch, const Font& font, std::string_view text,
 					float x, float y, const Vec4& fill);
-// The gold in a carved word, and the same gold lit (the selected / hovered
-// stone) - one set, so every carved face in the game agrees. They follow the
-// MATERIAL: each is the skin's ink, solved by ResolveInks against the stone's
-// mean colour. A null skin gets the dark-stone colours.
-Vec4 CarvedGold(const Skin* skin);
-Vec4 CarvedLit(const Skin* skin);
-// A card's title, a shade brighter than the words under it.
-Vec4 CarvedTitle(const Skin* skin);
-// Carved but unpainted: the cut alone, quieter than the gold - for the
-// secondary words on a stone (a save's date, a world's folder).
-Vec4 CarvedPlain(const Skin* skin);
-// A disabled carved word: the gold faded toward the stone it is cut in.
-Vec4 CarvedDisabled(const Skin* skin);
-// Solves `skin`'s inks against its `stoneMean`: each authored ink is kept if its
-// WCAG contrast ratio against the mean already reaches kInkContrast (the plain
-// one kInkContrastPlain), else moved toward pale gold or dark bronze - whichever
-// gets there with the smaller change, or the end that reads best when neither
-// does (a mid-grey stone caps every colour near 5:1). The lit ink is kept
-// brighter than the gold so a hover still shows. Call when the material changes.
-inline constexpr float kInkContrast = 4.5f;
-inline constexpr float kInkContrastPlain = 3.0f;
-void ResolveInks(Skin& skin);
-// The WCAG contrast ratio of two sRGB colours (1 = identical .. 21 = black on
-// white); alpha is ignored. For the ink solve and `uimaterial`'s report.
-float ContrastRatio(const Vec4& a, const Vec4& b);
 
 // A container that scrolls its children vertically when they overflow it.
 // Children are authored as fractions of ContentRect() — this widget's rect
@@ -850,12 +842,14 @@ class ScrollArea : public Widget {
 public:
 	explicit ScrollArea(const gfx::Rect& rect) { bounds = rect; }
 
-	float Scroll() const { return m_scroll; }
-	void ScrollToTop() { m_scroll = 0.0f; }
+	float Scroll() const { return m_bar.Offset(); }
+	void ScrollToTop() { m_bar.SetOffset(0.0f); }
 	// Restores a scroll position — for a list that REBUILDS its rows and would
 	// otherwise jump to the top every time its model changed. Clamped by the
 	// next layout, so a position past a now-shorter list is safe to hand back.
-	void SetScroll(float pixels) { m_scroll = pixels; }
+	void SetScroll(float pixels) { m_bar.SetOffset(pixels); }
+	// The bar as it stands; `box` is the view, `step` one wheel notch.
+	ScrollProbe ProbeScroll() const;
 	// Scrolls the least distance that brings `child` fully into the view. Reads
 	// PIXEL rects, so call it after a layout has run — which is what makes it
 	// safe for a caller that knows a widget but not where the layout put it (a
@@ -882,15 +876,14 @@ private:
 	// edge, never less than 1 (> 1 means the area scrolls).
 	float ContentFraction() const;
 	float MaxScroll() const;
-	gfx::Rect ScrollTrackRect() const;
-	gfx::Rect ScrollThumbRect(float maxScroll) const;
+	// The scrollbar this frame: in the gutter, down the right edge.
+	ScrollBar::Span BarSpan() const;
+	// One wheel notch, in pixels.
+	float WheelStep() const { return Rem(1.75f); }
 
-	float m_scroll = 0.0f; // pixels scrolled down, clamped every layout
-	gfx::Rect m_clip{};    // ViewRect cached so ChildClip can hand back a pointer
+	ScrollBar m_bar;    // the offset (pixels scrolled down, clamped every layout) and the drag
+	gfx::Rect m_clip{}; // ViewRect cached so ChildClip can hand back a pointer
 	bool m_clipping = false;
-	bool m_scrollHot = false;
-	bool m_scrollDragging = false;
-	float m_scrollGrab = 0.0f; // pointer offset within the thumb while dragging
 };
 
 // Tab strip across the top of the bounds plus a framed page area below it.

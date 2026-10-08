@@ -260,6 +260,13 @@ Then, in a follow-up pass:
   it measures overflow from). The confirm modal moved to `UpdateBeforeChildren`,
   which is what that hook is for — it has to take the mouse off the rows before
   they see it.
+  It was not the last: `DropDown`'s open list grew a line-for-line copy of the
+  bar (code-review C127). The list draws in the overlay pass, so it cannot host
+  a child `ScrollArea`; the bar became `ui::ScrollBar` (UI/ScrollBar.h), a plain
+  object - track, thumb, drag, wheel step, draw - that `ScrollArea` and the list
+  both hold, each deciding what claims the pointer and the wheel. The wheel's
+  step stays the owner's on purpose: a list moves a row a notch, a page 1.75 rem.
+  Checked by HealthTest's `uiscroll` (`scrollpoke`).
 - **`ScopedClip`.** Three widgets clipped their own content with
   `SetScissor(&rect)` then `SetScissor(nullptr)` — `TextOutput`, `MessageLog`,
   and `DropDown`'s scrolling popup. That bare reset drops an ancestor's clip,

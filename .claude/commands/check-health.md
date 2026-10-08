@@ -4,7 +4,7 @@ argument-hint: "[selftest|<case>]"
 allowed-tools: PowerShell, Read, Grep, Glob
 ---
 
-Break the real game seventeen ways and read `dungeon.log` (~15 min). Seven of
+Break the real game eighteen ways and read `dungeon.log` (~16 min). Seven of
 them END the process on purpose (`fault`, `overflow`, `assert`, `devremoved`,
 `devassert`, `devfault`, `devterminate`), each in a game of its own that the
 harness launched.
@@ -15,10 +15,10 @@ harness launched.
   or a death with nothing injected fails the self-test)
 - a case name → `.\tools\HealthTest.ps1 -Only <case>` for one case, much faster
 
-Cases: `throw` - `uiclip` - `uinest` - `worker` - `stall` - `probe` - `kill` -
-`restart` - `healthmark` - `panelclick` - `fault` - `overflow` - `assert` -
-`devremoved` - `devassert` - `devfault` - `devterminate`. Every event kind is
-covered; `kill` drives the
+Cases: `throw` - `uiclip` - `uinest` - `uiscroll` - `worker` - `stall` - `probe` -
+`kill` - `restart` - `healthmark` - `panelclick` - `fault` - `overflow` -
+`assert` - `devremoved` - `devassert` - `devfault` - `devterminate`. Every event
+kind is covered; `kill` drives the
 Killed kind through `threadkill`, the THREADS panel's kill button as a command.
 `devremoved` removes the D3D12 device on purpose (`crashpoke devremoved`, a
 TDR's shape without hanging a GPU) and demands the failed call's HRESULT by
@@ -32,7 +32,10 @@ after that report's own lines.
 `uiclip` and `uinest` read what a caught throw leaves BEHIND in the UI walk's
 clip (code-review C208): a throw from inside a scroll area's walk, then a click
 outside it that must land; and a scroll area nested in a tab page whose
-siblings must still take their clicks and draw (`clippoke`).
+siblings must still take their clicks and draw (`clippoke`). `uiscroll`
+(`scrollpoke`, code-review C127) drives the one scrollbar, ui::ScrollBar: a
+120-row drop-down's open list and a scroll area, each by wheel and thumb drag,
+in a scratch tree.
 `healthmark` and `panelclick` click the console's readout panel for real
 (code-review C380 / C379): a HEALTH mark holding a stall and its restart
 (`crashpoke stallpair`, located by `health strip`) must name the stall it is
@@ -79,6 +82,11 @@ The `[FAIL]` line prints the exact pattern that was missing. Then look at
   poke lost its premise (no clip in force, or the button inside it): look at
   Game/ClipPoke.cpp, not at the walk. `uinest` failing names which sibling
   missed its click or was clipped.
+- **`uiscroll` failing** - its line names every step that did not hold (the
+  wheel's step, the drag's end or half way, a row picked under the thumb). The
+  bar is src/UI/ScrollBar.cpp; the list's use of it DropDown::UpdateSelf
+  (Controls_Popups.cpp), the page's ScrollArea::UpdateSelf
+  (Controls_Containers.cpp).
 - **`stall` or `kill` failing on a frame pattern** (`DelayExecution`, the
   `Game_DevDiagnostics.cpp` line) - those frames must sit UNDER the event's own
   line: the supervisor walks a stalled worker, and `StopOrTerminate` a wedged

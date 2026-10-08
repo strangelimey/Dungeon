@@ -1,10 +1,15 @@
 add_library(UI STATIC
 	ControlIcons.cpp
 	Controls.cpp
+	Controls_Containers.cpp
+	Controls_Fields.cpp
+	Controls_Lists.cpp
+	Controls_Popups.cpp
 	FloatingPanel.cpp
 	Font.cpp
 	FontLibrary.cpp
 	Layout.cpp
+	ScrollBar.cpp
 	Skin.cpp
 	TreeInspector.cpp
 	Units.cpp

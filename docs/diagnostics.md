@@ -335,6 +335,17 @@ nothing is built untested.
    Fifteen since code-review batch 67: `devremoved`, `devassert`, `devfault`
    and `devterminate` (below).
 
+   Sixteen since code-review batch 50: `uiscroll` (C127) is the third
+   scratch-tree UI case beside `uiclip` and `uinest`, and like them it reads
+   what the UI walk does rather than a record. It runs `scrollpoke`
+   (Game/ScrollPoke.cpp), which drives the ONE scrollbar (UI/ScrollBar.h) in
+   both its owners a frame at a time: a 120-row drop-down's open list (a wheel
+   notch is one row, a notch off the list moves nothing, the thumb dragged to
+   the foot and half way, a drag carried over the rows lighting none, the last
+   row picked at the end) and a five-view scroll area (a notch, the thumb to
+   the end). The case wants its `scrollpoke: PASS` line; `-SelfTest` skips the
+   poke and the case fails. The run is `healthtest RESULT=PASS cases=16`.
+
 7. **The GPU - DONE (code-review batch 67, C195).** A TDR is the most common
    way a D3D12 game dies, and it left no evidence: the device was removed, the
    next `DN_HR`'d call (the frame's `Present`) failed, and `DN_HR` was a bare

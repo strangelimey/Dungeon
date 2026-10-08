@@ -102,6 +102,37 @@ struct Skin {
 	Vec4 inkDisabled{0.45f, 0.40f, 0.30f, 1.0f};
 };
 
+// ---------------------------------------------------------------------------
+// The carved INKS (more-ui-updates, the contrast pass; moved here from
+// Controls.cpp by code-review C127 - the solve writes only Skin fields).
+// ---------------------------------------------------------------------------
+
+// The gold in a carved word, and the same gold lit (the selected / hovered
+// stone) - one set, so every carved face in the game agrees. They follow the
+// MATERIAL: each is the skin's ink, solved by ResolveInks against the stone's
+// mean colour. A null skin gets the dark-stone colours.
+Vec4 CarvedGold(const Skin* skin);
+Vec4 CarvedLit(const Skin* skin);
+// A card's title, a shade brighter than the words under it.
+Vec4 CarvedTitle(const Skin* skin);
+// Carved but unpainted: the cut alone, quieter than the gold - for the
+// secondary words on a stone (a save's date, a world's folder).
+Vec4 CarvedPlain(const Skin* skin);
+// A disabled carved word: the gold faded toward the stone it is cut in.
+Vec4 CarvedDisabled(const Skin* skin);
+// Solves `skin`'s inks against its `stoneMean`: each authored ink is kept if its
+// WCAG contrast ratio against the mean already reaches kInkContrast (the plain
+// one kInkContrastPlain), else moved toward pale gold or dark bronze - whichever
+// gets there with the smaller change, or the end that reads best when neither
+// does (a mid-grey stone caps every colour near 5:1). The lit ink is kept
+// brighter than the gold so a hover still shows. Call when the material changes.
+inline constexpr float kInkContrast = 4.5f;
+inline constexpr float kInkContrastPlain = 3.0f;
+void ResolveInks(Skin& skin);
+// The WCAG contrast ratio of two sRGB colours (1 = identical .. 21 = black on
+// white); alpha is ignored. For the ink solve and `uimaterial`'s report.
+float ContrastRatio(const Vec4& a, const Vec4& b);
+
 // Draws `part` into `dst` as a 9-slice: fixed corners, edges tiled along
 // their axis, center tiled both ways. `tint` multiplies (white = as authored).
 // No-op when the part has no texture.
