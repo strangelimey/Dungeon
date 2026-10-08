@@ -161,6 +161,33 @@ raised that is yours, not a fix. Each line names the batch and its commit.
   whole now; the look is whether the longest - Russian Sowilo, 457 bytes - fits
   the dialog at your resolution, since a wrapped line that falls below the box
   is skipped without a word.
+- **Windowed placement and the relaunch** (batch 68). Settings -> Video in
+  Windowed, Apply with nothing changed: the window keeps its size and centres in
+  the chosen monitor's work area (it grew to native). Pick a resolution bigger
+  than the screen: it shrinks to the work area, title bar on screen, taskbar
+  uncovered. Try another monitor. Switching GPU from a `-project` run reopens
+  the same world, and dungeon.log keeps the old run whole before the new one.
+- **Monitors and GPUs** (batch 69). On two monitors or a hybrid laptop, Video
+  lists every monitor; Borderless covers the chosen one; Exclusive works.
+- **Exclusive full-screen and DPI** (batch 70). Alt+Tab out of Exclusive and
+  back: the game survives and re-enters Exclusive. On a scaled display (125%,
+  150%) the swapchain is sharp and a native-size Windowed fits the screen; all
+  four monitors here are 100%, so this path was only partly checked.
+- **The map view** (batch 56). Wheel-zoom near the editor map's edge or corner:
+  the square under the pointer stays under it, and extra notches at full zoom in
+  or out no longer slide the map. The player map (M) uses only the flat
+  wall/floor colours (some painted squares were greenish, bluish or reddish). A
+  toolbar button you click no longer stays lit under the dialog's dim.
+- **Text through a resize drag** (batch 44). Ctrl-drag the Hands dock's or the
+  sheet's corner: the box follows the pointer and the text resizes once, on
+  release. The "+ New..." asset dialog now reads at the other dialogs' size (it
+  was 18 px Consolas).
+- **Console colours** (batch 57, optional). "Bound by CPU" is the cpu blue,
+  "bound by GPU" the gpu green, profile graphs steel grey; a stalled worker is
+  amber, a halted one cyan.
+- **Drop-downs scroll as before** (batch 50, optional). The Level settings
+  dialog's material list and any long drop-down scroll and drag as they did -
+  the scrollbar is now one shared ui::ScrollBar.
 
 ## Decisions
 
@@ -314,6 +341,22 @@ raised that is yours, not a fix. Each line names the batch and its commit.
 - **Translations to check** (batch 87). The editor's new refusal of an id a
   related catalog already holds (`newasset.err.related`) is worded by the batch
   in de / es / it / ru - worth a native read.
+- **A refused Exclusive** (batch 69) now falls back to Borderless on that
+  monitor (it stayed Windowed), logs the HRESULT and is not saved. Or back to
+  Windowed?
+- **Frame-rate labels** (batch 70): your "144 Hz" monitor runs at 143.933 Hz, so
+  the Video tab reads "VSync (143.93 FPS)" / "71.97 FPS". Keep exact, or round?
+- **No exit stair type** (batch 84): such a world now gets no random encounter
+  (refused, logged), and the editor refuses to delete the last exit stair type.
+  Or should encounters fall back to something?
+- **The generated lock** (batch 84): the first door marked `lock = 1`, else the
+  first non-hidden door with an opener (still wooden_door in dungeon-demo).
+- **AllocTest -UiTree in CheckAll** (batch 43)? No row was added.
+- **The per-panel scale sliders** (batch 44) can still make a font per size
+  crossed while dragged (only the grip drags are held). Hold them too?
+- **The conjured pebble pool** (batch 45) is 16 a level
+  (DungeonWorld::kConjuredDrops); the oldest is recycled past it. A pebble you
+  pick up becomes an ordinary item.
 
 ## Changes you will notice
 
@@ -494,6 +537,23 @@ raised that is yours, not a fix. Each line names the batch and its commit.
   item, a thing in flight, the details dialog), and an effect's icon is its
   rune glyph straight from its symbol (the effects.cat `icon = rune_*` lines
   are gone).
+- **Display settings saved by name** (batch 69): settings.ini's display keys are
+  now `adapter_id=` (the GPU's identity) and `monitor=` (its device name); an
+  old `adapter=` / `output=` is ignored, so a chosen GPU or monitor reverts to
+  the default once. A headless run with no script now quits once loaded
+  (batch 68).
+- **The editor** (batches 82, 83): an item brush over a wall that holds a niche
+  puts the item into it; a window, hung props and levers work on a browsed
+  level; the brush is held by id across levels; an empty erase keeps the redo
+  stack; nothing paints over the start square.
+- **Saves and ids** (batches 84, 85): a save on the world map after an ambush is
+  written; level and type ids keep their case; a reroll keeps stair flags,
+  atmosphere and uistone.
+- **Type Saves bake first** (batch 88): a surface Save waits for its bake, and
+  an import records the green flip as on, off or unset.
+- **Console and sheet** (batches 57, 55): the console panel takes no click below
+  its foot, and a HEALTH mark reports its own kind; the sheet keeps one shape
+  at any window aspect, and its squares equal the party window's.
 
 ## Follow-ups the batches found (not in the plan)
 
@@ -656,3 +716,20 @@ raised that is yours, not a fix. Each line names the batch and its commit.
   (`<model>.img<n>.dds`, was `<model>.<n>.dds`) and the bake removes the old
   ones; batch 95 re-ran the potions and the rock. Until then the bought models
   decode their images at load, slower but correct.
+- **A lock door with `opener = none`** (seen by batch 84's review): the lock
+  fallback takes any non-empty `opener` as a hand-hold, but `none` (or an opener
+  doors.cat lacks) means none - such a door could be chosen as the generated
+  lock and shut the party out. No shipped door is authored that way.
+- **The generator's own check missed a missing door type** (batch 84): a record
+  naming a door type the catalog lacks passed its post-generate check, then the
+  level aborted on entry.
+- **Niche items count against a square's four** on a browsed level only
+  (AddItemRemote), not on the active one (batch 82).
+- **newasset.err.bake still says "see dungeon.log"** (batch 88); the baker
+  writes assetbaker.log. A one-line wording fix in all five languages.
+- **Shared worn meshes**: two same-kind surface types on one texture set still
+  overwrite each other's relief and wear when saved (C406/C407, batch 88).
+- **Checks deferred to the roll-up** under the new judging policy: the 89-tile
+  asset picker survey (batch 58), a /check-profile run (batches 57 and 70 - the
+  frame cap changed), and mutation runs for batch 44's three new AllocTest
+  checks.
